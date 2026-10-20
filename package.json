@@ -1,0 +1,26 @@
+{
+  "name": "the-last-battalion",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "test": "vitest run",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@pinia/nuxt": "^0.11.3",
+    "nuxt": "^4.3.1",
+    "pinia": "^3.0.4",
+    "simplex-noise": "^4.0.3",
+    "three": "^0.186.0",
+    "vue": "^3.5.28",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "vitest": "^4.1.9"
+  }
+}
