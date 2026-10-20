@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Army, Arrow, Soldier, SpentArrow, UnitType } from '../../types/game'
-import { createArrowGeometry, createArrowTrailGeometry, createUnitModels, type PartRole } from './unitModels'
+import { createArrowGeometry, createArrowTrailGeometry, createBannerGeometry, createUnitModels, type PartRole } from './unitModels'
+import { FACTION } from './models'
 
 type SurfaceHeight = (x: number, y: number) => number
 
@@ -72,6 +73,11 @@ export function createArmyRenderer(scene: THREE.Scene) {
     const trails = growable(trailGeometry, trailMaterial, false, 4)
     const stuck = growable(arrowGeometry, material, false)
     const hidden = new THREE.Matrix4().makeScale(0, 0, 0)
+    // 隊長が背負う自軍の幟。
+    const bannerGeometries = Object.fromEntries(ARMIES.map(army => [army, createBannerGeometry(FACTION[army])])) as Record<Army, THREE.BufferGeometry>
+    const banners = Object.fromEntries(ARMIES.map(army => [army, growable(bannerGeometries[army], material, true)])) as Record<Army, ReturnType<typeof growable>>
+    const bannerCounts = { player: 0, cpu: 0 } as Record<Army, number>
+    const bannerLocal = new THREE.Matrix4(), bannerSway = new THREE.Matrix4(), bannerEuler = new THREE.Euler()
 
     // 選択中の部隊の兵の足元に輪を出す。
     const ringGeometry = new THREE.RingGeometry(2.6, 3.4, 20)
@@ -94,12 +100,13 @@ export function createArmyRenderer(scene: THREE.Scene) {
 
     return {
         group,
-        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number, selectedSquadId: number | null) {
+        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number, selectedSquadId: number | null, leaderIds: ReadonlySet<number>) {
             counts.clear()
             for (const s of soldiers) { const key = `${s.owner}:${s.type}`; counts.set(key, (counts.get(key) ?? 0) + 1) }
             for (const [key, batch] of batches) if ((counts.get(key) ?? 0) > batch.capacity) grow(batch, counts.get(key)!)
             counts.clear()
             let ringCount = 0
+            for (const army of ARMIES) { banners[army].ensure(leaderIds.size); bannerCounts[army] = 0 }
             const selectedCount = selectedSquadId === null ? 0 : soldiers.reduce((n, s) => n + (s.squadId === selectedSquadId && s.state !== 'dead' ? 1 : 0), 0)
             if (selectedCount > ringCapacity) {
                 while (ringCapacity < selectedCount) ringCapacity *= 2
@@ -141,8 +148,8 @@ export function createArmyRenderer(scene: THREE.Scene) {
                     } else if (p.role === 'weapon') {
                         if (s.type === 'archer') rx = bowPitch
                         else if (s.type === 'cavalry') rx = -swing * .5
-                        // 槍兵は歩くあいだ槍を立て、構えると穂先を前へ倒して突く。
-                        else if (s.type === 'pikeman') rx = s.state === 'advance' && s.swing <= 0 ? -1.25 : -swing * .12
+                        // 槍兵は進むときも戦うときも穂先を向いている方（進む方向・攻撃する相手）へ向け、突くときは前へ突き出す。
+                        else if (s.type === 'pikeman') rx = -swing * .12
                         else rx = -.15 - swing * 1.6
                     }
                     local.makeRotationX(rx)
@@ -151,6 +158,15 @@ export function createArmyRenderer(scene: THREE.Scene) {
                     out.multiplyMatrices(base, local)
                     p.mesh.setMatrixAt(index, out)
                 }
+                if (leaderIds.has(s.id) && !dead) {
+                    // 背中の竿の付け根に付け、歩くと揺れ、止まっているとゆっくりたなびく。騎兵は騎手の背に付ける。
+                    const rider = s.type === 'cavalry'
+                    const sway = s.moving ? Math.sin(phase * .5) * .07 : Math.sin(time * 1.4 + s.id) * .035
+                    bannerSway.makeRotationFromEuler(bannerEuler.set(sway * .4, 0, sway))
+                    bannerLocal.makeTranslation(0, (rider ? 12.5 : 7.6) + bob, rider ? -1.6 : -1.7).multiply(bannerSway)
+                    out.multiplyMatrices(base, bannerLocal)
+                    banners[s.owner].mesh.setMatrixAt(bannerCounts[s.owner]++, out)
+                }
                 if (s.squadId === selectedSquadId && !dead) {
                     const size = s.type === 'cavalry' ? 1.5 : 1
                     ringMatrix.makeScale(size, 1, size).setPosition(s.x, ground + .6, s.y)
@@ -158,6 +174,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 }
             }
             rings.count = ringCount
+            for (const army of ARMIES) { banners[army].mesh.count = bannerCounts[army]; banners[army].mesh.instanceMatrix.needsUpdate = true }
             rings.instanceMatrix.needsUpdate = true
             for (const [key, batch] of batches) {
                 const count = counts.get(key) ?? 0
@@ -201,6 +218,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
             for (const batch of batches.values()) for (const p of batch.parts) { p.mesh.geometry.dispose(); p.mesh.dispose() }
             flying.dispose(); trails.dispose(); stuck.dispose(); arrowGeometry.dispose(); trailGeometry.dispose(); trailMaterial.dispose()
             rings.dispose(); ringGeometry.dispose(); ringMaterial.dispose()
+            for (const army of ARMIES) { banners[army].dispose(); bannerGeometries[army].dispose() }
             material.dispose()
             group.removeFromParent()
         },

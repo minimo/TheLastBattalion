@@ -375,8 +375,11 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.squad-label.cpu) { font-size: 11px; }
 .canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.army-label:hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
 .canvas-wrapper :deep(.world-label.is-source) { color: #e3edff; }
-.canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; }
+.canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #0b1216cc; border: 1px solid #000a; border-radius: 2px; overflow: hidden; box-shadow: 0 1px 3px #0008; }
+.canvas-wrapper :deep(.construction-gauge-fill) { display: block; height: 100%; background: var(--faction); }
 .canvas-wrapper :deep(.construction-label.damaged) { color: #ffcf6e; }
+.canvas-wrapper :deep(.construction-label.damaged .construction-gauge-fill) { background: #ffcf6e; }
 .canvas-wrapper :deep(.army-label) { font-size: 13px; letter-spacing: .08em; padding: 4px 9px; border: 1px solid #6f9be8aa; background: #0e1d25a8; border-radius: 3px; z-index: 2; }
 @media (max-width: 900px) { .instructions { max-width: 240px; font-size: 9px; } .factions { display: none; } .battle-header, .battle-footer { padding: 14px; } .army-panel { width: 150px; top: 84px; right: 10px; } .squad-panel { top: 84px; left: 10px; width: 170px; } .command-panel { padding: 8px; } .formation-buttons button { min-width: 36px; } }
 @media (max-width: 550px) { .battle-brand .eyebrow { letter-spacing: .08em; font-size: 8px; } .clock { top: 8px; } .battle-actions button { padding: 7px; font-size: 9px; } .instructions { max-width: 145px; line-height: 1.6; } .army-panel { width: 124px; } .army dl { display: none; } .squad-list { display: none; } .title-help { line-height: 2; } }

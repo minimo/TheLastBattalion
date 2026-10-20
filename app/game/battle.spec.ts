@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { generateMap } from './mapGenerator'
 import { createMulberry32, hashString } from './random'
 import {
-    createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderConstruct, orderDemolish, orderHold, orderMove, orderResupply,
+    cohesionRadius, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderConstruct, orderDemolish, orderHold, orderMove, orderResupply,
     orderRetreat, previewConstruction, setFormation, staminaFactor, summarize, updateBattle,
 } from './battle'
 import { createCpuCommander } from './cpuCommander'
@@ -123,6 +123,38 @@ describe('部隊', () => {
         expect(squads).toHaveLength(Object.values(INITIAL_SQUADS).reduce((a, b) => a + b, 0))
         for (const s of battle.soldiers) expect(battle.squadById.get(s.squadId)!.type).toBe(s.type)
     })
+
+    it('隊長が倒れると、最も近い兵が幟を引き継ぐ', () => {
+        const battle = makeBattle('123456')
+        run(battle, .1)
+        const squad = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'infantry')!
+        const leader = battle.byId.get(squad.leaderId)!
+        expect(leader.squadId).toBe(squad.id)
+        const nearest = battle.members.get(squad.id)!.filter(s => s !== leader)
+            .sort((a, b) => Math.hypot(a.x - leader.x, a.y - leader.y) - Math.hypot(b.x - leader.x, b.y - leader.y))[0]!
+        leader.hp = 0; leader.state = 'dead'
+        run(battle, 1 / 30)
+        expect(squad.leaderId).toBe(nearest.id)
+    })
+
+    it('突撃しても、兵は隊長から離れすぎない', () => {
+        const battle = makeBattle('123456')
+        const commander = createCpuCommander(battle)
+        orderArmy(battle, 'player', 'charge')
+        let worst = 0
+        for (let t = 0; t < 40 && !battle.winner; t += 1 / 30) {
+            updateBattle(battle, 1 / 30); commander.update(1 / 30)
+            if (t < 20) continue
+            for (const squad of battle.squads) {
+                if (squad.owner !== 'player' || squad.order !== 'charge') continue
+                const leader = battle.byId.get(squad.leaderId)!
+                const radius = cohesionRadius(squad)
+                const far = battle.members.get(squad.id)!.filter(s => Math.hypot(s.x - leader.x, s.y - leader.y) > radius * 1.5).length
+                worst = Math.max(worst, far / squad.count)
+            }
+        }
+        expect(worst).toBeLessThan(.1)
+    }, 120000)
 
     it('部隊は指定した地点へ移動して構える', () => {
         const battle = makeBattle('424242')
@@ -268,6 +300,8 @@ describe('槍兵', () => {
         })
         expect(passed).toBe(0)
         expect(closest).toBeGreaterThan(pikeR + enemyR + PIKEMAN.wallMargin - 1)
+        // 生き残った敵は隊長の幟のもとで戦い続けるので、退かせてから味方の歩兵が槍兵の隊列の中に収まるのを見る。
+        if (battle.squadById.has(enemy.id)) orderRetreat(battle, enemy.id)
         run(battle, 20)
         expect(Math.hypot(friend.center.x - pike.center.x, friend.center.y - pike.center.y)).toBeLessThan(20)
     }, 120000)
@@ -443,6 +477,10 @@ describe('工兵の建設物', () => {
         expect(onDeck().length).toBeGreaterThan(5)
         site.hp = 1
         const enemy = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === 'archer')!
+        // 弓兵を置く場所の近くに陣取る自軍の兵（橋へ向かった歩兵を除く）は取り除き、弓兵が橋を狙えるようにする。
+        for (const s of battle.soldiers) {
+            if (s.owner === 'player' && s.squadId !== infantry.id && Math.hypot(s.x - a.x, s.y - (a.y - 80)) < 120) { s.state = 'dead'; s.deathTime = battle.time }
+        }
         battle.members.get(enemy.id)!.forEach((s, i) => { s.x = a.x + (i % 6) * 5 - 15; s.y = a.y - 60 - Math.floor(i / 6) * 5 })
         run(battle, .1)
         orderDemolish(battle, enemy.id, site.id)

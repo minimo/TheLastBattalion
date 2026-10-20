@@ -39,6 +39,12 @@ export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
 export const INITIAL_SQUADS: Record<UnitType, number> = { infantry: 6, pikeman: 3, archer: 5, cavalry: 4, supply: 2, engineer: 2 }
 /** 持ち場を守る兵が敵を追う範囲（持ち場からの距離）。弓兵は射程まで。槍兵は隊列を崩さないよう、ほとんど追わない。 */
 export const LEASH: Record<UnitType, number> = { infantry: 45, pikeman: 8, cavalry: 80, archer: 0, supply: 12, engineer: 15 }
+/**
+ * 部隊のまとまり。兵は幟を持つ隊長から（隊列の対角線の長さ＋追う範囲＋margin）より離れない。
+ * 離れた兵は敵に構わず隊長のもとへ戻り、rejoin の割合まで近づいたら戦いに戻る。突撃中の横の広がりも laneShare の割合までに抑える。
+ * 戻っている兵が部隊の waitShare の割合を超えたら、隊長は（戦っていなければ）足を止めて待つ。
+ */
+export const COHESION = { margin: 40, rejoin: .55, laneShare: .6, waitShare: .25 }
 /** 開戦後に砦から送り出せる予備兵の総数（片軍）。これが最後の大隊。 */
 export const RESERVES = 2500
 /** 攻城戦・防衛戦の攻め手の部隊数。砦も増援もないので、守り手より多い兵で攻める。 */

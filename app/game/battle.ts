@@ -9,7 +9,7 @@ import { createSpatialHash } from './spatialHash'
 import { createPathService } from './pathService'
 import { axes, layoutFormation, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
 import {
-    ARMY_CAP, ARROW_ARC, ARROW_COVER, ARROW_SPEED, CHARGE_MULTIPLIER, CHARGE_RUN_TIME, CORPSE_SECONDS, DAY_MINUTES_PER_SECOND, FORT_ASSAULT_RANGE,
+    ARMY_CAP, ARROW_ARC, COHESION, ARROW_COVER, ARROW_SPEED, CHARGE_MULTIPLIER, CHARGE_RUN_TIME, CORPSE_SECONDS, DAY_MINUTES_PER_SECOND, FORT_ASSAULT_RANGE,
     FORT_HP, fortVicinityOf, INITIAL_SQUADS, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
     REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, RESERVES, SPENT_ARROW_LIMIT, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
     FORT_REFILL_RATE, RESUPPLY_THRESHOLD, STAMINA, SUPPLY_CHARGES, SUPPLY_DURATION, SUPPORT_RANGE, SUPPORT_THRESHOLD, SPENT_ARROW_SECONDS, TOWER, UNIT_STATS,
@@ -310,7 +310,7 @@ export function spawnSoldier(battle: Battle, squad: Squad, x: number, y: number,
         path: [], pathIndex: 0, pathGoal: '', targetId: -1,
         thinkTimer: battle.random() * .5, attackTimer: battle.random() * stats.cooldown, swing: 0, runTime: 0, fleeTimer: 0,
         courage: .75 + battle.random() * .5, elapsedTime: battle.random() * 10, deathTime: 0, stuckTime: 0, detour: 0, lane, routeDirect: true, vx: 0, vy: 0, aim: 0, arrows, maxArrows: arrows,
-        constructionId: -1,
+        constructionId: -1, regroup: false,
     }
     battle.soldiers.push(soldier)
     battle.byId.set(soldier.id, soldier)
@@ -325,7 +325,7 @@ function createSquad(battle: Battle, owner: Army, type: UnitType, size: number, 
     const squad: Squad = {
         id: battle.nextSquadId++, owner, type, number: ++battle.squadNumbers[owner][type], order,
         anchor: { ...formation.anchor }, facing: formation.facing, goalKey: '', targetSquadId: -1,
-        center: { ...formation.anchor }, count: 0, size, arrows: 0, maxArrows: 0, resume: null,
+        center: { ...formation.anchor }, count: 0, size, leaderId: -1, arrows: 0, maxArrows: 0, resume: null,
         stamina: STAMINA.max, supplies: type === 'supply' ? SUPPLY_CHARGES : 0, maxSupplies: type === 'supply' ? SUPPLY_CHARGES : 0, servingId: -1,
         constructionId: -1, depotId: -1, march: null,
     }
@@ -729,6 +729,67 @@ function slotPosition(battle: Battle, s: Soldier, squad: Squad): Point | undefin
     return toShore(battle, toWorld(post.anchor, post.facing, offset.forward, offset.lateral))
 }
 
+/** 部隊の幟を持つ隊長（倒れていればundefined）。 */
+const leaderOf = (battle: Battle, squad: Squad) => {
+    const leader = battle.byId.get(squad.leaderId)
+    return leader && leader.state !== 'dead' ? leader : undefined
+}
+
+/** 兵が隊長から離れてよい距離。隊列の対角線に、敵を追う範囲とゆとりを足す。 */
+export function cohesionRadius(squad: Squad) {
+    const { width, depth } = squadBlock(squad.type, Math.max(1, squad.count))
+    return Math.hypot(width, depth) + LEASH[squad.type] + COHESION.margin
+}
+
+/** 持ち場なしで進む兵の横の列。隊長の列から離れすぎないように抑える。 */
+function marchLane(battle: Battle, s: Soldier, squad: Squad) {
+    const leader = leaderOf(battle, squad)
+    if (!leader || leader === s) return s.lane
+    const spread = cohesionRadius(squad) * COHESION.laneShare
+    return leader.lane + Math.max(-spread, Math.min(spread, s.lane - leader.lane))
+}
+
+/**
+ * 隊長から離れすぎた兵は、敵に構わず隊長のもとへ戻る。十分に近づいたら戦いに戻る。戻っている最中ならtrue。
+ * 工兵の建設と、本拠地（補給先）に着いてからの退却・補給では、兵は決まった場所に散るので見ない。
+ */
+function regroup(battle: Battle, s: Soldier, squad: Squad, dt: number) {
+    const leader = s.id === squad.leaderId || squad.order === 'build' ? undefined : leaderOf(battle, squad)
+    const radius = cohesionRadius(squad)
+    const depot = squad.order === 'resupply' ? depotOf(battle, squad) : squad.order === 'retreat' ? battle.homes[s.owner] : undefined
+    if (!leader || (depot && Math.hypot(depot.x - s.x, depot.y - s.y) < radius)) { s.regroup = false; return false }
+    const distance = Math.hypot(leader.x - s.x, leader.y - s.y)
+    if (!s.regroup && distance > radius) {
+        s.regroup = true
+        s.targetId = -1; s.constructionId = -1; s.detour = 0; s.pathGoal = ''
+        s.routeDirect = isClearLine(battle, s.x, s.y, leader.x, leader.y)
+    } else if (s.regroup && distance < radius * COHESION.rejoin) {
+        s.regroup = false
+        s.pathGoal = ''
+        s.thinkTimer = Math.min(s.thinkTimer, .05)
+    }
+    if (!s.regroup) return false
+    // 逃げていた兵も、部隊を離れてまでは逃げない。
+    s.state = 'advance'
+    // 直進できるかは思考のときに調べておく。回り道の目的地は4マス単位に丸め、隊長が少し動くたびに経路を取り直さない。
+    if (s.routeDirect) moveToward(battle, s, leader.x, leader.y, dt)
+    else {
+        const gx = Math.round(leader.x / TILE_PX / 4) * 4, gy = Math.round(leader.y / TILE_PX / 4) * 4
+        const goal = snapToPassable(battle, { x: gx * TILE_PX, y: gy * TILE_PX })
+        followPath(battle, s, goal, `cell:${gx},${gy}`, dt, 1, 0)
+    }
+    return true
+}
+
+/** 隊長が足を止めて部隊を待つか（隊長のもとへ戻っている兵が多いとき）。槍兵は隊列ごと遅れた兵を待つので見ない。 */
+function waitsForSquad(battle: Battle, s: Soldier, squad: Squad) {
+    if (s.id !== squad.leaderId || squad.type === 'pikeman') return false
+    const members = battle.members.get(squad.id) ?? []
+    let behind = 0
+    for (const o of members) if (o.regroup) behind++
+    return behind > members.length * COHESION.waitShare
+}
+
 const leashOf = (s: Soldier) => s.type === 'archer' ? UNIT_STATS[s.owner].archer.range + 5 : LEASH[s.type]
 
 /**
@@ -756,6 +817,12 @@ function constructionTarget(battle: Battle, s: Soldier, squad: Squad, slot: Poin
 
 /** 各兵士が独立して周囲を見て、狙う敵・守るか退くかを決める。持ち場があれば、その近くの敵だけを相手にする。 */
 function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined) {
+    if (s.regroup) {
+        const leader = leaderOf(battle, squad)
+        if (leader) s.routeDirect = isClearLine(battle, s.x, s.y, leader.x, leader.y)
+        s.targetId = -1; s.constructionId = -1
+        return
+    }
     if (squad.order === 'retreat' || squad.order === 'resupply') { s.targetId = -1; s.constructionId = -1; return }
     // 矢のない弓兵は射撃できないので、敵を狙わない。
     if (s.type === 'archer' && s.arrows <= 0) { s.targetId = -1; s.constructionId = -1; return }
@@ -763,6 +830,9 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
     const leash = leashOf(s)
     // 攻撃・破壊を指示された相手は遠くからでも見つけて向かう。
     const sight = squad.order === 'attack' || squad.order === 'demolish' ? stats.sight * 1.6 : stats.sight
+    // 隊長以外の兵は、隊長から離れすぎずに戦える敵だけを相手にする。
+    const leader = s.id === squad.leaderId ? undefined : leaderOf(battle, squad)
+    const reach = cohesionRadius(squad) * .85
     let best: Soldier | undefined
     let bestScore = Infinity
     let allies = 0, enemies = 0
@@ -776,6 +846,7 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         const isOrderedTarget = squad.order === 'attack' && o.squadId === squad.targetSquadId
         if (!isOrderedTarget && d2 > stats.sight * stats.sight) return
         if (slot && Math.hypot(o.x - slot.x, o.y - slot.y) > leash) return
+        if (leader && Math.hypot(o.x - leader.x, o.y - leader.y) > reach) return
         let score = Math.sqrt(d2)
         // 騎兵は弓兵を、弓兵は迫る騎兵を優先する。今の標的は少し優先して目移りを抑える。
         if (s.type === 'cavalry' && o.type === 'archer') score *= .6
@@ -790,13 +861,14 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         const intruders = battle.intruders[s.owner]
         if (intruders.length && Math.hypot(s.x - home.x, s.y - home.y) < 420 * s.courage) {
             for (const o of intruders) {
+                if (leader && Math.hypot(o.x - leader.x, o.y - leader.y) > reach) continue
                 const d = Math.hypot(o.x - s.x, o.y - s.y)
                 if (d < bestScore) { bestScore = d; best = o }
             }
         }
     }
-    // 士気: 傷ついて劣勢なら退却する（臆病な個体ほど早い）。
-    if (s.state !== 'flee' && s.hp < s.maxHp * .35 && enemies > allies * 1.6 + 2 && battle.random() > s.courage * .75) {
+    // 士気: 傷ついて劣勢なら退却する（臆病な個体ほど早い）。幟を持つ隊長は退かない。
+    if (s.state !== 'flee' && s.id !== squad.leaderId && s.hp < s.maxHp * .35 && enemies > allies * 1.6 + 2 && battle.random() > s.courage * .75) {
         s.state = 'flee'
         s.fleeTimer = 3 + battle.random() * 3
         s.targetId = -1
@@ -905,6 +977,7 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         think(battle, s, squad, slot)
         s.thinkTimer = (.22 + battle.random() * .3) / s.courage
     }
+    if (regroup(battle, s, squad, dt)) return
     // 敵が砦を持たなければ（攻城戦・防衛戦の守り手）、突撃は敵の野営地へ向かう。
     const home = battle.homes[s.owner], enemyFort = fortOf(battle, enemyOf(s.owner)), enemyHome = battle.homes[enemyOf(s.owner)]
     if (s.state === 'flee' || squad.order === 'retreat' || squad.order === 'resupply') {
@@ -996,6 +1069,7 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         }
         return
     }
+    if (waitsForSquad(battle, s, squad)) { s.state = 'hold'; return }
     if (slot) {
         // 持ち場へ向かい、着いたら部隊の向きで構える。
         const post = battle.posts.get(squad.id)!
@@ -1004,8 +1078,9 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         if (squad.march?.moving) {
             s.state = 'advance'
             if (s.routeDirect) {
+                // 遅れを取り戻すときも、槍を隊列の進む方向へ向けたまま歩く。
                 moveToward(battle, s, slot.x, slot.y, dt)
-                if (distance < 6) s.heading = post.facing
+                s.heading = post.facing
             } else followPath(battle, s, post.goal, post.goalKey, dt)
             return
         }
@@ -1026,11 +1101,11 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
     }
     s.state = 'advance'
     if (squad.order === 'attack' || squad.order === 'demolish') {
-        followPath(battle, s, squad.anchor, squad.goalKey, dt)
+        followPath(battle, s, squad.anchor, squad.goalKey, dt, 1, marchLane(battle, s, squad))
         return
     }
     const assault = s.id % enemyHome.assaultPoints.length
-    followPath(battle, s, enemyHome.assaultPoints[assault]!, fortGoalKey(enemyHome.owner, assault), dt)
+    followPath(battle, s, enemyHome.assaultPoints[assault]!, fortGoalKey(enemyHome.owner, assault), dt, 1, marchLane(battle, s, squad))
 }
 
 /** 作業地点に着いた工兵が、槌を振るって建設・修理を進める。 */
@@ -1251,6 +1326,17 @@ function updateSquads(battle: Battle, dt: number) {
         for (const s of list) { x += s.x; y += s.y; arrows += s.arrows; maxArrows += s.maxArrows }
         squad.center = { x: x / list.length, y: y / list.length }
         squad.arrows = arrows; squad.maxArrows = maxArrows
+        // 幟を持つ隊長が倒れたら、倒れた場所に最も近い兵が引き継ぐ（編成したてなら部隊の中心に最も近い兵）。
+        const leader = battle.byId.get(squad.leaderId)
+        if (!leader || leader.state === 'dead') {
+            const from = leader ?? squad.center
+            let best = list[0]!, bestDistance = Infinity
+            for (const s of list) {
+                const d = (s.x - from.x) ** 2 + (s.y - from.y) ** 2
+                if (d < bestDistance) { bestDistance = d; best = s }
+            }
+            squad.leaderId = best.id
+        }
     }
     updateSupplies(battle, dt)
     for (const squad of battle.squads) {

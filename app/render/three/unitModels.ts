@@ -492,6 +492,22 @@ export function createUnitModels(): Record<Army, Record<UnitType, UnitModel>> {
     }
 }
 
+/**
+ * 隊長が背負う幟（兵と同じ縮尺のモデル座標、原点は背中の竿の付け根）。
+ * 縦長の布を竿と上の横木に張り、所属色の地に明るい帯と紋を入れる。遠目でも部隊の要とわかるよう兵の倍ほどの高さにする。
+ */
+export function createBannerGeometry(faction: number) {
+    return assemble(add => {
+        add(CYLINDER, 0x4a3524, [0, 15, 0], [.3, 30, .3])
+        add(CONE, 0xd8c27a, [0, 30.8, 0], [.45, 1.6, .45])
+        add(CYLINDER, 0x4a3524, [3.1, 29.2, 0], [.18, 6.4, .18], [0, 0, Math.PI / 2])
+        add(BOX, faction, [3.2, 20.6, 0], [5.6, 16.4, .14])
+        add(BOX, 0xf1e4be, [3.2, 27.9, .02], [5.7, 1.6, .18])
+        add(SPHERE, 0xf1e4be, [3.2, 21.5, 0], [1.6, 1.6, .2])
+        add(SPHERE, faction, [3.2, 21.5, 0], [.9, .9, .26])
+    })
+}
+
 /** 飛んでいる矢（+Z が矢じり）。遠目でも見えるよう実寸より太く明るくする。 */
 export function createArrowGeometry() {
     return assemble(add => {

@@ -77,6 +77,8 @@ export interface Soldier {
     maxArrows: number
     /** 攻撃している敵の建設物（なければ-1）。 */
     constructionId: number
+    /** 隊長から離れすぎて、隊長のもとへ戻っている最中か。 */
+    regroup: boolean
 }
 
 /**
@@ -108,6 +110,8 @@ export interface Squad {
     count: number
     /** 編成時の人数。 */
     size: number
+    /** 自軍の幟を持つ隊長の兵。部隊の兵は隊長から一定以上離れない。倒れたら最も近い兵が引き継ぐ。 */
+    leaderId: number
     /** 部隊の矢の残りと上限（弓兵、毎ティック集計）。 */
     arrows: number
     maxArrows: number

@@ -101,10 +101,16 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         focus = null
         controls.enableDamping = false
         controls.update() // Flush any rotation momentum before restoring the view.
-        controls.target.set(416, 24, 416)
+        // 自軍の真後ろから敵軍の方を望む。注視点は両軍の本拠地の中間。
+        const homes = gameStore.battle?.homes
+        const own = homes?.player ?? { x: 416 - 700, y: 416 }, enemy = homes?.cpu ?? { x: 416 + 700, y: 416 }
+        const toEnemy = new THREE.Vector2(enemy.x - own.x, enemy.y - own.y)
+        if (toEnemy.lengthSq() < 1) toEnemy.set(1, 0)
+        toEnemy.normalize()
+        const midX = (own.x + enemy.x) / 2, midZ = (own.y + enemy.y) / 2
+        controls.target.set(midX, 24, midZ)
         const fit = Math.max(1, 1.6 / camera.aspect)
-        // Look from the south so the human camp is on the left and the monster camp on the right.
-        camera.position.set(416, 24 + 820 * fit, 416 + 1480 * fit)
+        camera.position.set(midX - toEnemy.x * 1480 * fit, 24 + 820 * fit, midZ - toEnemy.y * 1480 * fit)
         // Allow only a little extra zoom-out beyond the view fitted to the screen.
         controls.maxDistance = camera.position.distanceTo(controls.target) * 1.1
         camera.zoom = 1
@@ -187,8 +193,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         return visual
     }
     const removeSquadLabels = () => { squadLabels.forEach(v => v.label.remove()); squadLabels.clear() }
-    // 建設物の名前と、建設の進み具合・耐久。
-    const constructionLabels = new Map<number, { site: Construction; label: HTMLSpanElement }>()
+    // 建設物の名前と、建設の進み具合・耐久ゲージ。
+    const constructionLabels = new Map<number, { site: Construction; label: HTMLSpanElement; name: HTMLSpanElement; fill: HTMLSpanElement }>()
     const removeConstructionLabels = () => { constructionLabels.forEach(v => v.label.remove()); constructionLabels.clear() }
     const updateConstructionLabels = (sites: Construction[]) => {
         const alive = new Set<number>()
@@ -200,14 +206,20 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 const label = document.createElement('span')
                 label.className = 'world-label construction-label'
                 label.style.setProperty('--faction', factionColor(site.owner))
+                const name = document.createElement('span'), gauge = document.createElement('span'), fill = document.createElement('span')
+                name.className = 'construction-name'; gauge.className = 'construction-gauge'; fill.className = 'construction-gauge-fill'
+                gauge.appendChild(fill)
+                label.append(name, gauge)
                 labels.appendChild(label)
-                visual = { site, label }
+                visual = { site, label, name, fill }
                 constructionLabels.set(site.id, visual)
             }
             const name = CONSTRUCTION[site.kind].name
-            const text = !site.complete ? `${name} 建設中${Math.floor(site.progress * 100)}%`
-                : site.hp < site.maxHp - .5 ? `${name} ${Math.ceil(site.hp)}` : name
-            if (visual.label.textContent !== text) visual.label.textContent = text
+            const text = site.complete ? name : `${name} 建設中${Math.floor(site.progress * 100)}%`
+            if (visual.name.textContent !== text) visual.name.textContent = text
+            const width = `${Math.max(0, Math.min(100, site.hp / site.maxHp * 100)).toFixed(1)}%`
+            if (visual.fill.style.width !== width) visual.fill.style.width = width
+            visual.label.setAttribute('aria-label', `${text} 耐久${Math.ceil(site.hp)}/${site.maxHp}`)
             visual.label.classList.toggle('damaged', site.complete && site.hp < site.maxHp * .4)
             placeLabel(visual.label, site.center.x, site.center.y, site.kind === 'outpost' ? 26 : 12)
         }
@@ -456,7 +468,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             const buildPlan = input.buildPreview()
                 ?? (preview?.order === 'build' && preview.kind ? input.buildPreviewAt(preview.kind, input.worldMousePos.value) : null)
             constructions.preview(buildPlan)
-            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, input.selectedSquadId.value)
+            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, input.selectedSquadId.value, new Set(battle.squads.map(sq => sq.leaderId)))
             updatePaths()
         }
         pathOverlay.updateCamera()
