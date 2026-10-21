@@ -10,7 +10,14 @@ export default defineNuxtConfig({
     port: 8100
   },
   app: {
-    head: { title: 'THE LAST BATTALION' },
+    head: {
+      title: 'THE LAST BATTALION',
+      link: [
+        { rel: 'icon', href: '/favicon.ico', sizes: '48x48' },
+        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
+      ],
+    },
   },
   modules: ['@pinia/nuxt'],
 })

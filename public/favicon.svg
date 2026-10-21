@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="moon" cx="42%" cy="38%" r="68%">
+      <stop offset="0" stop-color="#f6a08c"/>
+      <stop offset="0.5" stop-color="#d23a24"/>
+      <stop offset="1" stop-color="#7a140a"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="#160909"/>
+  <circle cx="34" cy="33" r="25" fill="url(#moon)"/>
+  <!-- 旗竿と穂先 -->
+  <path d="M20 3 L23.5 11 L21.6 11 L21.6 61 L18.4 61 L18.4 11 L16.5 11 Z" fill="#e2b56a"/>
+  <!-- 燕尾の幟 -->
+  <path d="M21.6 13 L51 13 L51 44 L43 37 L36 46 L21.6 46 Z" fill="#0d0606"/>
+  <!-- 紋（剣） -->
+  <path d="M36.5 18 L39 22 L39 33 L34 33 L34 22 Z M30.5 33.5 L42.5 33.5 L42.5 36.5 L30.5 36.5 Z M35 37 L38 37 L38 41 L35 41 Z" fill="#e2b56a"/>
+</svg>
