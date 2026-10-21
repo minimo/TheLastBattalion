@@ -24,16 +24,17 @@ export interface UnitModel {
 
 type Vec = [number, number, number]
 
+// 数千体を描くので分割は遠目で形がわかる最小限にする。目鼻などの細かい部品は付けず、細い棒は箱で作る。
 const BOX = new THREE.BoxGeometry(1, 1, 1)
-const SPHERE = new THREE.SphereGeometry(1, 9, 6)
-const CYLINDER = new THREE.CylinderGeometry(1, 1, 1, 8)
-const TAPER = new THREE.CylinderGeometry(.6, 1, 1, 8)
-const CONE = new THREE.ConeGeometry(1, 1, 8)
+const SPHERE = new THREE.SphereGeometry(1, 6, 4)
+const CYLINDER = new THREE.CylinderGeometry(1, 1, 1, 6)
+const TAPER = new THREE.CylinderGeometry(.6, 1, 1, 6)
+const CONE = new THREE.ConeGeometry(1, 1, 6)
 /**
  * 弓の弧。腕のローカル座標では -Y が腕の先（構えると前方）、+Z が上になるので、
  * 弓の両端を ±Z に、膨らみを -Y（前方）に向ける。
  */
-const BOW = new THREE.TorusGeometry(1, .05, 4, 14, Math.PI)
+const BOW = new THREE.TorusGeometry(1, .05, 3, 8, Math.PI)
 BOW.applyMatrix4(new THREE.Matrix4().set(0, 0, 1, 0, 0, -.35, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1))
 const color = new THREE.Color()
 const matrix = new THREE.Matrix4()
@@ -76,8 +77,6 @@ function humanLegs(trousers: number, greave: number) {
 function humanHead(add: Parameters<Parameters<typeof assemble>[0]>[0], helmet: number | null, hood: number | null) {
     add(CYLINDER, SKIN, [0, 13.6, 0], [.55, 1.3, .55])
     add(SPHERE, SKIN, [0, 15.1, .12], [1.28, 1.65, 1.2])
-    for (const x of [-.5, .5]) add(SPHERE, 0x2b3640, [x, 15.3, 1.22], [.16, .16, .08])
-    add(SPHERE, 0xc89676, [0, 14.85, 1.3], [.24, .36, .3])
     if (helmet !== null) {
         add(SPHERE, helmet, [0, 16, -.1], [1.45, 1.15, 1.38])
         add(CYLINDER, helmet, [0, 15.75, -.1], [1.7, .22, 1.62])
@@ -101,7 +100,7 @@ function humanInfantry(faction: number): UnitModel {
         // 凧型の盾（所属色）
         add(SPHERE, IRON, [-3.3, 8.6, 1.4], [2, 2.9, .4])
         add(SPHERE, faction, [-3.3, 8.6, 1.62], [1.75, 2.6, .25])
-        add(SPHERE, 0xd8c27a, [-3.3, 8.8, 1.86], [.45, .45, .2])
+        add(BOX, 0xd8c27a, [-3.3, 8.8, 1.86], [.8, .8, .3])
     }))
     const weapon = part('weapon', [2.65, 12, 0], assemble(add => {
         add(CYLINDER, STEEL, [.25, -1.4, 0], [.55, 2.6, .55])
@@ -156,7 +155,7 @@ function bow(add: Add, wood: number, string: number, x: number, handY: number, h
     for (const side of [-1, 1]) {
         const dy = drawY - center, dz = -side * half
         const length = Math.hypot(dy, dz)
-        add(CYLINDER, string, [x, (center + drawY) / 2, side * half / 2], [.04, length, .04], [Math.atan2(dz, dy), 0, 0])
+        add(BOX, string, [x, (center + drawY) / 2, side * half / 2], [.07, length, .07], [Math.atan2(dz, dy), 0, 0])
     }
 }
 
@@ -164,7 +163,7 @@ function bow(add: Add, wood: number, string: number, x: number, handY: number, h
 function nockedArrow(shaft: number, head: number, fletch: number, x: number, handY: number, half: number) {
     const drawY = handY + half * .85, tipY = handY - 1.3
     return assemble(add => {
-        add(CYLINDER, shaft, [x, (drawY + tipY) / 2, 0], [.09, drawY - tipY, .09])
+        add(BOX, shaft, [x, (drawY + tipY) / 2, 0], [.16, drawY - tipY, .16])
         add(CONE, head, [x, tipY - .3, 0], [.18, .6, .18], [Math.PI, 0, 0])
         add(BOX, fletch, [x, drawY - .45, 0], [.03, .7, .45])
         add(BOX, fletch, [x, drawY - .45, 0], [.45, .7, .03])
@@ -180,7 +179,7 @@ function humanArcher(faction: number): UnitModel {
         add(BOX, faction, [0, 10.5, -1.35], [3.2, 5.5, .25], [.12, 0, 0])
         // 矢筒
         add(CYLINDER, LEATHER, [1, 11.6, -1.7], [.65, 4.2, .65], [.25, 0, -.35])
-        for (const dx of [-.2, .2]) add(CYLINDER, 0xe8e2d0, [1.6 + dx, 14, -2.2], [.08, 1.4, .08], [.25, 0, -.35])
+        for (const dx of [-.2, .2]) add(BOX, 0xe8e2d0, [1.6 + dx, 14, -2.2], [.14, 1.4, .14], [.25, 0, -.35])
         add(CYLINDER, 0x80603f, [2.7, 10.4, .2], [.55, 3, .55], [0, 0, .15])
     }))
     // 左腕と弓。射撃時に腕を前へ上げ、遠い相手ほど上に向ける。
@@ -254,8 +253,7 @@ function orcHead(add: Parameters<Parameters<typeof assemble>[0]>[0], skin: numbe
     add(SPHERE, skin, [0, y, .3], [1.5, 1.45, 1.5])
     add(BOX, skin, [0, y - .9, .9], [1.9, .9, 1.4])
     for (const x of [-.55, .55]) {
-        add(SPHERE, EYE, [x, y + .25, 1.55], [.22, .18, .12])
-        add(CONE, BONE, [x, y - .7, 1.75], [.18, .8, .18])
+        add(BOX, EYE, [x, y + .25, 1.55], [.4, .3, .2])
         add(CONE, skin, [x * 2.8, y + .3, 0], [.35, ears, .35], [0, 0, -Math.sign(x) * 1.25])
     }
     add(BOX, 0x262622, [0, y + .75, 1.2], [1.9, .3, .4])
@@ -285,7 +283,7 @@ function orcInfantry(faction: number): UnitModel {
         // 丸い木盾（所属色の塗り）
         add(CYLINDER, WOOD, [-3.6, 9, 1.4], [2.6, .45, 2.6], [Math.PI / 2, 0, 0])
         add(CYLINDER, faction, [-3.6, 9, 1.68], [1.8, .1, 1.8], [Math.PI / 2, 0, 0])
-        add(SPHERE, IRON, [-3.6, 9, 1.8], [.5, .5, .3])
+        add(BOX, IRON, [-3.6, 9, 1.8], [.8, .8, .4])
     }))
     const weapon = part('weapon', [2.9, 12, 0], assemble(add => {
         add(CYLINDER, ORC, [.3, -1.5, 0], [.75, 2.8, .75])
@@ -327,7 +325,7 @@ function goblinArcher(faction: number): UnitModel {
         orcHead(add, GOBLIN, 14.2, 2.4)
         add(SPHERE, faction, [0, 15, -.5], [1.6, 1.4, 1.4])
         add(CYLINDER, LEATHER, [1, 11.2, -1.6], [.6, 4, .6], [.25, 0, -.35])
-        for (const dx of [-.2, .2]) add(CYLINDER, BONE, [1.6 + dx, 13.6, -2.1], [.08, 1.4, .08], [.25, 0, -.35])
+        for (const dx of [-.2, .2]) add(BOX, BONE, [1.6 + dx, 13.6, -2.1], [.14, 1.4, .14], [.25, 0, -.35])
         add(CYLINDER, GOBLIN, [2.5, 10.2, .2], [.5, 2.8, .5], [0, 0, .15])
     }))
     const weapon = part('weapon', [-2.3, 11.6, 0], assemble(add => {
@@ -348,9 +346,8 @@ function wolfRider(faction: number): UnitModel {
         add(BOX, fur, [0, 10, 8.7], [1.1, 1, 2.2])
         add(BOX, DARK, [0, 10.1, 9.8], [.6, .5, .3])
         for (const x of [-.6, .6]) {
-            add(SPHERE, EYE, [x, 11.2, 8], [.2, .16, .12])
+            add(BOX, EYE, [x, 11.2, 8], [.36, .28, .2])
             add(CONE, fur, [x, 12.4, 6.2], [.4, 1.3, .4])
-            add(CONE, BONE, [x * .7, 9.3, 9.4], [.12, .5, .12], [Math.PI, 0, 0])
         }
         add(CONE, fur, [0, 9.4, -6.6], [.8, 4.4, .8], [-2, 0, 0])
         add(BOX, faction, [0, 11, -.3], [5.2, .5, 4])
@@ -382,7 +379,7 @@ function wolfRider(faction: number): UnitModel {
 /** 背中の矢の束（補給兵の荷）。 */
 function arrowBundles(add: Add, shaft: number, fletch: number, y: number, z: number) {
     for (const [dx, dz] of [[-.8, 0], [0, -.35], [.8, 0], [-.4, .3], [.4, .3]] as const) {
-        add(CYLINDER, shaft, [dx, y + 2, z + dz], [.08, 4, .08], [.08, 0, dx * .08])
+        add(BOX, shaft, [dx, y + 2, z + dz], [.14, 4, .14], [.08, 0, dx * .08])
         add(BOX, fletch, [dx, y + 3.9, z + dz], [.3, .6, .3])
     }
     add(BOX, LEATHER, [0, y + 1.2, z], [2.6, .35, 1.2])
