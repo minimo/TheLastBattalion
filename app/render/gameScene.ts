@@ -29,6 +29,10 @@ const CLICK_TOLERANCE = 6 // px
 const BANNER_SPAN = { foot: [8, 17], cavalry: [10.5, 19.5] } as const
 const TYPE_MARK: Record<UnitType, string> = { infantry: '歩', pikeman: '槍', archer: '弓', cavalry: '騎', supply: '補', engineer: '工' }
 const TYPE_NAME: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給', engineer: '工兵' }
+/** 兵の中心（兵がいなければ undefined）。 */
+const membersCenter = (members: { x: number; y: number }[] | undefined) => members?.length
+    ? { x: members.reduce((sum, s) => sum + s.x, 0) / members.length, y: members.reduce((sum, s) => sum + s.y, 0) / members.length }
+    : undefined
 
 export async function createGameScene({ canvasEl, gameStore, input }: GameSceneOptions) {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
@@ -404,7 +408,9 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const canCommand = () => gameStore.status === 'playing' || gameStore.status === 'paused'
     const down = (event: PointerEvent) => {
         focus = null // 視点を動かし始めたら部隊へのカメラ移動をやめる。
-        if (!canCommand()) return
+        // 開戦前（部隊編成の間）は指示を出せないが、視点は動かせる。
+        const deploying = gameStore.status === 'deploying'
+        if (!canCommand() && !deploying) return
         // OrbitControls normally swaps right-drag from pan to rotate when Shift is
         // held. This combination is intentionally left unassigned.
         if (event.button === 2 && event.shiftKey) {
@@ -415,6 +421,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         if (event.button !== 0) return
         if (activePointer !== null) { input.reset(); activePointer = null; backgroundGesture = true; return }
         activePointer = event.pointerId
+        if (deploying) { backgroundGesture = true; setBackgroundGesture(true); return }
         const { squadId, army } = pointer(event)
         // Decide once, before OrbitControls receives pointerdown. Crossing a banner
         // during a background drag must never turn that gesture into an order.
@@ -535,9 +542,9 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 if (visual.ammo.textContent !== ammoText) visual.ammo.textContent = ammoText
                 visual.label.classList.toggle('low-ammo', squad.order === 'resupply' || tired || (squad.maxArrows > 0 && squad.arrows < squad.maxArrows * .25) || (squad.maxSupplies > 0 && squad.supplies === 0))
                 visual.label.setAttribute('aria-label', `${squad.owner === 'player' ? '自軍' : '敵軍'} 第${squad.number}${TYPE_NAME[squad.type]}隊 ${count}人${ammoText ? ` ${ammoText}` : ''}`)
-                // 隊長の背の幟の少し上に掲げる。隊長が決まる前は部隊の重心の上。
+                // 隊長の背の幟の少し上に掲げる。隊長が決まる前（開戦前の部隊編成の間）は部隊の兵の中心の上。
                 const leader = battle.byId.get(squad.leaderId)
-                const at = leader && leader.state !== 'dead' ? leader : squad.center
+                const at = leader && leader.state !== 'dead' ? leader : membersCenter(battle.members.get(squad.id)) ?? squad.center
                 placeLabel(visual.label, at.x, at.y, (squad.type === 'cavalry' ? BANNER_SPAN.cavalry : BANNER_SPAN.foot)[1] + 2)
             }
             squadLabels.forEach((v, id) => { if (!alive.has(id)) { v.label.remove(); squadLabels.delete(id) } })

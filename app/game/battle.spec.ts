@@ -3,7 +3,7 @@ import { generateMap } from './mapGenerator'
 import { createMulberry32, hashString } from './random'
 import {
     cohesionRadius, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderConstruct, orderDemolish, orderHold, orderMove, orderResupply,
-    orderRetreat, previewConstruction, setFormation, staminaFactor, summarize, updateBattle,
+    orderRetreat, previewConstruction, redeployArmy, setFormation, staminaFactor, summarize, updateBattle,
 } from './battle'
 import { createCpuCommander } from './cpuCommander'
 import { axes, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
@@ -16,11 +16,12 @@ import { TILE } from './constants'
 import { getPlayableTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
+import { armyPool, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, presetDeployment, type DeploymentPlan } from './deployment'
 import type { BattleMode, MapType, UnitType } from '../types/game'
 
-const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType = mapTypeForMode(mode, 'standard')) => {
+const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType = mapTypeForMode(mode, 'standard'), plan?: DeploymentPlan) => {
     const { mapGrid } = generateMap(createMulberry32(hashString(seed)), mapType)
-    return createBattle(mapGrid, createMulberry32(hashString(seed) ^ 99), mode)
+    return createBattle(mapGrid, createMulberry32(hashString(seed) ^ 99), mode, plan ? { player: plan } : {})
 }
 
 /**
@@ -680,5 +681,80 @@ describe('地形の種類', () => {
         expect(mapTypeForMode('siege', 'desert')).toBe('demonland')
         expect(mapTypeForMode('defense', 'desert')).toBe('standard')
         expect(mapTypeForMode('field', 'desert')).toBe('desert')
+    })
+})
+
+describe('開戦時の編成', () => {
+    const modes: BattleMode[] = ['field', 'siege', 'defense']
+
+    it('既定の編成なら、従来どおりの部隊と予備兵になる', () => {
+        const battle = makeBattle('123456', 'field', 'standard', defaultDeployment('field', 'player'))
+        expect(battle.formations.player.type).toBe('line')
+        expect(battle.squads.filter(sq => sq.owner === 'player')).toHaveLength(Object.values(INITIAL_SQUADS).reduce((a, b) => a + b, 0))
+        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(2500)
+        expect(battle.forts.find(f => f.owner === 'cpu')!.reserves).toBe(2500)
+    })
+
+    it('部隊の兵種と人数・開戦時の陣を決められ、人数は予備兵から差し引かれる', () => {
+        const plan: DeploymentPlan = { formation: 'crane', squads: [{ type: 'cavalry', size: 50 }, { type: 'infantry', size: 100 }, { type: 'archer', size: 25 }] }
+        const battle = makeBattle('123456', 'field', 'standard', plan)
+        expect(battle.formations.player.type).toBe('crane')
+        const squads = battle.squads.filter(sq => sq.owner === 'player')
+        // 兵種の順に並べ直して布陣する。
+        expect(squads.map(sq => [sq.type, sq.size, sq.count])).toEqual([['infantry', 100, 100], ['archer', 25, 25], ['cavalry', 50, 50]])
+        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(armyPool('field', 'player') - 175)
+        // 魔王軍は既定の編成のまま。
+        expect(battle.formations.cpu.type).toBe('line')
+        expect(battle.forts.find(f => f.owner === 'cpu')!.reserves).toBe(2500)
+    })
+
+    it('人数は範囲に収まり、布陣できる上限を超える部隊は外れる', () => {
+        for (const mode of modes) {
+            const plan = normalizeDeployment({ formation: 'line', squads: Array.from({ length: 60 }, () => ({ type: 'infantry' as const, size: 999 })) }, mode, 'player')
+            expect(plan.squads.every(sq => sq.size === SQUAD_SIZE.infantry * 2)).toBe(true)
+            expect(plan.squads.reduce((sum, sq) => sum + sq.size, 0)).toBeLessThanOrEqual(deployLimit(mode, 'player'))
+            expect(normalizeDeployment({ formation: 'line', squads: [{ type: 'archer', size: 1 }] }, mode, 'player').squads[0]!.size).toBe(10)
+        }
+    })
+
+    it('プリセットはどの戦場でも布陣できる上限に収まり、全兵種を含む', () => {
+        for (const mode of modes) for (const preset of DEPLOYMENT_PRESETS) {
+            const plan = presetDeployment(preset.key, mode, 'player')
+            expect(plan.formation).toBe(preset.formation)
+            expect(plan.squads.reduce((sum, sq) => sum + sq.size, 0)).toBeLessThanOrEqual(deployLimit(mode, 'player'))
+            expect(new Set(plan.squads.map(sq => sq.type)).size).toBe(6)
+        }
+        expect(presetDeployment('default', 'siege', 'player')).toEqual(defaultDeployment('siege', 'player'))
+    })
+
+    it('開戦前に編成し直すと、人間軍だけが布陣し直し、予備兵も変わる', () => {
+        const battle = makeBattle('123456')
+        const cpuSoldiers = battle.soldiers.filter(s => s.owner === 'cpu')
+        redeployArmy(battle, 'player', { formation: 'scale', squads: [{ type: 'pikeman', size: 80 }, { type: 'pikeman', size: 40 }] })
+        const squads = battle.squads.filter(sq => sq.owner === 'player')
+        expect(squads.map(sq => [sq.number, sq.size, sq.count])).toEqual([[1, 80, 80], [2, 40, 40]])
+        expect(battle.soldiers.filter(s => s.owner === 'player')).toHaveLength(120)
+        expect(battle.soldiers.filter(s => s.owner === 'cpu')).toEqual(cpuSoldiers)
+        expect(battle.formations.player.type).toBe('scale')
+        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(armyPool('field', 'player') - 120)
+        updateBattle(battle, .1)
+        expect(battle.squads.filter(sq => sq.owner === 'player').every(sq => sq.count === sq.size)).toBe(true)
+    })
+
+    it('攻城戦の人間軍は2,500人まで布陣できる', () => {
+        expect(armyPool('siege', 'player')).toBe(2500)
+        expect(deployLimit('siege', 'player')).toBe(2500)
+        const plan: DeploymentPlan = { formation: 'line', squads: Array.from({ length: 25 }, () => ({ type: 'infantry' as const, size: 100 })) }
+        expect(normalizeDeployment(plan, 'siege', 'player').squads).toHaveLength(25)
+        expect(normalizeDeployment({ ...plan, squads: [...plan.squads, { type: 'archer', size: 10 }] }, 'siege', 'player').squads).toHaveLength(25)
+        const battle = makeBattle('123456', 'siege', undefined, plan)
+        expect(summarize(battle).player.total).toBe(2500)
+    })
+
+    it('攻城戦の攻め手は編成どおりに布陣する（増援なし）', () => {
+        const plan = presetDeployment('cavalry', 'siege', 'player')
+        const battle = makeBattle('123456', 'siege', undefined, plan)
+        expect(battle.formations.player.type).toBe('arrow')
+        expect(summarize(battle).player.total).toBe(plan.squads.reduce((sum, sq) => sum + sq.size, 0))
     })
 })

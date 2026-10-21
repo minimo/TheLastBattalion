@@ -5,6 +5,7 @@ import { useBattleInput } from '~/composables/useBattleInput'
 import { FORMATIONS } from '~/game/formation'
 import { CONSTRUCTION } from '~/game/battleConfig'
 import TimePlate from './TimePlate.vue'
+import DeploymentEditor from './DeploymentEditor.vue'
 import type { GameScene } from '~/render/gameScene'
 import { MAP_TYPE_DESCRIPTION, MAP_TYPE_NAME, MAP_TYPES, mapTypeForMode } from '~/game/mapType'
 import type { Army, BattleMode, ConstructionKind, MapType, SquadOrder, UnitType } from '~/types/game'
@@ -32,10 +33,13 @@ const selectedMap = ref<MapType>(gameStore.mapChoice)
 /** 地形を選べるのは攻防戦だけ。攻城戦・防衛戦は地形が決まっている。 */
 const mapSelectable = computed(() => selectedMode.value === 'field')
 const shownMap = computed(() => mapTypeForMode(selectedMode.value, selectedMap.value))
-const start = (seed?: string) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value) }
+/** 戦場に入る。deploy なら戦場で部隊編成をしてから開戦し、そうでなければ前回の編成ですぐ開戦する（Restart）。 */
+const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy) }
 const resetView = () => scene?.resetCamera()
 const focusSquad = (squadId: number) => { input.selectSquad(squadId); scene?.focusSquad(squadId) }
 const title = () => { input.reset(); gameStore.backToTitle() }
+/** 開戦前（戦場で部隊編成をしている間）。 */
+const deploying = computed(() => gameStore.status === 'deploying')
 
 const ARMY_NAME: Record<Army, string> = { player: '人間軍', cpu: '魔王軍' }
 const UNIT_NAME: Record<Army, Record<UnitType, string>> = {
@@ -99,7 +103,7 @@ const defeatReason = computed(() => {
 })
 
 const onKey = (event: KeyboardEvent) => {
-  if (gameStore.status === 'title' || event.target instanceof HTMLInputElement) return
+  if (gameStore.status === 'title' || deploying.value || event.target instanceof HTMLInputElement) return
   if (event.code === 'Space') {
     event.preventDefault()
     gameStore.togglePause()
@@ -165,13 +169,18 @@ onUnmounted(() => {
         <div class="battle-brand"><span class="eyebrow">THE LAST BATTALION</span><span class="seed-readout">{{ MODE_NAME[gameStore.mode] }} · {{ MAP_TYPE_NAME[gameStore.mapType] }} · SEED {{ gameStore.seed }}</span></div>
         <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
         <div class="battle-actions">
+          <template v-if="!deploying">
           <button @click="gameStore.togglePause()" :aria-label="gameStore.status === 'paused' ? '再開' : '一時停止'">{{ gameStore.status === 'paused' ? '再開' : '一時停止' }}</button>
           <div class="speed-control" role="group" aria-label="ゲーム速度">
             <button v-for="speed in GAME_SPEEDS" :key="speed" :class="{ active: gameStore.gameSpeed === speed }" :aria-pressed="gameStore.gameSpeed === speed" @click="gameStore.setGameSpeed(speed)">×{{ speed }}</button>
           </div>
+          </template>
           <button @click="resetView" aria-label="視点をリセット">視点リセット</button>
         </div>
       </header>
+      <DeploymentEditor v-if="deploying" :key="`${gameStore.mode}:${gameStore.seed}`" :mode="gameStore.mode" :mode-name="MODE_NAME[gameStore.mode]" :plan="gameStore.plans[gameStore.mode]" :unit-names="UNIT_NAME.player"
+        @change="plan => gameStore.previewPlan(plan)" @save="plan => gameStore.beginBattle(plan)" @close="title" />
+      <template v-else>
       <aside class="army-panel" aria-label="両軍の戦況">
         <section v-for="army in armies" :key="army" :class="['army', army]">
           <div class="army-title"><span>{{ ARMY_NAME[army] }}</span><b>{{ gameStore.summary[army].total }}</b></div>
@@ -227,6 +236,7 @@ onUnmounted(() => {
         </div>
         <div class="factions"><span class="player-dot">人間軍（昼に強い）</span><span class="cpu-dot">魔王軍（夜に強い）</span></div>
       </footer>
+      </template>
     </template>
     <div v-if="ready && input.buildMode.value && gameStore.status !== 'title'" class="build-banner" role="status">
       <span><b>{{ buildingSquad ? squadName(buildingSquad) : '工兵' }}</b> · {{ BUILD_HINT[input.buildMode.value.kind] }} · Esc で取り消し</span>
@@ -242,7 +252,7 @@ onUnmounted(() => {
         <p>{{ defeatReason }}</p>
         <p>撃破数 人間軍 {{ gameStore.summary.player.killed }} / 魔王軍 {{ gameStore.summary.cpu.killed }}</p>
         <div class="modal-actions">
-          <button @click="start()">Restart</button>
+          <button @click="start(undefined, false)">Restart</button>
           <button @click="title" class="secondary">Back to Title</button>
         </div>
       </div>

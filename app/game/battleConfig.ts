@@ -49,6 +49,8 @@ export const COHESION = { margin: 40, rejoin: .55, laneShare: .6, waitShare: .25
 export const RESERVES = 2500
 /** 攻城戦・防衛戦の攻め手の部隊数。砦も増援もないので、守り手より多い兵で攻める。 */
 export const SIEGE_ATTACKER_SQUADS: Record<UnitType, number> = { infantry: 10, pikeman: 4, archer: 8, cavalry: 6, supply: 3, engineer: 3 }
+/** 攻城戦・防衛戦の攻め手の兵の総数（編成で布陣できる上限。増援がないので全員を開戦時に割り当てられる）。 */
+export const SIEGE_ATTACKER_POOL = 2500
 /** 攻城戦・防衛戦の守り手の予備兵。 */
 export const SIEGE_DEFENDER_RESERVES = 1200
 /** 攻城戦・防衛戦で、攻め手が布陣する敵の砦の前面の柵からの距離（px）と、野営地（退却・補給の先）の陣からの後退距離。 */

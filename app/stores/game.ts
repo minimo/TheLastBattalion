@@ -5,9 +5,10 @@ import { mapTypeForMode } from '~/game/mapType'
 import { createMulberry32, hashString } from '~/game/random'
 import {
     createBattle, moveFormation, orderArmy, orderAttack, orderBuild, orderCharge, orderConstruct, orderDemolish, orderFormation, orderHold, orderMove,
-    orderResupply, orderRetreat, orderSupport, setFormation, summarize, updateBattle, type ArmyOrder, type Battle,
+    orderResupply, orderRetreat, orderSupport, redeployArmy, setFormation, summarize, updateBattle, type ArmyOrder, type Battle,
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
+import { defaultDeployment, normalizeDeployment, type DeploymentPlan } from '~/game/deployment'
 import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, FormationType, GameStatus, MapType, Point, SquadOrder, UnitType } from '~/types/game'
 
 /** 1倍速のときの実時間に対するゲーム内時間の倍率。 */
@@ -16,6 +17,20 @@ const BASE_TIME_SCALE = .5
 const MAX_STEP = .1
 export const GAME_SPEEDS = [.5, 1, 2, 3] as const
 export type GameSpeed = typeof GAME_SPEEDS[number]
+
+const MODES: BattleMode[] = ['field', 'siege', 'defense']
+const PLAN_STORAGE_KEY = 'the-last-battalion:deployment'
+
+/** 前回の編成（戦場の種類ごと）。読めなければ既定の編成。 */
+function loadPlans(): Record<BattleMode, DeploymentPlan> {
+    let saved: Partial<Record<BattleMode, DeploymentPlan>> = {}
+    try { saved = JSON.parse(localStorage.getItem(PLAN_STORAGE_KEY) ?? '{}') ?? {} } catch { /* 保存できない環境では既定の編成 */ }
+    return Object.fromEntries(MODES.map(mode => {
+        const plan = saved[mode]
+        const valid = plan && Array.isArray(plan.squads) && plan.squads.length > 0
+        return [mode, valid ? normalizeDeployment(plan, mode, 'player') : defaultDeployment(mode, 'player')]
+    })) as Record<BattleMode, DeploymentPlan>
+}
 
 const emptySummary = (): ArmySummary => ({ infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: 0, fortMaxHp: 1, killed: 0, reserves: 0, hasFort: true })
 
@@ -66,6 +81,8 @@ export const useGameStore = defineStore('game', {
         formation: 'line' as FormationType,
         summaryTimer: 0,
         gameSpeed: 1 as GameSpeed,
+        /** 人間軍の開戦時の編成（戦場の種類ごと）。 */
+        plans: loadPlans(),
     }),
 
     getters: {
@@ -86,7 +103,7 @@ export const useGameStore = defineStore('game', {
             this.mapType = mapTypeForMode(this.mode, this.mapChoice)
             const { mapGrid } = generateMap(rnd, this.mapType)
             this.mapGrid = markRaw(mapGrid)
-            const battle = createBattle(mapGrid, rnd, this.mode)
+            const battle = createBattle(mapGrid, rnd, this.mode, { player: this.plans[this.mode] })
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))
             this.dayTime = battle.dayTime
@@ -95,11 +112,33 @@ export const useGameStore = defineStore('game', {
             this.refresh()
         },
 
-        startGame(seed?: string, mode?: BattleMode, mapChoice?: MapType): void {
+        /** 戦場に入る。deploy なら部隊編成から始め（開戦前）、そうでなければ前回の編成ですぐ開戦する。 */
+        startGame(seed?: string, mode?: BattleMode, mapChoice?: MapType, deploy = true): void {
             if (mode) this.mode = mode
             if (mapChoice) this.mapChoice = mapChoice
-            this.status = 'playing'
+            this.status = deploy ? 'deploying' : 'playing'
             this.initGame(seed)
+        },
+
+        /** 部隊編成の画面で、編成どおりに人間軍を布陣し直す（開戦前だけ）。 */
+        previewPlan(plan: DeploymentPlan): void {
+            if (this.status !== 'deploying' || !this.battle) return
+            redeployArmy(this.battle, 'player', plan)
+            this.refresh()
+        },
+
+        /** 編成を決めて開戦する。 */
+        beginBattle(plan: DeploymentPlan): void {
+            if (this.status !== 'deploying') return
+            this.setPlan(this.mode, plan)
+            this.previewPlan(this.plans[this.mode])
+            this.status = 'playing'
+        },
+
+        /** 戦場の種類の編成を決める（次の開戦から使う）。 */
+        setPlan(mode: BattleMode, plan: DeploymentPlan): void {
+            this.plans[mode] = normalizeDeployment(plan, mode, 'player')
+            try { localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(this.plans)) } catch { /* 保存できなくても編成はこの場で使える */ }
         },
 
         backToTitle(): void {

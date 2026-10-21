@@ -8,13 +8,14 @@ import { CASTLE_CORE_RADIUS } from './castleLayout'
 import { createSpatialHash } from './spatialHash'
 import { createPathService } from './pathService'
 import { axes, layoutFormation, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
+import { armyPool, defaultDeployment, defenderOf, deployedCount, normalizeDeployment, type DeploymentPlan } from './deployment'
 import {
     ARMY_CAP, ARROW_ARC, COHESION, ARROW_COVER, ARROW_SPEED, CHARGE_MULTIPLIER, CHARGE_RUN_TIME, CORPSE_SECONDS, DAY_MINUTES_PER_SECOND, FORT_ASSAULT_RANGE,
-    FORT_HP, fortVicinityOf, INITIAL_SQUADS, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
-    REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, RESERVES, SPENT_ARROW_LIMIT, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
+    FORT_HP, fortVicinityOf, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
+    REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, SPENT_ARROW_LIMIT, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
     FORT_REFILL_RATE, RESUPPLY_THRESHOLD, STAMINA, SUPPLY_CHARGES, SUPPLY_DURATION, SUPPORT_RANGE, SUPPORT_THRESHOLD, SPENT_ARROW_SECONDS, TOWER, UNIT_STATS,
     BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_REFILL_RANGE, REPAIR_RATE,
-    SIEGE_ATTACKER_SQUADS, SIEGE_CAMP_BACK, SIEGE_DEFENDER_RESERVES, SIEGE_DEPLOY_DISTANCE, PIKEMAN,
+    SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN,
 } from './battleConfig'
 import type {
     Army, ArmyFormation, ArmySummary, Arrow, BattleMode, Construction, Home, ConstructionAxis, ConstructionKind, FormationType, Fort, Point, Soldier, SpentArrow, Squad, SquadOrder, UnitType,
@@ -28,10 +29,18 @@ const clampLane = (lane: number) => Math.max(-LANE_HALF_WIDTH, Math.min(LANE_HAL
 /** 部隊が構える持ち場（陣形の割り当て、または移動・待機の指示先）。 */
 interface SquadPost { anchor: Point; facing: number; goal: Point; goalKey: string }
 
-export function createBattle(grid: number[][], random: () => number = Math.random, mode: BattleMode = 'field') {
+/**
+ * 戦場を作る。plans は軍ごとの開戦時の編成（省略した軍は既定の編成）。
+ * 編成の部隊の人数は軍の兵から割り当て、残りが砦の予備兵（増援）になる。
+ */
+export function createBattle(grid: number[][], random: () => number = Math.random, mode: BattleMode = 'field', plans: Partial<Record<Army, DeploymentPlan>> = {}) {
     const landscape = getPlayableLandscape(grid)
     // 攻城戦・防衛戦では守り手だけが砦を持つ。
-    const defender: Army | null = mode === 'siege' ? 'cpu' : mode === 'defense' ? 'player' : null
+    const defender = defenderOf(mode)
+    const deployments = Object.fromEntries(ARMIES.map(army => {
+        const plan = plans[army] ? normalizeDeployment(plans[army]!, mode, army) : undefined
+        return [army, plan?.squads.length ? plan : defaultDeployment(mode, army)]
+    })) as Record<Army, DeploymentPlan>
     // 攻城戦・防衛戦の守り手の砦は、岩山の城。
     const forts: Fort[] = placeForts(grid, defender ? [defender] : ARMIES, defender ? 'castle' : 'camp').map(site => {
         const center = fortCenter(site)
@@ -46,7 +55,7 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
             hp: FORT_HP, maxHp: FORT_HP,
             core: geometry.core, coreRadius: site.kind === 'castle' ? CASTLE_CORE_RADIUS : 0, assaultPoints: geometry.assaultPoints,
             towers: geometry.towers.map(t => ({ ...t, cooldown: random() * TOWER.cooldown })),
-            spawnTimer: REINFORCEMENT_INTERVAL, reserves: defender ? SIEGE_DEFENDER_RESERVES : RESERVES,
+            spawnTimer: REINFORCEMENT_INTERVAL, reserves: armyPool(mode, site.owner) - deployedCount(deployments[site.owner]),
         }
     })
     clearConstructionTiles(grid)
@@ -97,7 +106,7 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
     }
     if (defender) deploySiege(battle, forts[0]!)
     for (const home of Object.values(homes)) home.assaultPoints.forEach((p, i) => battle.paths.addGoal(fortGoalKey(home.owner, i), p))
-    for (const army of ARMIES) deployArmy(battle, army)
+    for (const army of ARMIES) deployArmy(battle, army, deployments[army])
     return battle
 }
 export type Battle = ReturnType<typeof createBattle>
@@ -335,10 +344,10 @@ function createSquad(battle: Battle, owner: Army, type: UnitType, size: number, 
     return squad
 }
 
-/** 開戦時、全軍が横陣で砦の正門前（攻め手は敵の砦から離れた陣）に布陣する。 */
-function deployArmy(battle: Battle, owner: Army) {
-    const squads = battle.mode !== 'field' && !fortOf(battle, owner) ? SIEGE_ATTACKER_SQUADS : INITIAL_SQUADS
-    for (const type of TYPES) for (let i = 0; i < squads[type]; i++) createSquad(battle, owner, type, SQUAD_SIZE[type], 'formation')
+/** 開戦時、全軍が編成の陣形で砦の正門前（攻め手は敵の砦から離れた陣）に布陣する。 */
+function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
+    battle.formations[owner].type = plan.formation
+    for (const { type, size } of plan.squads) createSquad(battle, owner, type, size, 'formation')
     const slots = formationSlots(battle, owner)
     const formation = battle.formations[owner]
     for (const squad of battle.squads.filter(sq => sq.owner === owner)) {
@@ -355,6 +364,26 @@ function deployArmy(battle: Battle, owner: Army) {
         // 補給部隊は陣の最後尾から、自動で弓兵への補給を始める。
         if (squad.type === 'supply') squad.order = 'support'
     }
+}
+
+/** 開戦前（部隊編成の画面）に、軍の部隊を編成し直して布陣し直す。人数を割り当てた残りが砦の予備兵になる。 */
+export function redeployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
+    const deployment = normalizeDeployment(plan, battle.mode, owner)
+    if (!deployment.squads.length) return
+    for (const squad of battle.squads.filter(sq => sq.owner === owner)) {
+        battle.squadById.delete(squad.id)
+        battle.members.delete(squad.id)
+        battle.posts.delete(squad.id)
+    }
+    battle.squads = battle.squads.filter(sq => sq.owner !== owner)
+    for (const s of battle.soldiers) if (s.owner === owner) battle.byId.delete(s.id)
+    battle.soldiers = battle.soldiers.filter(s => s.owner !== owner)
+    for (const type of TYPES) battle.squadNumbers[owner][type] = 0
+    battle.formationCache[owner].key = ''
+    const fort = fortOf(battle, owner)
+    if (fort) fort.reserves = armyPool(battle.mode, owner) - deployedCount(deployment)
+    deployArmy(battle, owner, deployment)
+    battle.hash.rebuild(battle.soldiers)
 }
 
 /** 全軍の陣形に加わっている部隊の持ち場。部隊の顔ぶれか陣形が変わったときだけ計算し直す。 */

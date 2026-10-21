@@ -260,7 +260,8 @@ export type MapType = 'standard' | 'meadow' | 'desert' | 'wasteland' | 'demonlan
 /** 軍の本拠地（退却・補給に戻る先）。砦を持つ軍は砦、砦を持たない攻め手は後方の野営地。 */
 export type Home = Pick<Fort, 'owner' | 'front' | 'x' | 'y' | 'core' | 'assaultPoints'>
 
-export type GameStatus = 'title' | 'playing' | 'paused' | 'gameover'
+/** deploying: 戦場に入って部隊編成をしている（開戦前で時間は進まない）。 */
+export type GameStatus = 'title' | 'deploying' | 'playing' | 'paused' | 'gameover'
 
 export interface ArmySummary {
     infantry: number
