@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createSurfaceMaterials } from './materials'
 
-/** 人間軍は青、モンスター軍は赤。 */
+/** 人間軍は青、魔王軍は赤。 */
 export const FACTION = { player: 0x6f9be8, cpu: 0xe0614f, neutral: 0xf1e4be }
 
 export function createModelKit() {

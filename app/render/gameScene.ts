@@ -11,6 +11,7 @@ import { depotOf, squadRoute } from '~/game/battle'
 import { createModelKit, FACTION } from './three/models'
 import { createWorld } from './three/world'
 import { createAtmosphere } from './three/atmosphere'
+import { MAP_THEME, type MapTheme } from './three/mapTheme'
 import { createPathOverlay } from './three/overlays'
 import { createFortCamp } from './three/fortCamp'
 import { createCastle } from './three/castle'
@@ -41,7 +42,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     canvasEl.appendChild(labels)
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0xb6c9cb)
-    const atmosphere = createAtmosphere(scene)
+    const atmosphere = createAtmosphere(scene, MAP_THEME.standard.sky)
     const pmrem = new THREE.PMREMGenerator(renderer)
     const environmentScene = new RoomEnvironment()
     const environment = pmrem.fromScene(environmentScene, .04)
@@ -136,9 +137,18 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     sun.shadow.bias = -.0004
     sun.shadow.normalBias = 1.2
     scene.add(sky, sun, sun.target)
+    let light: MapTheme['light'] = MAP_THEME.standard.light
+    const sunDay = new THREE.Color(), sunNight = new THREE.Color()
+    const applyTheme = (theme: MapTheme) => {
+        light = theme.light
+        atmosphere.setTheme(theme.sky)
+        sky.color.set(light.sky); sky.groundColor.set(light.ground)
+        sunDay.set(light.sun); sunNight.set(light.nightSun)
+    }
     const kit = createModelKit()
     gameStore.initGame()
     let world = createWorld(gameStore.mapGrid, gameStore.battle!.forts, kit)
+    applyTheme(world.theme)
     let mapReference = gameStore.mapGrid
     scene.add(world.group)
     const army = createArmyRenderer(scene)
@@ -389,6 +399,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             pathOverlay.clear(); pathKey = ''
             world.destroy()
             world = createWorld(gameStore.mapGrid, gameStore.battle!.forts, kit)
+            applyTheme(world.theme)
             mapReference = gameStore.mapGrid
             scene.add(world.group)
             buildCamps()
@@ -416,9 +427,9 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             gameStore.update(delta)
             if (gameStore.status === 'playing') animationTime += delta * gameStore.timeScale
             const night = getNightAlpha(gameStore.dayTime) * 2
-            sky.intensity = 1.7 - night * .9
-            sun.intensity = 2.5 - night * 1.8
-            sun.color.set(night > .5 ? 0xa1bbff : 0xffdeb3)
+            sky.intensity = (1.7 - night * .9) * light.sunScale
+            sun.intensity = (2.5 - night * 1.8) * light.sunScale
+            sun.color.copy(night > .5 ? sunNight : sunDay)
             world.update(animationTime)
             const battle = gameStore.battle!
             for (const c of camps) {
@@ -426,7 +437,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 if ('setNight' in c.camp) c.camp.setNight(night)
                 const text = String(Math.ceil(c.fort.hp))
                 if (c.label.textContent !== text) c.label.textContent = text
-                c.label.setAttribute('aria-label', `${c.fort.owner === 'player' ? '人間軍' : 'モンスター軍'}の本陣 耐久${text}`)
+                c.label.setAttribute('aria-label', `${c.fort.owner === 'player' ? '人間軍' : '魔王軍'}の本陣 耐久${text}`)
                 placeLabel(c.label, c.fort.core.x, c.fort.core.y, c.camp.labelHeight)
             }
             // 部隊の旗を重心の上に置く。

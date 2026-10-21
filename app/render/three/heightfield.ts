@@ -1,7 +1,8 @@
 import { createNoise2D } from 'simplex-noise'
 import { createMulberry32, hashString } from '../../game/random'
 import { LOGICAL_SIZE, TILE, TILE_PX } from '../../game/constants'
-import type { Base } from '../../types/game'
+import type { Base, MapType } from '../../types/game'
+import { mapTypeOf, TERRAIN_PROFILE } from '../../game/mapType'
 import { getFortGroundRadius } from './fortLayout'
 
 export const WATER_HEIGHT = 0
@@ -10,9 +11,40 @@ export const MESH_STEP = TILE_PX / 4
 export const MAP_MIN = -TILE_PX / 2
 export const MAP_MAX = LOGICAL_SIZE + TILE_PX / 2
 
+type Noise = (x: number, y: number) => number
+const ease = (t: number) => t * t * (3 - 2 * t)
+
+/**
+ * 地形の種類ごとの、山を除いた地面の起伏。戦場の外の地形（landscape）も同じ式で続ける。
+ * 砂丘は一方向に並ぶ稜線で、風上はゆるく、風下（稜線の向こう）は急に落ちる。
+ */
+export function reliefAt(type: MapType, noise: Noise, x: number, y: number): number {
+    switch (type) {
+        case 'meadow':
+            return 26 + noise(x * .0012, y * .0012) * 16 + noise(x * .003, y * .003) * 12 + noise(x * .011, y * .011) * 1.5
+        case 'desert': {
+            const warp = noise(x * .0018 + 40, y * .0018) * 70 + noise(x * .004, y * .004 + 90) * 18
+            const phase = (x + warp) * .0036 + noise(x * .0025, y * .0025 + 80) * .6
+            const t = phase - Math.floor(phase)
+            const dune = t < .72 ? ease(t / .72) : 1 - ease((t - .72) / .28)
+            const amplitude = 15 + 10 * noise(x * .0022 + 15, y * .0022 - 30)
+            return 17 + dune * amplitude + noise(x * .0015, y * .0015) * 6 + noise(x * .03, y * .03) * .5
+        }
+        case 'wasteland':
+            return 22 + noise(x * .0015, y * .0015) * 6 + noise(x * .004, y * .004) * 5 + noise(x * .013, y * .013) * 2 + noise(x * .035, y * .035) * .8
+        case 'demonland':
+            return 21 + noise(x * .0015, y * .0015) * 7 + noise(x * .004, y * .004) * 5
+                + Math.abs(noise(x * .016, y * .016)) * 4 + noise(x * .04, y * .04) * 1.2
+        default:
+            return 24 + noise(x * .0015, y * .0015) * 10 + noise(x * .004, y * .004) * 13 + noise(x * .013, y * .013) * 3
+    }
+}
+
 /** Rendering-only elevation. Never modifies the map or movement costs. */
-export function createHeightfield(grid: number[][], bases: Base[]) {
+export function createHeightfield(grid: number[][], bases: Base[], mapType: MapType = mapTypeOf(grid)) {
     const noise = createNoise2D(createMulberry32(hashString(JSON.stringify(grid))))
+    const { mountainScale } = TERRAIN_PROFILE[mapType]
+    const ridgeVariation = mapType === 'demonland' ? .3 : .12
     const waterAt = (gx: number, gy: number) => {
         const tile = grid[Math.max(0, Math.min(grid.length - 1, gy))]?.[Math.max(0, Math.min(grid.length - 1, gx))]
         return tile === TILE.WATER || tile === TILE.BRIDGE ? 1 : 0
@@ -42,14 +74,13 @@ export function createHeightfield(grid: number[][], bases: Base[]) {
             const t = grid[gy]?.[gx] ?? 0
             const d = Math.hypot(x / TILE_PX - gx, y / TILE_PX - gy)
             const w = Math.max(0, 3 - d)
-            mountain += (t >= 23 && t <= 24 ? 130 : t === 2 || t >= 21 && t <= 22 ? 72 : 0) * w
+            mountain += (t >= 23 && t <= 24 ? 130 : t === 2 || t >= 21 && t <= 22 ? 72 : 0) * mountainScale * w
             weight += w
             if (t === TILE.WATER || t === TILE.BRIDGE) riverDistance = Math.min(riverDistance, d)
         }
         // Gentle, broad undulations give the whole battlefield a little relief.
-        const rolling = 24 + noise(x * .0015, y * .0015) * 10
-            + noise(x * .004, y * .004) * 13 + noise(x * .013, y * .013) * 3
-        const ridge = 1 + .12 * noise(x * .012, y * .012)
+        const rolling = reliefAt(mapType, noise, x, y)
+        const ridge = 1 + ridgeVariation * noise(x * .012, y * .012)
         const height = Math.max(7, rolling) + mountain / Math.max(1, weight) * ridge
         const bank = (.5 - waterMask(x, y)) * 12
         const riverBlend = smooth(Math.max(0, Math.min(1, (riverDistance - 1.3) / 2.7)))
@@ -104,6 +135,6 @@ export function createHeightfield(grid: number[][], bases: Base[]) {
         }
         return h
     }
-    return { size, heights, heightAt, surfaceAt, tileAt }
+    return { size, heights, heightAt, surfaceAt, tileAt, mapType }
 }
 export type Heightfield = ReturnType<typeof createHeightfield>

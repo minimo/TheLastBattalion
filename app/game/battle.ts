@@ -594,7 +594,7 @@ export function orderArmy(battle: Battle, owner: Army, order: ArmyOrder) {
 
 function damageSoldier(battle: Battle, target: Soldier, amount: number, attacker?: Soldier) {
     if (target.state === 'dead') return
-    // 時間帯の被ダメージ補正（no-life-kingの減衰倍率: 昼のモンスター×1.5、夜の人間×1.3）。槍兵は守りが堅い。
+    // 時間帯の被ダメージ補正（no-life-kingの減衰倍率: 昼の魔王軍×1.5、夜の人間×1.3）。槍兵は守りが堅い。
     target.hp -= amount * getTimeDecayMultiplier(target.owner, battle.dayTime) * (target.type === 'pikeman' ? PIKEMAN.damageTaken : 1)
     if (target.hp <= 0) {
         target.hp = 0
@@ -1480,7 +1480,7 @@ function advanceMarch(battle: Battle, squad: Squad, post: SquadPost, dt: number)
     return { anchor: { x: march.x, y: march.y }, facing: march.facing, goal: post.goal, goalKey: post.goalKey }
 }
 
-/** 部隊ごとの増援を砦から送り出す。人間軍（と攻城戦で砦を守るモンスター軍）の増援は陣に加わり、それ以外のモンスター軍は突撃する。 */
+/** 部隊ごとの増援を砦から送り出す。人間軍（と攻城戦で砦を守る魔王軍）の増援は陣に加わり、それ以外の魔王軍は突撃する。 */
 function updateForts(battle: Battle, dt: number, alive: Record<Army, number>) {
     for (const fort of battle.forts) {
         for (const tower of fort.towers) {

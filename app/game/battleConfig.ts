@@ -15,7 +15,7 @@ export interface UnitStats {
     radius: number
 }
 
-/** 人間軍: 歩兵・槍兵・弓兵・騎兵・補給兵・工兵 / モンスター軍: オーク歩兵・オーク槍兵・ゴブリン弓兵・狼騎兵・ゴブリン運び手・オーク工兵 */
+/** 人間軍: 歩兵・槍兵・弓兵・騎兵・補給兵・工兵 / 魔王軍: オーク歩兵・オーク槍兵・ゴブリン弓兵・狼騎兵・ゴブリン運び手・オーク工兵 */
 export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
     player: {
         infantry: { hp: 110, attack: 12, cooldown: 1.0, range: 1.2, speed: 15, sight: 70, radius: 2.1 },

@@ -92,7 +92,7 @@ export function fortDims(kind: FortKind) {
         : { depth: FORT_DEPTH, width: FORT_WIDTH, back: FORT_MARGIN_BACK, front: FORT_MARGIN_FRONT, side: FORT_MARGIN_SIDE }
 }
 
-/** ローカルセル → ワールドのグリッドセル。モンスター側は180度回転させて配置する。 */
+/** ローカルセル → ワールドのグリッドセル。魔王軍側は180度回転させて配置する。 */
 export function localToGrid(fort: FortFrame, lx: number, ly: number) {
     const { depth, width } = fortDims(fort.kind)
     return fort.front === 1

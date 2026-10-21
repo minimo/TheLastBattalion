@@ -1,12 +1,14 @@
 import * as THREE from 'three'
 import { MAP_MIN, MAP_MAX, MESH_STEP, type Heightfield } from './heightfield'
 import { createLandscape, LANDSCAPE_RADIUS, TERRAIN_CENTER, smooth } from './landscape'
+import type { MapTheme } from './mapTheme'
 
 /** Shared world coordinates and normals prevent a visible join around the battlefield. */
-export function createTerrainMeshes(field: Heightfield, landscape: ReturnType<typeof createLandscape>, material: THREE.Material) {
+export function createTerrainMeshes(field: Heightfield, landscape: ReturnType<typeof createLandscape>, material: THREE.Material, ground: MapTheme['ground']) {
     const make = () => ({ positions: [] as number[], normals: [] as number[], colors: [] as number[], uvs: [] as number[], indices: [] as number[] })
     type Buffers = ReturnType<typeof make>
-    const green = new THREE.Color(0x596d49), dry = new THREE.Color(0x96916b), rock = new THREE.Color(0x807e72), sand = new THREE.Color(0x968d70)
+    const green = new THREE.Color(ground.base), dry = new THREE.Color(ground.patch), rock = new THREE.Color(ground.rock), sand = new THREE.Color(ground.shore)
+    const crest = ground.crest && { ...ground.crest, color: new THREE.Color(ground.crest.color) }
     const color = new THREE.Color(), normal = new THREE.Vector3()
     const vertex = (buffers: Buffers, x: number, y: number) => {
         const h = landscape.heightAt(x, y)
@@ -15,7 +17,8 @@ export function createTerrainMeshes(field: Heightfield, landscape: ReturnType<ty
         normal.set(-dx, 4, -dy).normalize()
         const slope = 1 - normal.y
         const meadow = smooth(-.55, .55, landscape.noise(x * .008, y * .008))
-        color.copy(green).lerp(dry, meadow * .5)
+        color.copy(green).lerp(dry, meadow * ground.patchAmount)
+        if (crest) color.lerp(crest.color, smooth(crest.from, crest.to, h) * crest.amount)
         color.lerp(rock, Math.max(smooth(.07, .32, slope), smooth(90, 310, h) * .8))
         if (h < 7) color.lerp(sand, 1 - smooth(0, 7, h))
         color.multiplyScalar(.92 + .1 * landscape.noise(x * .029, y * .029))

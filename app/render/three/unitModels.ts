@@ -247,7 +247,7 @@ function humanCavalry(faction: number): UnitModel {
     }
 }
 
-// ---- モンスター軍 ----
+// ---- 魔王軍 ----
 const ORC = 0x6c8a44, GOBLIN = 0x8b9c4c, BONE = 0xe8dfc6, EYE = 0xff3a1c, RUST = 0x5a4a40
 
 function orcHead(add: Parameters<Parameters<typeof assemble>[0]>[0], skin: number, y: number, ears: number) {
@@ -298,7 +298,7 @@ function orcInfantry(faction: number): UnitModel {
     return { parts: [body, ...monsterLegs(ORC, LEATHER), weapon], scale: .46 }
 }
 
-/** モンスター軍の槍兵: 骨の穂先の長槍と、厚板の大盾を持つオーク。 */
+/** 魔王軍の槍兵: 骨の穂先の長槍と、厚板の大盾を持つオーク。 */
 function orcPikeman(faction: number): UnitModel {
     const body = part('body', [0, 0, 0], assemble(add => {
         add(SPHERE, ORC, [0, 10.6, 0], [2.9, 3.2, 1.9])
@@ -462,7 +462,7 @@ function humanEngineer(faction: number): UnitModel {
     return { parts: [body, ...humanLegs(0x4d4038, LEATHER), weapon], scale: .44 }
 }
 
-/** モンスター軍の工兵: 杭を背負ったオーク。手につるはし。 */
+/** 魔王軍の工兵: 杭を背負ったオーク。手につるはし。 */
 function orcEngineer(faction: number): UnitModel {
     const body = part('body', [0, 0, 0], assemble(add => {
         add(SPHERE, ORC, [0, 10.4, 0], [2.7, 3, 1.8])

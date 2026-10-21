@@ -1,4 +1,4 @@
-/** player = 人間軍、cpu = モンスター軍。昼夜補正（daynight.ts）はno-life-kingと同じ所有者区分を使う。 */
+/** player = 人間軍、cpu = 魔王軍。昼夜補正（daynight.ts）はno-life-kingと同じ所有者区分を使う。 */
 export type Owner = 'player' | 'cpu' | 'neutral'
 export type Army = Exclude<Owner, 'neutral'>
 export type Rank = 1 | 2 | 3
@@ -249,10 +249,13 @@ export interface Fort {
 }
 
 /**
- * 戦場の種類。field: 攻防戦（両軍が砦を持つ） / siege: 攻城戦（人間軍がモンスター軍の砦を攻める） / defense: 防衛戦（人間軍が砦を守る）。
+ * 戦場の種類。field: 攻防戦（両軍が砦を持つ） / siege: 攻城戦（人間軍が魔王軍の砦を攻める） / defense: 防衛戦（人間軍が砦を守る）。
  * 攻城戦・防衛戦では攻め手は砦を持たず、全滅すると敗北する。
  */
 export type BattleMode = 'field' | 'siege' | 'defense'
+
+/** 地形の種類。standard: 標準 / meadow: 草原 / desert: 砂漠 / wasteland: 荒野 / demonland: 魔王城付近。 */
+export type MapType = 'standard' | 'meadow' | 'desert' | 'wasteland' | 'demonland'
 
 /** 軍の本拠地（退却・補給に戻る先）。砦を持つ軍は砦、砦を持たない攻め手は後方の野営地。 */
 export type Home = Pick<Fort, 'owner' | 'front' | 'x' | 'y' | 'core' | 'assaultPoints'>

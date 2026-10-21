@@ -120,7 +120,7 @@ const isLowland = (tile: number) => tile !== TILE.WATER && tile !== TILE.BRIDGE
     && !(tile === TILE.MOUNTAIN || tile >= TILE_VARIANT.LOW_MOUNTAIN_MIN && tile <= TILE_VARIANT.HIGH_MOUNTAIN_MAX)
 
 /**
- * 人間軍の砦を戦場の左端、モンスター軍の砦を右端に置く（owners の軍の砦だけ）。地形は作り直さず、
+ * 人間軍の砦を戦場の左端、魔王軍の砦を右端に置く（owners の軍の砦だけ）。地形は作り直さず、
  * 端に沿って砦をずらし、水がなく低く、正門から戦場へ出られる場所を選ぶ。
  */
 export function placeForts(grid: number[][], owners: Army[] = ['player', 'cpu'], kind: FortKind = 'camp'): FortSite[] {

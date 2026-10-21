@@ -15,10 +15,11 @@ import { ARROWS_PER_ARCHER, CONSTRUCTION, INITIAL_SQUADS, PIKEMAN, SIEGE_ATTACKE
 import { TILE } from './constants'
 import { getPlayableTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
-import type { BattleMode, UnitType } from '../types/game'
+import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
+import type { BattleMode, MapType, UnitType } from '../types/game'
 
-const makeBattle = (seed: string, mode: BattleMode = 'field') => {
-    const { mapGrid } = generateMap(createMulberry32(hashString(seed)))
+const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType = mapTypeForMode(mode, 'standard')) => {
+    const { mapGrid } = generateMap(createMulberry32(hashString(seed)), mapType)
     return createBattle(mapGrid, createMulberry32(hashString(seed) ^ 99), mode)
 }
 
@@ -539,7 +540,7 @@ describe('工兵の建設物', () => {
         expect(previewConstruction(battle, 'player', 'barricade', point).valid).toBe(false)
     })
 
-    it('モンスター軍の工兵は拠点を築く', () => {
+    it('魔王軍の工兵は拠点を築く', () => {
         const battle = makeBattle('424242')
         const commander = createCpuCommander(battle)
         for (let t = 0; t < 10; t += 1 / 30) { updateBattle(battle, 1 / 30); commander.update(1 / 30) }
@@ -639,4 +640,35 @@ describe('川', () => {
         expect(infantry).toBeLessThan(90)
         expect(cavalry).toBeLessThan(infantry)
     }, 240000)
+})
+
+describe('地形の種類', () => {
+    const seeds = ['123456', '777777', '424242', '851651', '512108', '999999']
+    const waterTiles = (grid: number[][]) => grid.flat().filter(t => t === TILE.WATER || t === TILE.BRIDGE).length
+    for (const mapType of MAP_TYPES) for (const seed of seeds) {
+        it(`${mapType}: 両軍の砦を置けて、互いに行き来できる（SEED ${seed}）`, () => {
+            const battle = makeBattle(seed, 'field', mapType)
+            expect(mapTypeOf(battle.grid)).toBe(mapType)
+            const [human, monster] = battle.forts
+            const path = findPath(battle.grid, human!.assaultPoints[0]!.x, human!.assaultPoints[0]!.y, monster!.assaultPoints[0]!.x, monster!.assaultPoints[0]!.y)
+            expect(path.length).toBeGreaterThan(2)
+        })
+    }
+    it('草原には水がなく、砂漠の水はオアシスだけで、魔王城付近には必ず川がある', () => {
+        for (const seed of seeds) {
+            const grid = (type: MapType) => generateMap(createMulberry32(hashString(seed)), type).mapGrid
+            expect(waterTiles(grid('meadow'))).toBe(0)
+            const desert = grid('desert')
+            expect(waterTiles(desert)).toBeGreaterThan(0)
+            // オアシスの水は戦場の端に届かない（川ではない）。
+            const edge = [...desert[0]!, ...desert[desert.length - 1]!, ...desert.map(row => row[0]!), ...desert.map(row => row[row.length - 1]!)]
+            expect(edge.filter(t => t === TILE.WATER).length).toBe(0)
+            expect(waterTiles(grid('demonland'))).toBeGreaterThan(0)
+        }
+    })
+    it('攻城戦は魔王城付近、防衛戦は標準の地形で戦う', () => {
+        expect(mapTypeForMode('siege', 'desert')).toBe('demonland')
+        expect(mapTypeForMode('defense', 'desert')).toBe('standard')
+        expect(mapTypeForMode('field', 'desert')).toBe('desert')
+    })
 })

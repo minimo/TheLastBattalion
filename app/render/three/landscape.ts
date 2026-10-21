@@ -1,7 +1,8 @@
 import { createNoise2D } from 'simplex-noise'
 import { createMulberry32, hashString } from '../../game/random'
 import { TILE, TILE_PX } from '../../game/constants'
-import { MAP_MIN, MAP_MAX, type Heightfield } from './heightfield'
+import { TERRAIN_PROFILE } from '../../game/mapType'
+import { MAP_MIN, MAP_MAX, reliefAt, type Heightfield } from './heightfield'
 
 // Fix the full landscape width at 3,300, independently of the battlefield size.
 export const LANDSCAPE_RADIUS = 1650
@@ -19,6 +20,12 @@ export interface Foundation { minX: number; maxX: number; minY: number; maxY: nu
  */
 export function createLandscape(grid: number[][], field: Heightfield, foundations: Foundation[] = [], shape?: (x: number, y: number, h: number) => number) {
     const noise = createNoise2D(createMulberry32(hashString(JSON.stringify(grid)) ^ 0x62a5b39))
+    const { mapType } = field, outer = TERRAIN_PROFILE[mapType].outerMountain
+    // 荒野の山は頂の平らな台地になる。
+    const terrace = (h: number) => {
+        const k = h / 36, f = k - Math.floor(k)
+        return (Math.floor(k) + smooth(.7, 1, f)) * 36
+    }
     const mouths: { x: number; y: number; dx: number; dy: number; width: number }[] = []
     const n = grid.length
     for (let side = 0; side < 4; side++) {
@@ -45,8 +52,13 @@ export function createLandscape(grid: number[][], field: Heightfield, foundation
         const warpY = y + noise(x * .0009 + 60, y * .0009) * 100
         const ridgeNoise = noise(warpX * .001, warpY * .001)
         const ridge = 1 - ridgeNoise * ridgeNoise
-        const mountain = ridge * ridge * (85 + 320 * smooth(250, 1800, distance))
-        let h = 18 + mountain + noise(x * .0018, y * .0018) * 12 + noise(x * .004, y * .004) * 2
+        let mountain = ridge ** outer.sharp * (outer.base + outer.far * smooth(250, 1800, distance))
+        if (mapType === 'wasteland') mountain = terrace(mountain)
+        // 魔王城の周りの山は、鋸のように尖った岩山。
+        if (mapType === 'demonland') mountain += Math.abs(noise(x * .007, y * .007)) * 40 * ridge * smooth(100, 900, distance)
+        let h = mapType === 'standard'
+            ? 18 + mountain + noise(x * .0018, y * .0018) * 12 + noise(x * .004, y * .004) * 2
+            : reliefAt(mapType, noise, x, y) - 5 + mountain + noise(x * .0018, y * .0018) * 6
         h = Math.max(8, h)
         // Rivers continue out of the battlefield, meandering through the wider valley.
         for (const mouth of mouths) {

@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia'
 import { markRaw } from 'vue'
 import { generateMap } from '~/game/mapGenerator'
+import { mapTypeForMode } from '~/game/mapType'
 import { createMulberry32, hashString } from '~/game/random'
 import {
     createBattle, moveFormation, orderArmy, orderAttack, orderBuild, orderCharge, orderConstruct, orderDemolish, orderFormation, orderHold, orderMove,
     orderResupply, orderRetreat, orderSupport, setFormation, summarize, updateBattle, type ArmyOrder, type Battle,
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
-import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, FormationType, GameStatus, Point, SquadOrder, UnitType } from '~/types/game'
+import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, FormationType, GameStatus, MapType, Point, SquadOrder, UnitType } from '~/types/game'
 
 /** 1倍速のときの実時間に対するゲーム内時間の倍率。 */
 const BASE_TIME_SCALE = .5
@@ -54,6 +55,10 @@ export const useGameStore = defineStore('game', {
         seed: '',
         /** 戦場の種類（攻防戦・攻城戦・防衛戦）。 */
         mode: 'field' as BattleMode,
+        /** 攻防戦で選んだ地形の種類。 */
+        mapChoice: 'standard' as MapType,
+        /** 今の戦場の地形の種類（攻城戦は魔王城付近、防衛戦は標準）。 */
+        mapType: 'standard' as MapType,
         winner: null as Army | null,
         isGameOver: false,
         summary: { player: emptySummary(), cpu: emptySummary() } as Record<Army, ArmySummary>,
@@ -78,7 +83,8 @@ export const useGameStore = defineStore('game', {
             }
             const rnd = createMulberry32(hashString(this.seed))
             // no-life-kingと同じマップ生成（同じSEEDなら同じ地形）
-            const { mapGrid } = generateMap(rnd)
+            this.mapType = mapTypeForMode(this.mode, this.mapChoice)
+            const { mapGrid } = generateMap(rnd, this.mapType)
             this.mapGrid = markRaw(mapGrid)
             const battle = createBattle(mapGrid, rnd, this.mode)
             this.battle = markRaw(battle)
@@ -89,8 +95,9 @@ export const useGameStore = defineStore('game', {
             this.refresh()
         },
 
-        startGame(seed?: string, mode?: BattleMode): void {
+        startGame(seed?: string, mode?: BattleMode, mapChoice?: MapType): void {
             if (mode) this.mode = mode
+            if (mapChoice) this.mapChoice = mapChoice
             this.status = 'playing'
             this.initGame(seed)
         },

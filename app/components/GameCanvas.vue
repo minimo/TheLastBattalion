@@ -6,7 +6,8 @@ import { FORMATIONS } from '~/game/formation'
 import { CONSTRUCTION } from '~/game/battleConfig'
 import TimePlate from './TimePlate.vue'
 import type { GameScene } from '~/render/gameScene'
-import type { Army, BattleMode, ConstructionKind, SquadOrder, UnitType } from '~/types/game'
+import { MAP_TYPE_DESCRIPTION, MAP_TYPE_NAME, MAP_TYPES, mapTypeForMode } from '~/game/mapType'
+import type { Army, BattleMode, ConstructionKind, MapType, SquadOrder, UnitType } from '~/types/game'
 
 const gameStore = useGameStore()
 const canvasRef = ref<HTMLElement | null>(null)
@@ -21,18 +22,22 @@ const customSeed = ref('')
 const seedEntry = ref(false)
 const MODES: { mode: BattleMode; name: string; description: string }[] = [
   { mode: 'field', name: '攻防戦', description: '両軍が砦を構える。敵の本陣を落とした軍の勝利' },
-  { mode: 'siege', name: '攻城戦', description: 'モンスター軍の砦を攻める。本陣を落とせば勝利、全滅で敗北' },
-  { mode: 'defense', name: '防衛戦', description: 'モンスター軍から砦を守る。敵を全滅させれば勝利、本陣を落とされれば敗北' },
+  { mode: 'siege', name: '攻城戦', description: '魔王軍の砦を攻める。本陣を落とせば勝利、全滅で敗北' },
+  { mode: 'defense', name: '防衛戦', description: '魔王軍から砦を守る。敵を全滅させれば勝利、本陣を落とされれば敗北' },
 ]
 const MODE_NAME = Object.fromEntries(MODES.map(m => [m.mode, m.name])) as Record<BattleMode, string>
 const selectedMode = ref<BattleMode>(gameStore.mode)
 const modeDescription = computed(() => MODES.find(m => m.mode === selectedMode.value)!.description)
-const start = (seed?: string) => { input.reset(); gameStore.startGame(seed, selectedMode.value) }
+const selectedMap = ref<MapType>(gameStore.mapChoice)
+/** 地形を選べるのは攻防戦だけ。攻城戦・防衛戦は地形が決まっている。 */
+const mapSelectable = computed(() => selectedMode.value === 'field')
+const shownMap = computed(() => mapTypeForMode(selectedMode.value, selectedMap.value))
+const start = (seed?: string) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value) }
 const resetView = () => scene?.resetCamera()
 const focusSquad = (squadId: number) => { input.selectSquad(squadId); scene?.focusSquad(squadId) }
 const title = () => { input.reset(); gameStore.backToTitle() }
 
-const ARMY_NAME: Record<Army, string> = { player: '人間軍', cpu: 'モンスター軍' }
+const ARMY_NAME: Record<Army, string> = { player: '人間軍', cpu: '魔王軍' }
 const UNIT_NAME: Record<Army, Record<UnitType, string>> = {
   player: { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給兵', engineer: '工兵' },
   cpu: { infantry: 'オーク歩兵', pikeman: 'オーク槍兵', archer: 'ゴブリン弓兵', cavalry: '狼騎兵', supply: 'ゴブリン運び手', engineer: 'オーク工兵' },
@@ -140,6 +145,10 @@ onUnmounted(() => {
           <button v-for="m in MODES" :key="m.mode" role="radio" :aria-checked="selectedMode === m.mode" :class="{ active: selectedMode === m.mode }" @click="selectedMode = m.mode">{{ m.name }}</button>
         </div>
         <p class="mode-description">{{ modeDescription }}</p>
+        <div v-if="mapSelectable" class="mode-select map-select" role="radiogroup" aria-label="地形">
+          <button v-for="type in MAP_TYPES" :key="type" role="radio" :aria-checked="selectedMap === type" :class="{ active: selectedMap === type }" @click="selectedMap = type">{{ MAP_TYPE_NAME[type] }}</button>
+        </div>
+        <p class="mode-description map-description">地形: {{ MAP_TYPE_NAME[shownMap] }} — {{ MAP_TYPE_DESCRIPTION[shownMap] }}</p>
         <button class="start-button" @click="start()">開戦する <span>→</span></button>
         <button class="seed-button" @click="seedEntry = !seedEntry">特定の戦場（SEED）で開始</button>
         <form v-if="seedEntry" class="seed-form" @submit.prevent="start(customSeed)">
@@ -151,7 +160,7 @@ onUnmounted(() => {
     </div>
     <template v-if="ready && gameStore.status !== 'title'">
       <header class="battle-header">
-        <div class="battle-brand"><span class="eyebrow">THE LAST BATTALION</span><span class="seed-readout">{{ MODE_NAME[gameStore.mode] }} · SEED {{ gameStore.seed }}</span></div>
+        <div class="battle-brand"><span class="eyebrow">THE LAST BATTALION</span><span class="seed-readout">{{ MODE_NAME[gameStore.mode] }} · {{ MAP_TYPE_NAME[gameStore.mapType] }} · SEED {{ gameStore.seed }}</span></div>
         <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
         <div class="battle-actions">
           <button @click="gameStore.togglePause()" :aria-label="gameStore.status === 'paused' ? '再開' : '一時停止'">{{ gameStore.status === 'paused' ? '再開' : '一時停止' }}</button>
@@ -214,7 +223,7 @@ onUnmounted(() => {
             <button v-for="action in ARMY_ACTIONS" :key="action.order" @click="gameStore.orderArmy(action.order)">{{ action.label }}</button>
           </div>
         </div>
-        <div class="factions"><span class="player-dot">人間軍（昼に強い）</span><span class="cpu-dot">モンスター軍（夜に強い）</span></div>
+        <div class="factions"><span class="player-dot">人間軍（昼に強い）</span><span class="cpu-dot">魔王軍（夜に強い）</span></div>
       </footer>
     </template>
     <div v-if="ready && input.buildMode.value && gameStore.status !== 'title'" class="build-banner" role="status">
@@ -227,9 +236,9 @@ onUnmounted(() => {
     </div>
     <div v-if="gameStore.isGameOver && gameStore.status !== 'title'" class="overlay">
       <div class="modal">
-        <h1>{{ gameStore.winner === 'player' ? '人間軍の勝利' : 'モンスター軍の勝利' }}</h1>
+        <h1>{{ gameStore.winner === 'player' ? '人間軍の勝利' : '魔王軍の勝利' }}</h1>
         <p>{{ defeatReason }}</p>
-        <p>撃破数 人間軍 {{ gameStore.summary.player.killed }} / モンスター軍 {{ gameStore.summary.cpu.killed }}</p>
+        <p>撃破数 人間軍 {{ gameStore.summary.player.killed }} / 魔王軍 {{ gameStore.summary.cpu.killed }}</p>
         <div class="modal-actions">
           <button @click="start()">Restart</button>
           <button @click="title" class="secondary">Back to Title</button>
@@ -279,6 +288,8 @@ button:hover { transform: scale(1.05); }
 .mode-select button.active { border-color: #c2a875; color: #f2e8cf; background: #3a3121dd; }
 .mode-select button:hover { transform: none; border-color: #c2a875; }
 .mode-description { margin: 10px 0 0; min-height: 1.5em; color: #b2b8b7; font-size: 12px; letter-spacing: .06em; }
+.map-select { flex-wrap: wrap; margin-top: 18px; }
+.map-select button { padding: 6px 14px; font-size: 13px; letter-spacing: .08em; }
 .start-button { margin: 22px auto 12px; display: block; border: 1px solid #c2a875; border-radius: 3px; background: #1d242bdd; color: #e9dab9; padding: 18px 55px; font-size: 16px; letter-spacing: .16em; }
 .start-button span { margin-left: 25px; }
 .seed-button { background: transparent; color: #aeb4b8; font-size: 12px; }

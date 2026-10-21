@@ -9,11 +9,14 @@ import { createScenery } from './scenery'
 import type { ModelKit } from './models'
 import { fortFootprint, fortGroundAt, gridToLocal, localToWorld } from '../../game/fortLayout'
 import { CASTLE_DEPTH, CASTLE_WIDTH, castleCell, castleRadius } from '../../game/castleLayout'
+import { mapTypeOf } from '../../game/mapType'
+import { MAP_THEME } from './mapTheme'
 
 export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
+    const mapType = mapTypeOf(grid), theme = MAP_THEME[mapType]
     grid = grid.map(row => Array.from(row))
     const group = new THREE.Group()
-    const coreField = createHeightfield(grid, [])
+    const coreField = createHeightfield(grid, [], mapType)
     const camps = forts.filter(fort => fort.kind === 'camp'), castles = forts.filter(fort => fort.kind === 'castle')
     const foundations: Foundation[] = camps.map(fort => ({ ...fortFootprint(fort), height: fort.groundHeight, margin: 36 }))
     // 城は岩山。戦場の内外で地形の高さを置き換える。
@@ -28,13 +31,13 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     // 砦の敷地と正門前、城の周りには木・岩・草を置かない。
     const reserved = (x: number, y: number) => inCastle(x, y) || foundations.some(f => x > f.minX - 14 && x < f.maxX + 14 && y > f.minY - 14 && y < f.maxY + 14)
     const landscape = createLandscape(grid, coreField, foundations, shape)
-    const terrainMeshes = createTerrainMeshes(coreField, landscape, kit.surfaces.ground)
+    const terrainMeshes = createTerrainMeshes(coreField, landscape, kit.surfaces.ground, theme.ground)
     const field = { ...coreField, heightAt: terrainMeshes.heightAt,
         surfaceAt: (x: number, y: number) => landscape.inside(x, y) ? landscape.surfaceAt(x, y) : Math.max(0, terrainMeshes.heightAt(x, y)),
     }
     const { terrain, surroundings } = terrainMeshes
     group.add(terrain, surroundings)
-    const scenery = createScenery(grid, reserved, landscape, field.heightAt, kit)
+    const scenery = createScenery(grid, reserved, landscape, field.heightAt, kit, theme)
     group.add(scenery.group)
 
     const trees: { x: number; z: number; h: number; scale: number }[] = []
@@ -73,7 +76,9 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
             bridges.push(bridge)
         }
         if ((t === TILE.WOOD || t >= 31 && t <= 41) && !reserved(x, z)) {
-            const count = t >= 34 ? 3 : 2
+            // 枯れ木はまばらに立つ。
+            const count = theme.trees.style === 'dead' ? (Math.sin(i * 12.9898 + j * 78.233) * 43758.5453 % 1 + 1) % 1 < .45 ? 1 : 0
+                : t >= 34 ? 3 : 2
             for (let k = 0; k < count; k++) {
                 const tx = x + Math.sin(i * 17 + j * 31 + k * 11) * 5
                 const tz = z + Math.cos(i * 13 + j * 7 + k * 19) * 5
@@ -87,13 +92,13 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
         const p = localToWorld(fort, lx + Math.sin(lx * 7.1 + ly) * .3, ly + Math.cos(ly * 5.3 + lx) * .3)
         trees.push({ x: p.x, z: p.y, h: field.heightAt(p.x, p.y) - 1, scale: .6 + .25 * (1 + Math.sin(lx * 3 + ly)) })
     }
-    const forest = createForest([...trees, ...scenery.trees], kit)
+    const forest = createForest([...trees, ...scenery.trees], kit, theme.trees)
     group.add(forest.group)
     // The terrain itself shapes the shoreline; no square water-tile silhouettes.
     const waterGeometry = new THREE.PlaneGeometry(LANDSCAPE_RADIUS * 2, LANDSCAPE_RADIUS * 2)
     waterGeometry.rotateX(-Math.PI / 2)
     waterGeometry.translate(TERRAIN_CENTER, 0, TERRAIN_CENTER)
-    const waterMaterial = new THREE.MeshStandardMaterial({ color: 0x466e73, roughness: .2, metalness: .45, transparent: true, opacity: .87 })
+    const waterMaterial = new THREE.MeshStandardMaterial({ color: theme.water.color, roughness: theme.water.roughness, metalness: theme.water.metalness, transparent: true, opacity: theme.water.opacity })
     waterMaterial.onBeforeCompile = shader => {
         shader.uniforms.time = { value: 0 }
         waterMaterial.userData.shader = shader
@@ -102,7 +107,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     }
     const water = new THREE.Mesh(waterGeometry, waterMaterial)
     group.add(water)
-    return { group, field, pickables: [terrain, surroundings, water, ...bridges], update(time: number) {
+    return { group, field, mapType, theme, pickables: [terrain, surroundings, water, ...bridges], update(time: number) {
         const shader = waterMaterial.userData.shader
         if (shader) shader.uniforms.time.value = time
     }, destroy() {

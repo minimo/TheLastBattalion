@@ -1,6 +1,7 @@
 import { createNoise2D } from 'simplex-noise'
 import { GRID_MAX, GRID_SIZE, LOGICAL_SIZE, RANK_CONFIG, TILE, TILE_PX } from './constants'
-import type { Base, Owner, Rank } from '../types/game'
+import { registerMapType, TERRAIN_PROFILE } from './mapType'
+import type { Base, MapType, Owner, Rank } from '../types/game'
 
 export type RandomFn = () => number
 
@@ -24,8 +25,9 @@ export function createBase(id: string, owner: Owner, rank: Rank, isCore: boolean
     }
 }
 
-export function generateMap(rnd: RandomFn): { mapGrid: number[][]; bases: Base[] } {
+export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGrid: number[][]; bases: Base[] } {
     const bases: Base[] = []
+    const profile = TERRAIN_PROFILE[type]
 
     // Logical coordinate system: 0 to 832 (52 * 16)
     const size = LOGICAL_SIZE
@@ -48,9 +50,9 @@ export function generateMap(rnd: RandomFn): { mapGrid: number[][]; bases: Base[]
             let m = noise2D_moist(nx * 3, ny * 3) + 0.5 * noise2D_moist(nx * 6, ny * 6)
             m = m / 1.5 // normalize
 
-            if (e > 0.45) {
+            if (e > profile.mountainAbove) {
                 mapGrid[y]![x] = TILE.MOUNTAIN // Mountain
-            } else if (m > 0.3) {
+            } else if (m > profile.woodAbove) {
                 mapGrid[y]![x] = TILE.WOOD // Wood
             } else {
                 mapGrid[y]![x] = TILE.GRASS // Grass
@@ -59,7 +61,7 @@ export function generateMap(rnd: RandomFn): { mapGrid: number[][]; bases: Base[]
     }
 
     // 2. Carve Rivers
-    const numRivers = 1 + Math.floor(rnd() * 2) // 1 to 2
+    const numRivers = profile.rivers(rnd)
     const riverPoints: { x: number, y: number }[] = []
 
     for (let r = 0; r < numRivers; r++) {
@@ -199,6 +201,25 @@ export function generateMap(rnd: RandomFn): { mapGrid: number[][]; bases: Base[]
         const failIdx = Math.floor(rnd() * riverPoints.length)
         riverPoints.splice(Math.max(0, failIdx - 8), 16)
     }
+    // オアシス: 丸い池をヤシの林が囲む。中央から離して置く（砦の配置は中央から陸を辿る）。
+    const [minOases, maxOases] = profile.oases
+    const oasisCount = maxOases ? minOases + Math.floor(rnd() * (maxOases - minOases + 1)) : 0
+    const oases: { x: number; y: number }[] = []
+    for (let attempt = 0; oases.length < oasisCount && attempt < 100; attempt++) {
+        const cx = 8 + rnd() * (GRID_MAX - 16), cy = 8 + rnd() * (GRID_MAX - 16)
+        if (Math.hypot(cx - GRID_MAX / 2, cy - GRID_MAX / 2) < 10 || oases.some(o => Math.hypot(o.x - cx, o.y - cy) < 16)) continue
+        oases.push({ x: cx, y: cy })
+        const radius = 1.8 + rnd() * 1.2, phase = rnd() * Math.PI * 2
+        for (let y = Math.floor(cy - radius - 4); y <= Math.ceil(cy + radius + 4); y++) for (let x = Math.floor(cx - radius - 4); x <= Math.ceil(cx + radius + 4); x++) {
+            if (!mapGrid[y] || mapGrid[y]![x] === undefined) continue
+            const angle = Math.atan2(y - cy, x - cx), d = Math.hypot(x - cx, y - cy)
+            const edge = radius * (1 + .2 * Math.sin(angle * 3 + phase))
+            if (d <= edge) mapGrid[y]![x] = TILE.WATER
+            else if (d <= edge + 2.6 && rnd() < .75) mapGrid[y]![x] = TILE.WOOD
+            else if (d <= edge + 3.2 && mapGrid[y]![x] === TILE.MOUNTAIN) mapGrid[y]![x] = TILE.GRASS
+        }
+    }
+
     // Assign variations for Mountains and Woods
     let waterCount = 0
     for (let y = 0; y <= GRID_MAX; y++) {
@@ -489,5 +510,6 @@ export function generateMap(rnd: RandomFn): { mapGrid: number[][]; bases: Base[]
         }
     })
 
+    registerMapType(mapGrid, type)
     return { mapGrid, bases }
 }
