@@ -324,6 +324,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
 
     // ---- 入力（no-life-kingと同じく、押した瞬間に旗の上かどうかで操作を決める） ----
     const raycaster = new THREE.Raycaster()
+    /** ポインターの下にある隊長の幟の部隊（ラベルの上ではないとき）。 */
+    let bannerHover: number | null = null
     let activePointer: number | null = null
     let backgroundGesture = false
     let pressed: { x: number; y: number } | null = null
@@ -348,8 +350,10 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const pointer = (event: PointerEvent) => {
         // Pointer capture targets the wrapper; resolve the banner under the cursor.
         const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-squad], [data-army]')
-        const squadId = element?.dataset.squad ? Number(element.dataset.squad) : null
         const army = !!element?.dataset.army
+        // 隊長の幟もラベルと同じく部隊の旗として扱う（指すとラベルが光り、押せばドラッグ・長押しできる）。
+        bannerHover = element ? null : bannerSquadAt(event)
+        const squadId = element?.dataset.squad ? Number(element.dataset.squad) : bannerHover
         input.setWorldPointer(groundPoint(event), squadId)
         renderer.domElement.style.cursor = squadId !== null || army ? 'pointer' : input.buildMode.value ? 'crosshair' : 'default'
         return { squadId, army }
@@ -358,7 +362,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
      * クリックした画面上の点に重なる隊長の幟の部隊。幟は宙にあって地面の点では拾えないので、
      * 竿（布の高さ）を画面へ投影した線分との距離で判定し、布の幅ほどの近さなら当たりとする。
      */
-    const bannerSquadAt = (event: PointerEvent) => {
+    const bannerSquadAt = (event: PointerEvent): number | null => {
         const battle = gameStore.battle
         if (!battle) return null
         const rect = canvasEl.getBoundingClientRect()
@@ -377,7 +381,11 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             const d = Math.hypot(cx - (a.x + dx * t), cy - (a.y + dy * t))
             if (d < reach && d < bestDistance) { bestDistance = d; best = squad.id }
         }
-        return best
+        // 地形や建物に隠れた幟は拾わない（ラベルも隠れている）。
+        const squad = best !== null ? battle.squadById.get(best) : undefined, leader = squad && battle.byId.get(squad.leaderId)
+        if (!squad || !leader) return null
+        const top = (squad.type === 'cavalry' ? BANNER_SPAN.cavalry : BANNER_SPAN.foot)[1]
+        return isOccluded(new THREE.Vector3(leader.x, surfaceAt(leader.x, leader.y) + top, leader.y)) ? null : best
     }
     /** クリックした幟、またはクリックした地点に最も近い兵の部隊を選ぶ。 */
     const pickSquad = (event: PointerEvent) => {
@@ -420,6 +428,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         if (!canCommand() || backgroundGesture) return
         input.handleGlobalPointerMove(event)
         if (canvasEl.contains(event.target as Node) || activePointer === event.pointerId) pointer(event)
+        else bannerHover = null
     }
     const up = (event: PointerEvent) => {
         if (input.contextMenu.value.visible || (!backgroundGesture && activePointer === event.pointerId)) {
@@ -514,6 +523,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 const count = String(squad.count)
                 if (visual.count.textContent !== count) visual.count.textContent = count
                 visual.label.classList.toggle('is-selected', input.selectedSquadId.value === squad.id)
+                visual.label.classList.toggle('is-hover', bannerHover === squad.id)
                 visual.label.classList.toggle('is-source', dragging === squad.id)
                 visual.label.classList.toggle('is-target', input.hoverSquadId.value === squad.id && (preview?.order === 'attack' || preview?.order === 'support'))
                 // 補給に戻っている間はその旨を、弓兵は矢の残り、補給部隊は補給の残り回数、工兵は建設の進み具合、疲れていれば「疲労」を示す。

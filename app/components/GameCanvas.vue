@@ -386,7 +386,7 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.squad-label.low-ammo .squad-ammo) { color: #ffcf6e; opacity: 1; }
 .canvas-wrapper :deep(.squad-label:hover) { transform: none; }
 .canvas-wrapper :deep(.squad-label.cpu) { font-size: 11px; }
-.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.army-label:hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
+.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.army-label:hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
 .canvas-wrapper :deep(.world-label.is-source) { color: #e3edff; }
 .canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #0b1216cc; border: 1px solid #000a; border-radius: 2px; overflow: hidden; box-shadow: 0 1px 3px #0008; }
