@@ -119,49 +119,116 @@ export type FortSite = { owner: Army; kind: FortKind; front: 1 | -1; originGx: n
 const isLowland = (tile: number) => tile !== TILE.WATER && tile !== TILE.BRIDGE
     && !(tile === TILE.MOUNTAIN || tile >= TILE_VARIANT.LOW_MOUNTAIN_MIN && tile <= TILE_VARIANT.HIGH_MOUNTAIN_MAX)
 
+/** キャンプを戦場の端から内側へずらせる最大のマス数と、両軍の砦の中心どうしの目標の距離（px）。 */
+const CAMP_MAX_INSET = 6
+const TARGET_FORT_DISTANCE = 1050
+
+type FortCandidate = FortSite & { score: number; x: number; y: number }
+
 /**
- * 人間軍の砦を戦場の左端、魔王軍の砦を右端に置く（owners の軍の砦だけ）。地形は作り直さず、
- * 端に沿って砦をずらし、水がなく低く、正門から戦場へ出られる場所を選ぶ。
+ * 人間軍の砦を戦場の左側、魔王軍の砦を右側に置く（owners の軍の砦だけ）。地形は作り直さず、
+ * 水がなく低く、正門から戦場へ出られる場所を選ぶ。キャンプは端から内側へずらすこともでき、
+ * 両軍の砦が遠くなりすぎないよう、二つの場所を組にして選ぶ（中心どうしが TARGET_FORT_DISTANCE を超えるほど嫌う）。
+ * 敷地の高低差が大きい場所（平らにすると周りが崖になる）と、正門の前（陣を敷く所）に川がある場所も嫌う。
+ * 水のない場所が見つからなければ、水を強く嫌うだけにして選ぶ（敷地の水は埋め立てる）。
  */
 export function placeForts(grid: number[][], owners: Army[] = ['player', 'cpu'], kind: FortKind = 'camp'): FortSite[] {
+    const sides = ([
+        { owner: 'player', kind, front: 1 },
+        { owner: 'cpu', kind, front: -1 },
+    ] as { owner: Army; kind: FortKind; front: 1 | -1 }[]).filter(side => owners.includes(side.owner))
+    const reachable = floodLand(grid, Math.round(TERRAIN_CENTER / TILE_PX), Math.round(TERRAIN_CENTER / TILE_PX))
+    const terrain = siteTerrain(grid)
+    let candidates = sides.map(side => fortCandidates(side, terrain, reachable, false))
+    if (candidates.some(list => !list.length)) candidates = sides.map(side => fortCandidates(side, terrain, reachable, true))
+    candidates.forEach((list, i) => { if (!list.length) throw new Error(`No suitable site for the ${sides[i]!.owner} fort`) })
+    const strip = ({ score: _score, x: _x, y: _y, ...site }: FortCandidate): FortSite => site
+    if (candidates.length === 1) return [strip(candidates[0]!.reduce((a, b) => b.score < a.score ? b : a))]
+    let best: [FortCandidate, FortCandidate] | undefined, bestScore = Infinity
+    for (const a of candidates[0]!) for (const b of candidates[1]!) {
+        const distance = Math.hypot(b.x - a.x, b.y - a.y)
+        const score = a.score + b.score + Math.max(0, distance - TARGET_FORT_DISTANCE) / TILE_PX * 5
+        if (score < bestScore) { bestScore = score; best = [a, b] }
+    }
+    return best!.map(strip)
+}
+
+/**
+ * 砦の敷地の良さを素早く調べるための、マスごとの水と起伏の累積和。
+ * sum(table, 矩形) で、グリッドの矩形の中の水のマス数・起伏の合計が定数時間で求まる。
+ */
+function siteTerrain(grid: number[][]) {
     const landscape = getPlayableLandscape(grid)
+    const size = PLAYABLE_GRID_MAX - PLAYABLE_GRID_MIN + 2
+    const water = new Float64Array(size * size), rough = new Float64Array(size * size)
+    const height = new Float64Array(size * size), height2 = new Float64Array(size * size)
+    for (let j = 1; j < size; j++) for (let i = 1; i < size; i++) {
+        const gx = PLAYABLE_GRID_MIN + i - 1, gy = PLAYABLE_GRID_MIN + j - 1
+        const tile = getPlayableTile(grid, gx, gy)
+        const wet = tile === TILE.WATER || tile === TILE.BRIDGE
+        const value = wet ? 0 : (isLowland(tile) ? 0 : 1) + Math.max(0, landscape.heightAt(gx * TILE_PX, gy * TILE_PX) - 50) / 40
+        const h = Math.max(0, landscape.heightAt(gx * TILE_PX, gy * TILE_PX))
+        const k = j * size + i
+        const accumulate = (table: Float64Array, v: number) => { table[k] = v + table[k - 1]! + table[k - size]! - table[k - size - 1]! }
+        accumulate(water, wet ? 1 : 0)
+        accumulate(rough, value)
+        accumulate(height, h)
+        accumulate(height2, h * h)
+    }
+    /** グリッドの矩形（両端を含む、戦場の範囲に切り詰める）の合計。 */
+    const sum = (table: Float64Array, x0: number, y0: number, x1: number, y1: number) => {
+        const i0 = Math.max(1, x0 - PLAYABLE_GRID_MIN + 1), j0 = Math.max(1, y0 - PLAYABLE_GRID_MIN + 1)
+        const i1 = Math.min(size - 1, x1 - PLAYABLE_GRID_MIN + 1), j1 = Math.min(size - 1, y1 - PLAYABLE_GRID_MIN + 1)
+        if (i1 < i0 || j1 < j0) return 0
+        return table[j1 * size + i1]! - table[(j0 - 1) * size + i1]! - table[j1 * size + i0 - 1]! + table[(j0 - 1) * size + i0 - 1]!
+    }
+    return { water, rough, height, height2, sum }
+}
+
+/** 片軍の砦を置ける場所と、その良さ（小さいほどよい）。 */
+function fortCandidates(side: { owner: Army; kind: FortKind; front: 1 | -1 }, terrain: ReturnType<typeof siteTerrain>, reachable: Set<string>, allowWater: boolean): FortCandidate[] {
+    const { kind } = side
     const { depth, width, front: marginFront, side: marginSide } = fortDims(kind)
     const centerGy = Math.round(TERRAIN_CENTER / TILE_PX) - Math.floor(width / 2)
-    const sides = ([
-        { owner: 'player', kind, front: 1, originGx: PLAYABLE_GRID_MIN },
-        { owner: 'cpu', kind, front: -1, originGx: PLAYABLE_GRID_MAX - depth + 1 },
-    ] as { owner: Army; kind: FortKind; front: 1 | -1; originGx: number }[]).filter(side => owners.includes(side.owner))
-    const reachable = floodLand(grid, Math.round(TERRAIN_CENTER / TILE_PX), Math.round(TERRAIN_CENTER / TILE_PX))
-    return sides.map(side => {
-        let best: { originGy: number; score: number } | undefined
-        const span = PLAYABLE_GRID_MAX - PLAYABLE_GRID_MIN - width - 4
+    const span = PLAYABLE_GRID_MAX - PLAYABLE_GRID_MIN - width - 4
+    const list: FortCandidate[] = []
+    // 城は大きいので戦場の端に置く。キャンプは内側へずらしてもよい（少しだけ嫌う）。
+    for (let inset = 0; inset <= (kind === 'camp' ? CAMP_MAX_INSET : 0); inset++) {
+        const originGx = side.front === 1 ? PLAYABLE_GRID_MIN + inset : PLAYABLE_GRID_MAX - depth + 1 - inset
         for (let offset = 0; offset <= span; offset++) for (const sign of offset ? [-1, 1] : [1]) {
             const originGy = centerGy + offset * sign
             if (originGy - marginSide < PLAYABLE_GRID_MIN + 1 || originGy + width + marginSide > PLAYABLE_GRID_MAX - 1) continue
-            const frame = { kind, front: side.front, originGx: side.originGx, originGy }
-            let water = 0, rough = 0
-            for (let ly = -marginSide - 1; ly <= width + marginSide && (kind === 'castle' || !water); ly++) {
-                for (let lx = -1; lx <= depth + marginFront + 2; lx++) {
-                    const { gx, gy } = localToGrid(frame, lx, ly)
-                    const tile = getPlayableTile(grid, gx, gy)
-                    if (tile === TILE.WATER || tile === TILE.BRIDGE) { water++; continue }
-                    if (!isLowland(tile)) rough += 1
-                    rough += Math.max(0, landscape.heightAt(gx * TILE_PX, gy * TILE_PX) - 50) / 40
-                }
-            }
-            // キャンプは水のない場所に限る。大きな城は水を避けきれないこともあるので、水を強く嫌うだけにする（敷地の水は埋め立てる）。
-            if (water && kind === 'camp') continue
+            const frame = { kind, front: side.front, originGx, originGy }
+            // 敷地と正門前（ローカル -1〜depth+marginFront+2, -marginSide-1〜width+marginSide）の水と起伏。
+            const a = localToGrid(frame, -1, -marginSide - 1), b = localToGrid(frame, depth + marginFront + 2, width + marginSide)
+            const x0 = Math.min(a.gx, b.gx), x1 = Math.max(a.gx, b.gx), y0 = Math.min(a.gy, b.gy), y1 = Math.max(a.gy, b.gy)
+            const water = terrain.sum(terrain.water, x0, y0, x1, y1)
+            // キャンプは水のない場所に限る。大きな城は水を避けきれないこともあるので、水を強く嫌うだけにする。
+            if (water && kind === 'camp' && !allowWater) continue
+            const rough = terrain.sum(terrain.rough, x0, y0, x1, y1)
+            // 敷地の高さのばらつき（標準偏差、px）。
+            const cells = (x1 - x0 + 1) * (y1 - y0 + 1), mean = terrain.sum(terrain.height, x0, y0, x1, y1) / cells
+            const spread = Math.sqrt(Math.max(0, terrain.sum(terrain.height2, x0, y0, x1, y1) / cells - mean * mean))
+            // 正門の前（陣を敷く所）の川。
+            const c = localToGrid(frame, depth + marginFront + 3, 0), d = localToGrid(frame, depth + marginFront + 12, width - 1)
+            const frontWater = terrain.sum(terrain.water, Math.min(c.gx, d.gx), Math.min(c.gy, d.gy), Math.max(c.gx, d.gx), Math.max(c.gy, d.gy))
             const gate = localToGrid(frame, depth + marginFront + 1, Math.floor(width / 2) - 1)
             if (!reachable.has(`${gate.gx},${gate.gy}`)) continue
-            const score = rough + offset * .4 + water * 50
-            if (!best || score < best.score) best = { originGy, score }
+            const center = localToGrid(frame, (depth - 1) / 2, (width - 1) / 2)
+            list.push({ ...side, originGx, originGy, score: rough + offset * .4 + inset * 1.5 + water * 50 + spread * 3 + frontWater * 4, x: center.gx * TILE_PX, y: center.gy * TILE_PX })
         }
-        if (!best) throw new Error(`No suitable site for the ${side.owner} fort`)
-        return { ...side, originGy: best.originGy }
-    })
+    }
+    return list
 }
 
-function floodLand(grid: number[][], startX: number, startY: number) {
+function floodLand(grid: number[][], centerX: number, centerY: number) {
+    // 中心が川のこともあるので、中心に最も近い陸のマスから広げる。
+    let startX = centerX, startY = centerY
+    search: for (let ring = 0; ring < 40; ring++) for (let dy = -ring; dy <= ring; dy++) for (let dx = -ring; dx <= ring; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring || getPlayableTile(grid, centerX + dx, centerY + dy) === TILE.WATER) continue
+        startX = centerX + dx; startY = centerY + dy
+        break search
+    }
     const reachable = new Set<string>([`${startX},${startY}`])
     const queue = [{ x: startX, y: startY }]
     for (let i = 0; i < queue.length; i++) {

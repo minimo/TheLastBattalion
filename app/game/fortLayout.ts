@@ -136,14 +136,23 @@ export function fortTileAt(fort: FortFrame, gx: number, gy: number): 'wall' | 'o
     return isBlockedLocal(lx, ly) ? 'wall' : 'open'
 }
 
+/** キャンプの敷地の外で、元の地形へなだらかにつなぐ幅（px）。 */
+const CAMP_APRON = 36
+
 /**
- * 砦の地面の高さ。キャンプは平坦（ground）。城は岩山と、周りのなだらかなつなぎ（範囲外でもつなぎの幅までは h を城の地面へ寄せる）。
- * 砦の範囲外で地形を変えなければ undefined。
+ * 砦の地面の高さ。キャンプは敷地を平坦（ground）にし、外周の CAMP_APRON の幅で元の地形 h へつなぐ。
+ * 城は岩山と、周りのなだらかなつなぎ。砦の範囲外で地形を変えなければ undefined。
  */
 export function fortGroundAt(fort: FortFrame, x: number, y: number, ground: number, h: number): number | undefined {
-    const { lx, ly } = gridToLocal(fort, x / TILE_PX, y / TILE_PX)
-    if (fort.kind === 'castle') return shapeCastleGround(lx, ly, ground, h)
-    return fortTileAt(fort, Math.round(x / TILE_PX), Math.round(y / TILE_PX)) ? ground : undefined
+    if (fort.kind === 'castle') {
+        const { lx, ly } = gridToLocal(fort, x / TILE_PX, y / TILE_PX)
+        return shapeCastleGround(lx, ly, ground, h)
+    }
+    const area = fortFootprint(fort)
+    const outside = Math.hypot(Math.max(area.minX - x, 0, x - area.maxX), Math.max(area.minY - y, 0, y - area.maxY))
+    if (outside >= CAMP_APRON) return undefined
+    const t = outside / CAMP_APRON
+    return h + (ground - h) * (1 - t * t * (3 - 2 * t))
 }
 
 export function createFortGeometry(fort: FortFrame) {

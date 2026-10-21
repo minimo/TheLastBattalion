@@ -11,7 +11,7 @@ import { FORT_DEPTH, FORT_WIDTH, isBlockedLocal, localToGrid } from './fortLayou
 import { CASTLE_ASSAULT_CELLS, CASTLE_DEPTH, CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
 import { findPath } from './pathfinding'
 import { TILE_PX } from './constants'
-import { ARROWS_PER_ARCHER, CONSTRUCTION, INITIAL_SQUADS, PIKEMAN, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
+import { ARROWS_PER_ARCHER, CONSTRUCTION, FORT_REFILL_RANGE, INITIAL_SQUADS, PIKEMAN, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
 import { getPlayableTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
@@ -22,6 +22,17 @@ const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType =
     const { mapGrid } = generateMap(createMulberry32(hashString(seed)), mapType)
     return createBattle(mapGrid, createMulberry32(hashString(seed) ^ 99), mode)
 }
+
+/**
+ * 経路が通れないマスを通らないか（4pxごとに調べる）。findPath は一直線に並ぶ中間点を省くので、
+ * 通れる経路でも2点だけになることがある。経路が見つからないときの直線は、ここで柵や壁にかかって失敗する。
+ */
+const routeIsClear = (battle: ReturnType<typeof makeBattle>, path: { x: number; y: number }[]) => path.every((b, i) => {
+    if (i === 0) return true
+    const a = path[i - 1]!, steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 4))
+    for (let k = 0; k <= steps; k++) if (isBlocked(battle.grid, a.x + (b.x - a.x) * k / steps, a.y + (b.y - a.y) * k / steps)) return false
+    return true
+})
 
 describe('砦の配置', () => {
     it('砦の中の通れるマスはすべて正門につながっている', () => {
@@ -80,24 +91,21 @@ describe('城の配置', () => {
 })
 
 describe('戦闘', () => {
-    for (const seed of ['123456', '777777', '424242', '100001', '851651', '795704', '248222', '512108', '587029', '102398', '454739', '999999']) {
-        it(`両軍の砦がマップの左右の端にあり、互いに行き来できる（SEED ${seed}）`, () => {
+    // 613061・657675・903052 は戦場の中心が川のマップ（以前は砦を置けずに止まっていた）。
+    for (const seed of ['123456', '777777', '424242', '100001', '851651', '795704', '248222', '512108', '587029', '102398', '454739', '999999', '613061', '657675', '903052']) {
+        it(`両軍の砦が戦場の左右にほどよい距離で置かれ、互いに行き来できる（SEED ${seed}）`, () => {
             const battle = makeBattle(seed)
             const [human, monster] = battle.forts
             expect(human!.owner).toBe('player')
-            expect(human!.x).toBeLessThan(0)
-            expect(monster!.x).toBeGreaterThan(832)
+            expect(human!.x).toBeLessThan(monster!.x - 600)
+            expect(Math.hypot(monster!.x - human!.x, monster!.y - human!.y)).toBeLessThan(1350)
             for (const fort of battle.forts) {
                 for (const p of fort.assaultPoints) expect(isBlocked(battle.grid, p.x, p.y)).toBe(false)
                 const wall = localToGrid(fort, 0, 3)
                 expect(isBlocked(battle.grid, wall.gx * TILE_PX, wall.gy * TILE_PX)).toBe(true)
             }
             const path = findPath(battle.grid, human!.assaultPoints[0]!.x, human!.assaultPoints[0]!.y, monster!.assaultPoints[0]!.x, monster!.assaultPoints[0]!.y)
-            expect(path.length).toBeGreaterThan(2)
-            for (let i = 1; i < path.length; i++) {
-                const a = path[i - 1]!, b = path[i]!
-                for (let t = 0; t <= 1; t += .1) expect(isBlocked(battle.grid, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)).toBe(false)
-            }
+            expect(routeIsClear(battle, path)).toBe(true)
             const total = (Object.keys(INITIAL_SQUADS) as UnitType[]).reduce((sum, type) => sum + INITIAL_SQUADS[type] * SQUAD_SIZE[type], 0)
             const summary = summarize(battle)
             expect(summary.player.total).toBeGreaterThan(total * .9)
@@ -143,9 +151,10 @@ describe('部隊', () => {
         const commander = createCpuCommander(battle)
         orderArmy(battle, 'player', 'charge')
         let worst = 0
-        for (let t = 0; t < 40 && !battle.winner; t += 1 / 30) {
+        // 進軍の間（敵とぶつかって乱戦になる前）を見る。
+        for (let t = 0; t < 30 && !battle.winner; t += 1 / 30) {
             updateBattle(battle, 1 / 30); commander.update(1 / 30)
-            if (t < 20) continue
+            if (t < 10) continue
             for (const squad of battle.squads) {
                 if (squad.owner !== 'player' || squad.order !== 'charge') continue
                 const leader = battle.byId.get(squad.leaderId)!
@@ -522,10 +531,15 @@ describe('工兵の建設物', () => {
         run(battle, .1)
         expect(archers.order).toBe('resupply')
         expect(archers.depotId).toBe(site.id)
-        for (let t = 0; t < 60 && archers.order === 'resupply'; t += 1) run(battle, 1)
-        expect(archers.order).toBe('move')
+        // 補給の間、砦の補給を受けられる距離には入らない。
         const home = battle.forts.find(f => f.owner === 'player')!
-        expect(Math.hypot(archers.center.x - home.x, archers.center.y - home.y)).toBeGreaterThan(200)
+        let nearest = Infinity
+        for (let t = 0; t < 60 && archers.order === 'resupply'; t += 1) {
+            run(battle, 1)
+            nearest = Math.min(nearest, Math.hypot(archers.center.x - home.x, archers.center.y - home.y))
+        }
+        expect(archers.order).toBe('move')
+        expect(nearest).toBeGreaterThan(FORT_REFILL_RANGE)
     }, 240000)
 
     it('建設物は他の建設物や砦・川と重ねて置けない', () => {
@@ -573,11 +587,7 @@ describe('攻城戦・防衛戦', () => {
                 // 攻め手の兵は砦まで歩いて行ける。
                 const camp = battle.homes[attacker]
                 const path = findPath(battle.grid, camp.x, camp.y, fort.assaultPoints[0]!.x, fort.assaultPoints[0]!.y)
-                expect(path.length).toBeGreaterThan(2)
-                for (let i = 1; i < path.length; i++) {
-                    const a = path[i - 1]!, b = path[i]!
-                    for (let t = 0; t <= 1; t += .05) expect(isBlocked(battle.grid, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)).toBe(false)
-                }
+                expect(routeIsClear(battle, path)).toBe(true)
             })
         }
 
@@ -651,7 +661,7 @@ describe('地形の種類', () => {
             expect(mapTypeOf(battle.grid)).toBe(mapType)
             const [human, monster] = battle.forts
             const path = findPath(battle.grid, human!.assaultPoints[0]!.x, human!.assaultPoints[0]!.y, monster!.assaultPoints[0]!.x, monster!.assaultPoints[0]!.y)
-            expect(path.length).toBeGreaterThan(2)
+            expect(routeIsClear(battle, path)).toBe(true)
         })
     }
     it('草原には水がなく、砂漠の水はオアシスだけで、魔王城付近には必ず川がある', () => {

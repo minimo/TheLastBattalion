@@ -141,6 +141,15 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         }
     }
 
+    /** ドラッグ中（手を離す前）なら、指示を出さずにドラッグと選択を取り消す。取り消したら true。 */
+    const cancelDrag = () => {
+        if (dragging.value === null) return false
+        clearLongPress()
+        dragging.value = null
+        selectedSquadId.value = null
+        return true
+    }
+
     const startBuild = (squadId: number, kind: ConstructionKind) => {
         // バリケードは敵陣の方（東西）を向いて南北に並べるのを初めの向きにする。
         buildMode.value = { squadId, kind, axis: 'y' }
@@ -211,6 +220,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         handleGlobalPointerUp,
         handleContextMenuAction,
         closeContextMenu,
+        cancelDrag,
         selectSquad: (id: number | null) => { selectedSquadId.value = id },
         reset,
         /** ドラッグ中の指示の種類（プレビュー表示用）。 */

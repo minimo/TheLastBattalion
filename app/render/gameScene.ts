@@ -163,10 +163,45 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         const point = new THREE.Vector3(x, surfaceAt(x, y) + elevation, y).project(camera)
         return { x: (point.x + 1) * canvasEl.clientWidth / 2, y: (1 - point.y) * canvasEl.clientHeight / 2, visible: point.z > -1 && point.z < 1 && Math.abs(point.x) < 1.1 && Math.abs(point.y) < 1.1 }
     }
+    // ---- ラベルの隠れ判定（地形や建物の後ろにあるラベルは出さない） ----
+    const occlusionRay = new THREE.Raycaster()
+    /** 地形のいちばん高い所。視線がこれより上に出たら、もう地形には隠れない。 */
+    let terrainTop: { world: typeof world | null; height: number } = { world: null, height: 0 }
+    const terrainTopHeight = () => {
+        if (terrainTop.world !== world) {
+            const [terrain, surroundings] = world.pickables
+            const box = new THREE.Box3().setFromObject(terrain!).union(new THREE.Box3().setFromObject(surroundings!))
+            terrainTop = { world, height: box.max.y }
+        }
+        return terrainTop.height
+    }
+    const isOccluded = (point: THREE.Vector3) => {
+        const toCamera = camera.position.clone().sub(point)
+        const distance = toCamera.length()
+        toCamera.divideScalar(distance)
+        // 地形は高さを辿って調べる（地形のメッシュへのレイキャストは重い）。
+        const top = terrainTopHeight()
+        for (let t = 4; t < distance; t += 6) {
+            const y = point.y + toCamera.y * t
+            if (y > top) break
+            if (y < world.field.heightAt(point.x + toCamera.x * t, point.z + toCamera.z * t)) return true
+        }
+        // 本陣・城・建設物。半透明の下見や、ラベルのすぐ下の自分の建物は数えない。
+        occlusionRay.set(point, toCamera)
+        occlusionRay.far = distance
+        occlusionRay.camera = camera
+        const hits = occlusionRay.intersectObjects([...camps.map(c => c.camp.group), constructions.group], true)
+        return hits.some(hit => hit.distance > 4 && (hit.object as THREE.Mesh).isMesh && isShown(hit.object) && !isTranslucent(hit.object))
+    }
+    const isShown = (object: THREE.Object3D | null): boolean => !object || (object.visible && isShown(object.parent))
+    const isTranslucent = (object: THREE.Object3D) => {
+        const material = (object as THREE.Mesh).material
+        return (Array.isArray(material) ? material : [material]).some(m => m?.transparent)
+    }
     const placeLabel = (label: HTMLElement, x: number, y: number, h: number) => {
         const p = project(x, y, h)
         label.style.transform = `translate(-50%, -100%) translate(${p.x}px, ${p.y}px)`
-        label.hidden = !p.visible
+        label.hidden = !p.visible || isOccluded(new THREE.Vector3(x, surfaceAt(x, y) + h, y))
     }
     const factionColor = (owner: Fort['owner']) => `#${FACTION[owner].toString(16).padStart(6, '0')}`
 
@@ -244,7 +279,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     armyLabel.style.setProperty('--faction', factionColor('player'))
     labels.appendChild(armyLabel)
 
-    const pathOverlay = createPathOverlay(camera, canvasEl, (x, y) => world.field.surfaceAt(x, y))
+    const pathOverlay = createPathOverlay(camera, canvasEl, (x, y) => world.field.surfaceAt(x, y), isOccluded)
     scene.add(pathOverlay.group)
     let pathKey = ''
     /** 部隊の今の指示の行き先（表示用）。 */
@@ -444,7 +479,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             camera.lookAt(controls.target)
         }
         camera.updateMatrixWorld()
-        atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2)
+        atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2, gameStore.dayTime)
         const visible = gameStore.status !== 'title'
         labels.hidden = !visible
         world.group.visible = visible

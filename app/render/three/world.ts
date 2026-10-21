@@ -3,7 +3,7 @@ import { createForest } from './forest'
 import { TILE, TILE_PX } from '../../game/constants'
 import type { Fort } from '../../types/game'
 import { BRIDGE_HEIGHT, createHeightfield } from './heightfield'
-import { createLandscape, LANDSCAPE_RADIUS, TERRAIN_CENTER, type Foundation } from './landscape'
+import { createLandscape, LANDSCAPE_RADIUS, TERRAIN_CENTER } from './landscape'
 import { createTerrainMeshes } from './terrainMesh'
 import { createScenery } from './scenery'
 import type { ModelKit } from './models'
@@ -18,10 +18,10 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     const group = new THREE.Group()
     const coreField = createHeightfield(grid, [], mapType)
     const camps = forts.filter(fort => fort.kind === 'camp'), castles = forts.filter(fort => fort.kind === 'castle')
-    const foundations: Foundation[] = camps.map(fort => ({ ...fortFootprint(fort), height: fort.groundHeight, margin: 36 }))
-    // 城は岩山。戦場の内外で地形の高さを置き換える。
-    const shape = castles.length ? (x: number, y: number, h: number) => {
-        for (const fort of castles) h = fortGroundAt(fort, x, y, fort.groundHeight, h) ?? h
+    const foundations = camps.map(fort => fortFootprint(fort))
+    // 砦の敷地（キャンプは平地、城は岩山）。戦場の内外で地形の高さを置き換えるので、砦が戦場の内側にあっても平らに建つ。
+    const shape = forts.length ? (x: number, y: number, h: number) => {
+        for (const fort of forts) h = fortGroundAt(fort, x, y, fort.groundHeight, h) ?? h
         return h
     } : undefined
     const inCastle = (x: number, y: number) => castles.some(fort => {
@@ -30,7 +30,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     })
     // 砦の敷地と正門前、城の周りには木・岩・草を置かない。
     const reserved = (x: number, y: number) => inCastle(x, y) || foundations.some(f => x > f.minX - 14 && x < f.maxX + 14 && y > f.minY - 14 && y < f.maxY + 14)
-    const landscape = createLandscape(grid, coreField, foundations, shape)
+    const landscape = createLandscape(grid, coreField, [], shape)
     const terrainMeshes = createTerrainMeshes(coreField, landscape, kit.surfaces.ground, theme.ground)
     const field = { ...coreField, heightAt: terrainMeshes.heightAt,
         surfaceAt: (x: number, y: number) => landscape.inside(x, y) ? landscape.surfaceAt(x, y) : Math.max(0, terrainMeshes.heightAt(x, y)),

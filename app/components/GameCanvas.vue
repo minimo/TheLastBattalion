@@ -103,7 +103,9 @@ const onKey = (event: KeyboardEvent) => {
   if (event.code === 'Space') {
     event.preventDefault()
     gameStore.togglePause()
-  } else if (event.code === 'Escape' && input.buildMode.value) input.cancelBuild()
+  } else if (event.code === 'Escape') {
+    if (!input.cancelDrag() && input.buildMode.value) input.cancelBuild()
+  }
   else if (event.code === 'KeyR' && input.buildMode.value) input.rotateBuild()
 }
 
