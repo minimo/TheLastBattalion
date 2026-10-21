@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { Army, Arrow, Soldier, SpentArrow, UnitType } from '../../types/game'
-import { createArrowGeometry, createArrowTrailGeometry, createBannerGeometry, createUnitModels, type PartRole } from './unitModels'
+import { createArrowGeometry, createArrowTrailGeometry, createBannerGeometry, createMonsterBannerGeometry, createUnitModels, type PartRole } from './unitModels'
 import { FACTION } from './models'
 
 type SurfaceHeight = (x: number, y: number) => number
@@ -73,8 +73,8 @@ export function createArmyRenderer(scene: THREE.Scene) {
     const trails = growable(trailGeometry, trailMaterial, false, 4)
     const stuck = growable(arrowGeometry, material, false)
     const hidden = new THREE.Matrix4().makeScale(0, 0, 0)
-    // 隊長が背負う自軍の幟。
-    const bannerGeometries = Object.fromEntries(ARMIES.map(army => [army, createBannerGeometry(FACTION[army])])) as Record<Army, THREE.BufferGeometry>
+    // 隊長が背負う自軍の幟。人間軍は縦長の幟、モンスター軍は十字の槍に吊るしたボロ布。
+    const bannerGeometries = { player: createBannerGeometry(FACTION.player), cpu: createMonsterBannerGeometry() } as Record<Army, THREE.BufferGeometry>
     const banners = Object.fromEntries(ARMIES.map(army => [army, growable(bannerGeometries[army], material, true)])) as Record<Army, ReturnType<typeof growable>>
     const bannerCounts = { player: 0, cpu: 0 } as Record<Army, number>
     const bannerLocal = new THREE.Matrix4(), bannerSway = new THREE.Matrix4(), bannerEuler = new THREE.Euler()

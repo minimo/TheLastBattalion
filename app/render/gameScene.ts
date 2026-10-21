@@ -25,6 +25,8 @@ interface GameSceneOptions {
 }
 
 const CLICK_TOLERANCE = 6 // px
+/** 隊長の背の幟の高さの範囲（地面から、布の下端〜竿の先端。army.ts の幟の付け位置とモデルの縮尺から）。 */
+const BANNER_SPAN = { foot: [8, 17], cavalry: [10.5, 19.5] } as const
 const TYPE_MARK: Record<UnitType, string> = { infantry: '歩', pikeman: '槍', archer: '弓', cavalry: '騎', supply: '補', engineer: '工' }
 const TYPE_NAME: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給', engineer: '工兵' }
 
@@ -317,9 +319,36 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         renderer.domElement.style.cursor = squadId !== null || army ? 'pointer' : input.buildMode.value ? 'crosshair' : 'default'
         return { squadId, army }
     }
-    /** クリックした地点に最も近い兵の部隊を選ぶ。 */
+    /**
+     * クリックした画面上の点に重なる隊長の幟の部隊。幟は宙にあって地面の点では拾えないので、
+     * 竿（布の高さ）を画面へ投影した線分との距離で判定し、布の幅ほどの近さなら当たりとする。
+     */
+    const bannerSquadAt = (event: PointerEvent) => {
+        const battle = gameStore.battle
+        if (!battle) return null
+        const rect = canvasEl.getBoundingClientRect()
+        const cx = event.clientX - rect.left, cy = event.clientY - rect.top
+        let best: number | null = null, bestDistance = Infinity
+        for (const squad of battle.squads) {
+            const leader = battle.byId.get(squad.leaderId)
+            if (!leader || leader.state === 'dead') continue
+            const [low, high] = squad.type === 'cavalry' ? BANNER_SPAN.cavalry : BANNER_SPAN.foot
+            const a = project(leader.x, leader.y, low), b = project(leader.x, leader.y, high)
+            if (!a.visible || !b.visible) continue
+            // 布の幅（約2.5）を画面の長さに直した分を、当たりの幅にする。
+            const reach = Math.max(6, Math.hypot(b.x - a.x, b.y - a.y) / (high - low) * 2.5)
+            const dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy || 1
+            const t = Math.max(0, Math.min(1, ((cx - a.x) * dx + (cy - a.y) * dy) / length2))
+            const d = Math.hypot(cx - (a.x + dx * t), cy - (a.y + dy * t))
+            if (d < reach && d < bestDistance) { bestDistance = d; best = squad.id }
+        }
+        return best
+    }
+    /** クリックした幟、またはクリックした地点に最も近い兵の部隊を選ぶ。 */
     const pickSquad = (event: PointerEvent) => {
         const battle = gameStore.battle
+        const banner = bannerSquadAt(event)
+        if (banner !== null) { input.selectSquad(banner); return }
         const point = groundPoint(event)
         if (!battle || point.x < -9000) { input.selectSquad(null); return }
         let best: number | null = null, bestDistance = 6 + camera.position.distanceTo(controls.target) * .006
@@ -440,7 +469,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 c.label.setAttribute('aria-label', `${c.fort.owner === 'player' ? '人間軍' : '魔王軍'}の本陣 耐久${text}`)
                 placeLabel(c.label, c.fort.core.x, c.fort.core.y, c.camp.labelHeight)
             }
-            // 部隊の旗を重心の上に置く。
+            // 部隊の旗を隊長の幟の上に置く。
             const alive = new Set<number>()
             const dragging = input.dragging.value
             const preview = typeof dragging === 'number' ? input.previewCommand() : null
@@ -461,7 +490,10 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 if (visual.ammo.textContent !== ammoText) visual.ammo.textContent = ammoText
                 visual.label.classList.toggle('low-ammo', squad.order === 'resupply' || tired || (squad.maxArrows > 0 && squad.arrows < squad.maxArrows * .25) || (squad.maxSupplies > 0 && squad.supplies === 0))
                 visual.label.setAttribute('aria-label', `${squad.owner === 'player' ? '自軍' : '敵軍'} 第${squad.number}${TYPE_NAME[squad.type]}隊 ${count}人${ammoText ? ` ${ammoText}` : ''}`)
-                placeLabel(visual.label, squad.center.x, squad.center.y, squad.type === 'cavalry' ? 16 : 13)
+                // 隊長の背の幟の少し上に掲げる。隊長が決まる前は部隊の重心の上。
+                const leader = battle.byId.get(squad.leaderId)
+                const at = leader && leader.state !== 'dead' ? leader : squad.center
+                placeLabel(visual.label, at.x, at.y, (squad.type === 'cavalry' ? BANNER_SPAN.cavalry : BANNER_SPAN.foot)[1] + 2)
             }
             squadLabels.forEach((v, id) => { if (!alive.has(id)) { v.label.remove(); squadLabels.delete(id) } })
             const formation = battle.formations.player

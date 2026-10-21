@@ -501,10 +501,47 @@ export function createBannerGeometry(faction: number) {
         add(CYLINDER, 0x4a3524, [0, 15, 0], [.3, 30, .3])
         add(CONE, 0xd8c27a, [0, 30.8, 0], [.45, 1.6, .45])
         add(CYLINDER, 0x4a3524, [3.1, 29.2, 0], [.18, 6.4, .18], [0, 0, Math.PI / 2])
-        add(BOX, faction, [3.2, 20.6, 0], [5.6, 16.4, .14])
-        add(BOX, 0xf1e4be, [3.2, 27.9, .02], [5.7, 1.6, .18])
-        add(SPHERE, 0xf1e4be, [3.2, 21.5, 0], [1.6, 1.6, .2])
-        add(SPHERE, faction, [3.2, 21.5, 0], [.9, .9, .26])
+        // 布と上の帯は重ねずに上下に並べる（重ねると面が近すぎてちらつく）。紋も布から十分に浮かせる。
+        add(BOX, faction, [3.2, 19.75, 0], [5.6, 14.7, .14])
+        add(BOX, 0xf1e4be, [3.2, 27.95, 0], [5.6, 1.7, .14])
+        add(SPHERE, 0xf1e4be, [3.2, 21, 0], [1.6, 1.6, .28])
+        add(SPHERE, faction, [3.2, 21, 0], [.9, .9, .42])
+    })
+}
+
+/**
+ * モンスター軍の隊長が背負う幟（原点は背中の竿の付け根）。槍の穂先の下に横木を十字に組み、
+ * 横木から赤いボロ布を吊るす。布の下端は長さの違う裂け目が垂れ、くすんだ色の紋章を描く（タイトル画像の旗の紋章の形）。
+ * 面が重なってちらつかないよう、布の各片は上下・左右に隙間なく並べ、紋章は布から十分に浮かせる。
+ */
+export function createMonsterBannerGeometry() {
+    const CLOTH = 0x9a1c20, SHAFT = 0x3a2a20, MARK = 0xb8726a
+    return assemble(add => {
+        add(CYLINDER, SHAFT, [0, 15, 0], [.3, 30, .3])
+        add(CONE, IRON, [0, 31.4, 0], [.5, 2.8, .3])
+        // 十字の横木と、その両端の小さな穂
+        add(CYLINDER, SHAFT, [0, 27.6, 0], [.2, 7.2, .2], [0, 0, Math.PI / 2])
+        for (const side of [-1, 1]) add(CONE, IRON, [side * 4, 27.6, 0], [.25, 1, .25], [0, 0, -side * Math.PI / 2])
+        // 布は竿の前（兵の頭より上なので体には掛からない）に吊るし、正面から見ると竿が布に隠れる。上の本体と、下に垂れる裂け目（長さを不揃いにして風にあおられたように少しずつ傾ける）。
+        const z = .55
+        add(BOX, CLOTH, [0, 22.2, z], [6, 10.4, .14])
+        const tatters = [3.4, 1.4, 4.6, 2.3, 5.4, 2.6]
+        tatters.forEach((length, i) => {
+            add(BOX, CLOTH, [-2.5 + i, 17 - length / 2, z - Math.sin(i * 2.1) * .25], [1, length, .14], [Math.sin(i * 1.7) * .14, 0, 0])
+        })
+        // 紋章: 縦の線に角ばった膨らみ（右上）、左の折れ線から右下へ長く払う線。
+        // 点は布の上での割合（u: 左0〜右1、v: 上0〜下1）で書き、線は継ぎ目が欠けないよう太さの分だけ伸ばす。
+        const at = (u: number, v: number) => ({ x: -3 + 6 * u, y: 27.4 - 10.4 * v })
+        const stroke = (...points: [number, number][]) => {
+            for (let i = 1; i < points.length; i++) {
+                const a = at(...points[i - 1]!), b = at(...points[i]!)
+                const dx = b.x - a.x, dy = b.y - a.y
+                add(BOX, MARK, [(a.x + b.x) / 2, (a.y + b.y) / 2, z], [.4, Math.hypot(dx, dy) + .4, .42], [0, 0, Math.atan2(-dx, dy)])
+            }
+        }
+        stroke([.55, .22], [.55, .86])
+        stroke([.55, .25], [.75, .41], [.55, .56])
+        stroke([.27, .27], [.47, .38], [.39, .5], [.79, .71])
     })
 }
 
