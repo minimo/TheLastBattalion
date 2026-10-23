@@ -830,7 +830,7 @@ describe('開戦時の編成', () => {
     it('攻城戦の人間軍は2,500人まで布陣できる', () => {
         expect(armyPool('siege', 'player')).toBe(2500)
         expect(deployLimit('siege', 'player')).toBe(2500)
-        const plan: DeploymentPlan = { formation: 'line', squads: Array.from({ length: 25 }, () => ({ type: 'infantry' as const, size: 100 })) }
+        const plan: DeploymentPlan = { formation: 'line', squads: [...Array.from({ length: 20 }, () => ({ type: 'infantry' as const, size: 100 })), ...Array.from({ length: 5 }, () => ({ type: 'pikeman' as const, size: 100 }))] }
         expect(normalizeDeployment(plan, 'siege', 'player').squads).toHaveLength(25)
         expect(normalizeDeployment({ ...plan, squads: [...plan.squads, { type: 'archer', size: 10 }] }, 'siege', 'player').squads).toHaveLength(25)
         const battle = makeBattle('123456', 'siege', undefined, plan)

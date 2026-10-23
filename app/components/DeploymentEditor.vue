@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { FORMATIONS, SQUAD_SIZE } from '~/game/formation'
 import {
-  armyPool, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP, squadSizeMax, UNIT_TYPES, type DeploymentPlan,
+  armyPool, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP, squadSizeMax, SQUADS_PER_TYPE_MAX, UNIT_TYPES, type DeploymentPlan,
 } from '~/game/deployment'
 import type { BattleMode, UnitType } from '~/types/game'
 
@@ -28,10 +28,10 @@ const setSize = (index: number, size: number) => {
   squad.size = Math.max(SQUAD_SIZE_MIN, Math.min(max, Math.round(Number.isFinite(size) ? size : squad.size)))
 }
 const step = (index: number, delta: number) => setSize(index, draft.value.squads[index]!.size + delta)
-/** 兵種の部隊を1つ加える（人数は定員、上限が近ければ残りの人数）。兵種の順に並べて、部隊の番号を兵種ごとの順にする。 */
+/** 兵種の部隊を1つ加える（人数は定員、上限が近ければ残りの人数。兵種ごとに SQUADS_PER_TYPE_MAX 部隊まで）。兵種の順に並べて、部隊の番号を兵種ごとの順にする。 */
 const addSquad = (type: UnitType) => {
   const size = Math.min(SQUAD_SIZE[type], room.value)
-  if (size < SQUAD_SIZE_MIN) return
+  if (size < SQUAD_SIZE_MIN || squadsOf(type).length >= SQUADS_PER_TYPE_MAX) return
   const at = draft.value.squads.reduce((last, sq, i) => UNIT_TYPES.indexOf(sq.type) <= UNIT_TYPES.indexOf(type) ? i + 1 : last, 0)
   draft.value.squads.splice(at, 0, { type, size })
 }
@@ -69,7 +69,7 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
             <div class="type-head">
               <span>{{ unitNames[type] }}</span>
               <small>{{ squadsOf(type).length }}部隊 · {{ typeTotal(type) }}人</small>
-              <button class="add" :disabled="room < SQUAD_SIZE_MIN" :aria-label="`${unitNames[type]}の部隊を加える`" @click="addSquad(type)">＋ 部隊</button>
+              <button class="add" :disabled="room < SQUAD_SIZE_MIN || squadsOf(type).length >= SQUADS_PER_TYPE_MAX" :aria-label="`${unitNames[type]}の部隊を加える`" @click="addSquad(type)">＋ 部隊</button>
             </div>
             <div class="squads">
               <div v-for="(sq, n) in squadsOf(type)" :key="sq.index" class="squad-chip">
@@ -83,7 +83,7 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
             </div>
           </li>
         </ul>
-        <p class="deploy-note">1部隊 {{ SQUAD_SIZE_MIN }}〜定員の2倍まで。人数は軍の兵から割り当てます。</p>
+        <p class="deploy-note">1部隊 {{ SQUAD_SIZE_MIN }}〜定員の2倍まで。兵種ごとに{{ SQUADS_PER_TYPE_MAX }}部隊まで（10部隊を超えた分は陣の2列目に並びます）。人数は軍の兵から割り当てます。</p>
       </div>
 
       <footer>

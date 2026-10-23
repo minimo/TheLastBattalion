@@ -13,6 +13,8 @@ export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry
 export const SQUAD_SIZE_MIN = 10
 export const squadSizeMax = (type: UnitType) => SQUAD_SIZE[type] * 2
 export const SQUAD_SIZE_STEP = 5
+/** 編成で兵種ごとに布陣できる部隊の数の上限（陣形で10部隊ずつ2列に並ぶ）。 */
+export const SQUADS_PER_TYPE_MAX = 20
 
 /** 攻城戦・防衛戦の守り手（砦を持つ側）。攻防戦はどちらも砦を持つ。 */
 export const defenderOf = (mode: BattleMode): Army | null => mode === 'siege' ? 'cpu' : mode === 'defense' ? 'player' : null
@@ -54,7 +56,7 @@ export function presetDeployment(key: string, mode: BattleMode, owner: Army): De
     const base = defaultDeployment(mode, owner)
     if (!preset?.mix) return base
     const total = deployedCount(base)
-    const counts = Object.fromEntries(UNIT_TYPES.map(type => [type, Math.max(preset.mix![type] > 0 ? 1 : 0, Math.round(total * preset.mix![type] / SQUAD_SIZE[type]))])) as Record<UnitType, number>
+    const counts = Object.fromEntries(UNIT_TYPES.map(type => [type, Math.min(SQUADS_PER_TYPE_MAX, Math.max(preset.mix![type] > 0 ? 1 : 0, Math.round(total * preset.mix![type] / SQUAD_SIZE[type])))])) as Record<UnitType, number>
     // 端数の切り上げで上限を超えたら、人数の最も多い兵種から1部隊ずつ減らす。
     while (totalOf(counts) > deployLimit(mode, owner)) {
         const most = UNIT_TYPES.reduce((a, b) => counts[b] * SQUAD_SIZE[b] > counts[a] * SQUAD_SIZE[a] ? b : a)
@@ -63,10 +65,10 @@ export function presetDeployment(key: string, mode: BattleMode, owner: Army): De
     return normalizeDeployment({ formation: preset.formation, squads: squadsOf(counts) }, mode, owner)
 }
 
-/** 編成を兵種の順に並べ、人数を範囲に収め、布陣できる上限を超えた分の部隊を後ろから削る。 */
+/** 編成を兵種の順に並べ、人数を範囲に収め、兵種ごとの部隊数と布陣できる上限を超えた分の部隊を後ろから削る。 */
 export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owner: Army): DeploymentPlan {
     const limit = deployLimit(mode, owner)
-    const sorted = UNIT_TYPES.flatMap(type => plan.squads.filter(sq => sq.type === type))
+    const sorted = UNIT_TYPES.flatMap(type => plan.squads.filter(sq => sq.type === type).slice(0, SQUADS_PER_TYPE_MAX))
     const squads: DeploymentPlan['squads'] = []
     let total = 0
     for (const sq of sorted) {
