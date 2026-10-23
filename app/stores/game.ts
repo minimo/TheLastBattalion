@@ -32,7 +32,7 @@ function loadPlans(): Record<BattleMode, DeploymentPlan> {
     })) as Record<BattleMode, DeploymentPlan>
 }
 
-const emptySummary = (): ArmySummary => ({ infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: 0, fortMaxHp: 1, killed: 0, reserves: 0, hasFort: true })
+const emptySummary = (): ArmySummary => ({ infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: 0, fortMaxHp: 1, killed: 0, deserted: 0, reserves: 0, hasFort: true })
 
 export interface SquadSummary {
     id: number

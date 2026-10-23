@@ -5,6 +5,10 @@ import { createSurfaceMaterials } from './materials'
 
 /** 人間軍は青、魔王軍は赤。 */
 export const FACTION = { player: 0x6f9be8, cpu: 0xe0614f, neutral: 0xf1e4be }
+/** 隠れ判定（ラベルが建物の後ろにあるか）専用の形を置くレイヤー。カメラはこのレイヤーを描かない。 */
+export const OCCLUDER_LAYER = 1
+/** これより小さい部材（窓・胸壁・杭など）は隠れ判定に使わない。 */
+const OCCLUDER_MIN_VOLUME = 100
 
 export function createModelKit() {
     const box = new THREE.BoxGeometry(1, 1, 1)
@@ -36,12 +40,29 @@ export function createModelKit() {
         parent.add(mesh)
         return mesh
     }
+    const occluderMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })
     // Merge static detail by material; hundreds of stakes remain only a few draw calls.
+    // 結合したメッシュは城全体ほどの大きさになり、レイキャストが全三角形の総当たりになる。
+    // そこで大きな部材だけを、描画されない隠れ判定用の形（OCCLUDER_LAYER）として個別に残す。
     const bake = (group: THREE.Group) => {
         const batches = new Map<THREE.Material, THREE.BufferGeometry[]>()
+        const occluders: THREE.Mesh[] = []
+        const size = new THREE.Vector3()
         for (const child of [...group.children]) {
             if (!(child instanceof THREE.Mesh) || Array.isArray(child.material)) continue
             child.updateMatrix()
+            if (!child.material.transparent) {
+                if (!child.geometry.boundingBox) child.geometry.computeBoundingBox()
+                child.geometry.boundingBox!.getSize(size).multiply(child.scale)
+                if (Math.abs(size.x * size.y * size.z) >= OCCLUDER_MIN_VOLUME) {
+                    // 部材の形をそのまま使う（描画しないので、元の形を dispose してもGPUの資源は関係ない）。
+                    const occluder = new THREE.Mesh(child.geometry, occluderMaterial)
+                    occluder.matrix.copy(child.matrix)
+                    occluder.matrixAutoUpdate = false
+                    occluder.layers.set(OCCLUDER_LAYER)
+                    occluders.push(occluder)
+                }
+            }
             let g = child.geometry.clone().applyMatrix4(child.matrix)
             if (g.index) { const indexed = g; g = g.toNonIndexed(); indexed.dispose() }
             // Merging requires identical attribute sets.
@@ -56,6 +77,7 @@ export function createModelKit() {
             parts.forEach(g => g.dispose())
             part(group, geometry, mat, 0, 0, 0, 1, 1, 1)
         })
+        if (occluders.length) group.add(...occluders)
     }
     const curveCloth = (width: number, height: number) => {
         const geometry = new THREE.PlaneGeometry(width, height, 12, 12)
@@ -69,7 +91,7 @@ export function createModelKit() {
     }
     const track = <T extends THREE.BufferGeometry>(geometry: T) => { geometries.add(geometry); return geometry }
     return { box, rounded, cone, cylinder, sphere, surfaces, material, metal, cloth, part, bake, curveCloth, track, destroy() {
-        geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); surfaces.destroy()
+        geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); occluderMaterial.dispose(); surfaces.destroy()
     } }
 }
 export type ModelKit = ReturnType<typeof createModelKit>

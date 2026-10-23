@@ -1,6 +1,6 @@
 import { nextTick, ref } from 'vue'
 import type { SquadCommand, useGameStore } from '~/stores/game'
-import { constructionNear, previewConstruction } from '~/game/battle'
+import { constructionNear, previewConstruction, squadPosition } from '~/game/battle'
 import type { ConstructionAxis, ConstructionKind, FormationType, Point, SquadOrder } from '~/types/game'
 
 type EntityPointerEvent = Pick<PointerEvent, 'clientX' | 'clientY'>
@@ -89,7 +89,8 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (hover === null && battle) {
             let best = DROP_RADIUS
             for (const squad of battle.squads) {
-                const d = Math.hypot(squad.center.x - point.x, squad.center.y - point.y)
+                const at = squadPosition(battle, squad)
+                const d = Math.hypot(at.x - point.x, at.y - point.y)
                 if (d < best) { best = d; hover = squad.id }
             }
         }

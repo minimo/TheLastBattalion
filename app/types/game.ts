@@ -79,6 +79,8 @@ export interface Soldier {
     constructionId: number
     /** 隊長から離れすぎて、隊長のもとへ戻っている最中か。 */
     regroup: boolean
+    /** 部隊を見捨てて逃げ出した兵の、逃げ始めた地点・向き・時刻（逃げていなければnull）。逃げ出した兵は部隊に属さない（squadId は -1）。 */
+    desertion: { x: number; y: number; heading: number; time: number } | null
 }
 
 /**
@@ -274,6 +276,8 @@ export interface ArmySummary {
     supply: number
     engineer: number
     killed: number
+    /** 部隊を見捨てて戦場から逃げ去った自軍の兵の数。 */
+    deserted: number
     reserves: number
     /** 砦を持っているか（攻城戦・防衛戦の攻め手は持たない）。 */
     hasFort: boolean

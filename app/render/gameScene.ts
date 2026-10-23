@@ -7,8 +7,8 @@ import type { BattleInput } from '~/composables/useBattleInput'
 import type { Construction, Fort, Point, Squad, UnitType } from '~/types/game'
 import { FORMATIONS, squadBlock, toWorld } from '~/game/formation'
 import { CONSTRUCTION, STAMINA } from '~/game/battleConfig'
-import { depotOf, squadRoute } from '~/game/battle'
-import { createModelKit, FACTION } from './three/models'
+import { depotOf, squadPosition, squadRoute } from '~/game/battle'
+import { createModelKit, FACTION, OCCLUDER_LAYER } from './three/models'
 import { createWorld } from './three/world'
 import { createAtmosphere } from './three/atmosphere'
 import { MAP_THEME, type MapTheme } from './three/mapTheme'
@@ -169,6 +169,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     }
     // ---- ラベルの隠れ判定（地形や建物の後ろにあるラベルは出さない） ----
     const occlusionRay = new THREE.Raycaster()
+    occlusionRay.layers.set(OCCLUDER_LAYER)
     /** 地形のいちばん高い所。視線がこれより上に出たら、もう地形には隠れない。 */
     let terrainTop: { world: typeof world | null; height: number } = { world: null, height: 0 }
     const terrainTopHeight = () => {
@@ -190,18 +191,14 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             if (y > top) break
             if (y < world.field.heightAt(point.x + toCamera.x * t, point.z + toCamera.z * t)) return true
         }
-        // 本陣・城・建設物。半透明の下見や、ラベルのすぐ下の自分の建物は数えない。
+        // 本陣・城・建設物は、大きな部材だけの隠れ判定用の形で調べる（半透明の下見は含まない）。
+        // ラベルのすぐ下の自分の建物は数えない。
         occlusionRay.set(point, toCamera)
         occlusionRay.far = distance
-        occlusionRay.camera = camera
         const hits = occlusionRay.intersectObjects([...camps.map(c => c.camp.group), constructions.group], true)
-        return hits.some(hit => hit.distance > 4 && (hit.object as THREE.Mesh).isMesh && isShown(hit.object) && !isTranslucent(hit.object))
+        return hits.some(hit => hit.distance > 4 && isShown(hit.object))
     }
     const isShown = (object: THREE.Object3D | null): boolean => !object || (object.visible && isShown(object.parent))
-    const isTranslucent = (object: THREE.Object3D) => {
-        const material = (object as THREE.Mesh).material
-        return (Array.isArray(material) ? material : [material]).some(m => m?.transparent)
-    }
     const placeLabel = (label: HTMLElement, x: number, y: number, h: number) => {
         const p = project(x, y, h)
         label.style.transform = `translate(-50%, -100%) translate(${p.x}px, ${p.y}px)`
@@ -289,7 +286,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     /** 部隊の今の指示の行き先（表示用）。 */
     const orderDestination = (squad: Squad): Point | undefined => {
         const battle = gameStore.battle!
-        if (squad.order === 'attack') return battle.squadById.get(squad.targetSquadId)?.center
+        if (squad.order === 'attack') { const target = battle.squadById.get(squad.targetSquadId); return target && squadPosition(battle, target) }
         if (squad.order === 'charge') return battle.homes[squad.owner === 'player' ? 'cpu' : 'player'].core
         if (squad.order === 'resupply') {
             const depot = depotOf(battle, squad)
@@ -297,7 +294,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         }
         if (squad.order === 'retreat') return battle.homes[squad.owner].core
         if (squad.order === 'build' || squad.order === 'demolish') return battle.constructionById.get(squad.constructionId)?.center
-        if (squad.order === 'support' && battle.squadById.has(squad.targetSquadId)) return battle.squadById.get(squad.targetSquadId)!.center
+        if (squad.order === 'support' && battle.squadById.has(squad.targetSquadId)) return squadPosition(battle, battle.squadById.get(squad.targetSquadId)!)
         // 持ち場の原点は前列中央なので、部隊の中心へ戻して示す。
         return toWorld(squad.anchor, squad.facing, -squadBlock(squad.type, Math.max(1, squad.count)).depth / 2, 0)
     }
@@ -309,7 +306,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         const preview = input.previewCommand()
         const cursor = input.worldMousePos.value
         const key = [dragging, input.hoverSquadId.value, Math.round(cursor.x / 4), Math.round(cursor.y / 4), preview?.order,
-            selected ? `${selected.id}:${selected.order}:${Math.round(selected.center.x / 4)}:${Math.round(selected.center.y / 4)}:${Math.round(selected.anchor.x / 4)}:${Math.round(selected.anchor.y / 4)}` : '',
+            selected ? `${selected.id}:${selected.order}:${Math.round(squadPosition(battle, selected).x / 4)}:${Math.round(squadPosition(battle, selected).y / 4)}:${Math.round(selected.anchor.x / 4)}:${Math.round(selected.anchor.y / 4)}` : '',
             Math.floor(animationTime * 4)].join('|')
         if (key === pathKey) return
         pathKey = key
@@ -317,12 +314,15 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         if (dragging === 'army') pathOverlay.add([battle.formations.player.anchor, cursor])
         else if (typeof dragging === 'number') {
             const squad = battle.squadById.get(dragging)
-            const target = preview?.order === 'attack' || preview?.order === 'support' ? battle.squadById.get(preview.targetSquadId!)?.center
+            // 矢印はラベルの立つ隊長の幟から、狙う部隊なら相手の隊長の幟へ引く。
+            const targetSquad = preview?.order === 'attack' || preview?.order === 'support' ? battle.squadById.get(preview.targetSquadId!) : undefined
+            const target = targetSquad ? squadPosition(battle, targetSquad)
                 : preview?.constructionId !== undefined ? battle.constructionById.get(preview.constructionId)?.center : cursor
-            if (squad && target && cursor.x > -9000) pathOverlay.add([squad.center, target])
+            if (squad && target && cursor.x > -9000) pathOverlay.add([squadPosition(battle, squad), target])
         } else if (selected) {
             const destination = orderDestination(selected)
-            if (destination && Math.hypot(destination.x - selected.center.x, destination.y - selected.center.y) > 20) pathOverlay.add(squadRoute(battle, selected, destination), selected.owner)
+            const from = squadPosition(battle, selected)
+            if (destination && Math.hypot(destination.x - from.x, destination.y - from.y) > 20) pathOverlay.add(squadRoute(battle, selected, destination), selected.owner)
         }
     }
 
@@ -359,7 +359,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         bannerHover = element ? null : bannerSquadAt(event)
         const squadId = element?.dataset.squad ? Number(element.dataset.squad) : bannerHover
         input.setWorldPointer(groundPoint(event), squadId)
-        renderer.domElement.style.cursor = squadId !== null || army ? 'pointer' : input.buildMode.value ? 'crosshair' : 'default'
+        renderer.domElement.style.cursor = input.buildMode.value ? 'crosshair' : squadId !== null || army ? 'pointer' : 'default'
         return { squadId, army }
     }
     /**
@@ -401,7 +401,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         let best: number | null = null, bestDistance = 6 + camera.position.distanceTo(controls.target) * .006
         battle.hash.forEachNear(point.x, point.y, bestDistance, s => {
             const d = Math.hypot(s.x - point.x, s.y - point.y)
-            if (d < bestDistance) { bestDistance = d; best = s.squadId }
+            // 部隊を離れて逃げ出した兵は選べない。
+            if (d < bestDistance && s.squadId >= 0) { bestDistance = d; best = s.squadId }
         })
         input.selectSquad(best)
     }
@@ -425,11 +426,12 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         const { squadId, army } = pointer(event)
         // Decide once, before OrbitControls receives pointerdown. Crossing a banner
         // during a background drag must never turn that gesture into an order.
-        backgroundGesture = squadId === null && !army
+        // 建設場所を選んでいる間は、旗の上を押しても部隊は掴まず、その地点に建てる。
+        backgroundGesture = !!input.buildMode.value || (squadId === null && !army)
         setBackgroundGesture(backgroundGesture)
-        if (squadId !== null) input.handleSquadPointerDown(squadId, event)
+        if (backgroundGesture) { pressed = { x: event.clientX, y: event.clientY }; renderer.domElement.style.cursor = 'grabbing' }
+        else if (squadId !== null) input.handleSquadPointerDown(squadId, event)
         else if (army) input.handleArmyPointerDown(event)
-        else { pressed = { x: event.clientX, y: event.clientY }; renderer.domElement.style.cursor = 'grabbing' }
     }
     const move = (event: PointerEvent) => {
         if (!canCommand() || backgroundGesture) return

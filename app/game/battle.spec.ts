@@ -11,7 +11,7 @@ import { FORT_DEPTH, FORT_WIDTH, isBlockedLocal, localToGrid } from './fortLayou
 import { CASTLE_ASSAULT_CELLS, CASTLE_DEPTH, CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
 import { findPath } from './pathfinding'
 import { TILE_PX } from './constants'
-import { ARROWS_PER_ARCHER, CONSTRUCTION, FORT_REFILL_RANGE, INITIAL_SQUADS, PIKEMAN, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
+import { ARROWS_PER_ARCHER, CONSTRUCTION, FORT_REFILL_RANGE, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
 import { getPlayableTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
@@ -145,6 +145,42 @@ describe('部隊', () => {
         leader.hp = 0; leader.state = 'dead'
         run(battle, 1 / 30)
         expect(squad.leaderId).toBe(nearest.id)
+    })
+
+    it('数が減って傷ついた魔王軍の歩兵は、劣勢になると部隊を離れて逃げ出し、離れたら逃走として消える', () => {
+        const battle = makeBattle('123456')
+        run(battle, .1)
+        const squad = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === 'infantry')!
+        const members = battle.members.get(squad.id)!
+        members.filter(s => s.id !== squad.leaderId).slice(0, Math.ceil(members.length * .6)).forEach(s => { s.hp = 0; s.state = 'dead'; s.deathTime = battle.time })
+        for (const s of members) if (s.state !== 'dead') s.hp = s.maxHp * .3
+        // 近くの他の部隊の魔王軍は退けて、味方の少ない劣勢にする。
+        for (const s of battle.soldiers) if (s.owner === 'cpu' && s.squadId !== squad.id && Math.hypot(s.x - squad.center.x, s.y - squad.center.y) < 200) { s.state = 'dead'; s.deathTime = battle.time }
+        orderHold(battle, squad.id)
+        // 人間軍の歩兵2部隊を、魔王軍の部隊のすぐそばへ寄せて囲ませる。
+        const enemies = battle.squads.filter(sq => sq.owner === 'player' && sq.type === 'infantry').slice(0, 2)
+        for (const enemy of enemies) {
+            for (const s of battle.members.get(enemy.id)!) { s.x = squad.center.x - 30 + (battle.random() - .5) * 30; s.y = squad.center.y + (battle.random() - .5) * 40 }
+            orderMove(battle, enemy.id, squad.center)
+        }
+        const deserters = new Set<number>()
+        for (let t = 0; t < 4 && !deserters.size; t += 1 / 30) {
+            updateBattle(battle, 1 / 30)
+            for (const s of battle.soldiers) if (s.desertion && s.state !== 'dead') deserters.add(s.id)
+        }
+        expect(deserters.size).toBeGreaterThan(0)
+        const deserter = battle.byId.get([...deserters][0]!)!
+        expect(deserter.squadId).toBe(-1)
+        // 部隊の顔ぶれは次のティックで集計し直される。
+        run(battle, 1 / 30)
+        expect(battle.members.get(squad.id)).not.toContain(deserter)
+        run(battle, 16)
+        // 逃げた兵は戦場から消え、撃破ではなく魔王軍の逃走に数えられる。
+        for (const id of deserters) expect(battle.byId.has(id)).toBe(false)
+        expect(battle.deserted.cpu).toBeGreaterThan(0)
+        expect(summarize(battle).cpu.deserted).toBe(battle.deserted.cpu)
+        expect(battle.deserted.player).toBe(0)
+        expect(battle.soldiers.some(s => s.owner === 'player' && s.desertion)).toBe(false)
     })
 
     it('突撃しても、兵は隊長から離れすぎない', () => {
@@ -312,8 +348,9 @@ describe('槍兵', () => {
         expect(passed).toBe(0)
         expect(closest).toBeGreaterThan(pikeR + enemyR + PIKEMAN.wallMargin - 1)
         // 生き残った敵は隊長の幟のもとで戦い続けるので、退かせてから味方の歩兵が槍兵の隊列の中に収まるのを見る。
+        // 隊長は兵が付いて来られるよう抑えて歩き、川を渡って戻る兵もいるので、時間を見込む。
         if (battle.squadById.has(enemy.id)) orderRetreat(battle, enemy.id)
-        run(battle, 20)
+        run(battle, 30)
         expect(Math.hypot(friend.center.x - pike.center.x, friend.center.y - pike.center.y)).toBeLessThan(20)
     }, 120000)
 })
@@ -334,6 +371,55 @@ describe('矢と補給', () => {
         expect(archers.order).toBe('formation')
         const members = battle.members.get(archers.id)!
         expect(members.filter(s => s.arrows > ARROWS_PER_ARCHER - 1).length).toBeGreaterThanOrEqual(members.length * .9)
+    }, 120000)
+
+    it('構えた弓兵は、射程の端の敵にも射続ける', () => {
+        const battle = makeBattle('123456')
+        orderArmy(battle, 'cpu', 'hold')
+        const archers = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'archer')!
+        const enemy = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === 'infantry')!
+        run(battle, 3)
+        orderHold(battle, archers.id)
+        // 敵の歩兵を、弓兵の隊長から射程の8割ほど前に並べて構えさせる（歩兵の視界の外なので向かって来ない）。
+        const leader = battle.byId.get(archers.leaderId)!
+        const front = toWorld(leader, archers.facing, UNIT_STATS.player.archer.range * .8, 0)
+        battle.members.get(enemy.id)!.forEach((s, i) => {
+            const p = toWorld(front, archers.facing, Math.floor(i / 10) * 5, (i % 10 - 4.5) * 5)
+            s.x = p.x; s.y = p.y
+        })
+        run(battle, .1)
+        orderHold(battle, enemy.id)
+        const before = new Map(battle.members.get(archers.id)!.map(s => [s.id, s.arrows]))
+        run(battle, 8)
+        const members = battle.members.get(archers.id)!
+        const shooters = members.filter(s => s.arrows < before.get(s.id)! - 2).length
+        expect(shooters).toBeGreaterThan(members.length * .7)
+    }, 120000)
+
+    for (const type of ['infantry', 'pikeman'] as const) it(`${type === 'infantry' ? '歩兵' : '槍兵'}は正面から飛んできた矢を盾で受け、背後からの矢はそのまま受ける`, () => {
+        const battle = makeBattle('123456')
+        orderArmy(battle, 'cpu', 'hold')
+        run(battle, 8)
+        // 持ち場に着いて向きが変わらなくなった兵を選ぶ。
+        const headings = new Map(battle.soldiers.map(s => [s.id, s.heading]))
+        run(battle, .2)
+        const soldier = battle.soldiers.find(s => s.owner === 'cpu' && s.type === type && s.state !== 'dead' && s.heading === headings.get(s.id))!
+        expect(soldier).toBeDefined()
+        // 兵の向いている方向（front）または真後ろ（back）50px から放たれた矢を、兵の足元に着弾させる。
+        const hit = (side: 'front' | 'back') => {
+            soldier.hp = 1000
+            const sign = side === 'front' ? 1 : -1
+            const fromX = soldier.x + Math.sin(soldier.heading) * 50 * sign, fromY = soldier.y + Math.cos(soldier.heading) * 50 * sign
+            battle.arrows.push({
+                owner: 'player', fromX, fromY, fromZ: 5, peak: 10, toX: soldier.x, toY: soldier.y,
+                targetId: soldier.id, constructionId: -1, blocked: false, damage: 10, time: 0, duration: 0,
+            })
+            updateBattle(battle, 1 / 30)
+            return 1000 - soldier.hp
+        }
+        const front = hit('front'), back = hit('back')
+        expect(back).toBeGreaterThan(0)
+        expect(front / back).toBeCloseTo(SHIELD.damageTaken, 5)
     }, 120000)
 
     it('補給を終えたら補給前の指示に戻る', () => {

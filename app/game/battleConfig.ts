@@ -40,11 +40,27 @@ export const INITIAL_SQUADS: Record<UnitType, number> = { infantry: 6, pikeman: 
 /** 持ち場を守る兵が敵を追う範囲（持ち場からの距離）。弓兵は射程まで。槍兵は隊列を崩さないよう、ほとんど追わない。 */
 export const LEASH: Record<UnitType, number> = { infantry: 45, pikeman: 8, cavalry: 80, archer: 0, supply: 12, engineer: 15 }
 /**
- * 部隊のまとまり。兵は幟を持つ隊長から（隊列の対角線の長さ＋追う範囲＋margin）より離れない。
+ * 部隊のまとまり。兵は隊列のまん中に立つ幟を持つ隊長から（隊列の対角線の半分＋追う範囲×leashShare＋margin）より離れない。
  * 離れた兵は敵に構わず隊長のもとへ戻り、rejoin の割合まで近づいたら戦いに戻る。突撃中の横の広がりも laneShare の割合までに抑える。
  * 戻っている兵が部隊の waitShare の割合を超えたら、隊長は（戦っていなければ）足を止めて待つ。
  */
-export const COHESION = { margin: 40, rejoin: .55, laneShare: .6, waitShare: .25 }
+/**
+ * 隊長に付いて歩く隊列。隊長だけが部隊の経路（指示の矢印と同じ経路）をたどり、兵は隊長のまわりの持ち場に付いて歩く。
+ * 隊長は leaderPace の速さで歩いて兵が遅れないようにし、持ち場の settle 手前から隊列を持ち場の向きへ回し、arrive より近づいたら兵は本来の持ち場につく。
+ * 隊列の向きは隊長の進む向きへ、毎秒 turnRate ラジアンまで回る。
+ * 持ち場から lagFree より遅れた兵がいると隊長は歩みを緩め、さらに lagStop 遅れると minPace の速さまで落として待つ。
+ */
+export const FOLLOW = { leaderPace: .85, arrive: 5, settle: 40, turnRate: 2.5, lagFree: 8, lagStop: 30, minPace: .25 }
+export const COHESION = { margin: 16, leashShare: .6, rejoin: .55, laneShare: .6, waitShare: .25 }
+/**
+ * 魔王軍の忠誠の低い兵（types）の脱走。部隊の人数が編成時の squadBelow の割合を下回り、自分の体力も hpBelow の割合を下回り、
+ * 周りの敵が味方の odds 倍を超える劣勢になると、思考のたびに chance の確率（臆病な個体ほど高い）で部隊を離れて敵から逃げ出す。
+ * 逃げ出した兵は distance 進むか seconds 秒たつと戦場から消え、撃破ではなく逃走として数える。
+ */
+export const DESERTION = {
+    types: ['infantry', 'archer', 'supply', 'engineer'] as UnitType[],
+    squadBelow: .5, hpBelow: .5, odds: 1.2, chance: .12, distance: 160, seconds: 15,
+}
 /** 開戦後に砦から送り出せる予備兵の総数（片軍）。これが最後の大隊。 */
 export const RESERVES = 2500
 /** 攻城戦・防衛戦の攻め手の部隊数。砦も増援もないので、守り手より多い兵で攻める。 */
@@ -157,6 +173,13 @@ export const LANE_CONVERGE_DISTANCE = 260
 export const PATH_LOOKAHEAD = 20
 /** 矢の水平方向の速さ（px/秒）。 */
 export const ARROW_SPEED = 150
+/**
+ * 兵を狙った矢の狙い。spread: 散らばり（距離に対する割合）で、着弾点は狙った位置から縦横それぞれ ±距離×spread/2 の範囲に散る。
+ * 近い敵にはまず当たり、射程の端（約±7px）では外れやすい。狙った兵を外れた矢は、着弾点から strayRadius px 以内の別の敵に strayDamage の割合で当たる。
+ */
+export const ARROW_AIM = { spread: .12, strayRadius: 2, strayDamage: .5 }
+/** 歩兵と槍兵の盾: 向いている方向から左右 arc ラジアン以内で飛んできた矢のダメージを damageTaken 倍にする。側面・背面は守れない。 */
+export const SHIELD = { damageTaken: .6, arc: 1.2 }
 /** 放物線の頂点の高さ = 基本 + 距離 × 係数（係数0.25で約45度の打ち上げ）。 */
 export const ARROW_ARC = { base: 3, perDistance: .22 }
 /**

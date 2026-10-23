@@ -192,6 +192,7 @@ onUnmounted(() => {
             <template v-for="type in types" :key="type"><dt>{{ UNIT_NAME[army][type] }}</dt><dd>{{ gameStore.summary[army][type] }}</dd></template>
             <template v-if="gameStore.summary[army].hasFort"><dt>予備兵</dt><dd>{{ gameStore.summary[army].reserves }}</dd></template>
             <dt>撃破</dt><dd>{{ gameStore.summary[army].killed }}</dd>
+            <template v-if="gameStore.summary[army].deserted"><dt>逃走</dt><dd>{{ gameStore.summary[army].deserted }}</dd></template>
           </dl>
         </section>
       </aside>
@@ -251,6 +252,7 @@ onUnmounted(() => {
         <h1>{{ gameStore.winner === 'player' ? '人間軍の勝利' : '魔王軍の勝利' }}</h1>
         <p>{{ defeatReason }}</p>
         <p>撃破数 人間軍 {{ gameStore.summary.player.killed }} / 魔王軍 {{ gameStore.summary.cpu.killed }}</p>
+        <p v-if="gameStore.summary.cpu.deserted">魔王軍の逃走 {{ gameStore.summary.cpu.deserted }}</p>
         <div class="modal-actions">
           <button @click="start(undefined, false)">Restart</button>
           <button @click="title" class="secondary">Back to Title</button>
