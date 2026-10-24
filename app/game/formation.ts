@@ -45,7 +45,8 @@ export function toWorld(origin: Point, facing: number, forward: number, lateral:
     return { x: origin.x + fx * forward + rx * lateral, y: origin.y + fy * forward + ry * lateral }
 }
 
-export interface FormationMember { id: number; type: UnitType; size: number }
+/** 陣に並べるもの。ふつうは小隊。width・depth があれば、中隊のかたまり（中の小隊はまとめて並べる）の幅と奥行き。 */
+export interface FormationMember { id: number; type: UnitType; size: number; width?: number; depth?: number }
 export interface FormationSlot { forward: number; lateral: number; facing: number }
 
 /**
@@ -56,8 +57,9 @@ export function layoutFormation(type: FormationType, members: FormationMember[])
     const slots = new Map<number, FormationSlot>()
     const of = (t: UnitType) => members.filter(m => m.type === t)
     const infantry = of('infantry'), pikemen = of('pikeman'), archers = of('archer'), cavalry = of('cavalry'), rear = [...of('supply'), ...of('engineer')]
-    const width = (m: FormationMember) => squadBlock(m.type, m.size).width
-    const depth = (list: FormationMember[]) => Math.max(0, ...list.map(m => squadBlock(m.type, m.size).depth))
+    const width = (m: FormationMember) => m.width ?? squadBlock(m.type, m.size).width
+    const depthOf = (m: FormationMember) => m.depth ?? squadBlock(m.type, m.size).depth
+    const depth = (list: FormationMember[]) => Math.max(0, ...list.map(depthOf))
     const rowWidth = (list: FormationMember[]) => list.reduce((sum, m) => sum + width(m), 0) + Math.max(0, list.length - 1) * GAP
     /** ROW_LIMIT 部隊ずつの列に分ける。 */
     const chunks = (list: FormationMember[]) => Array.from({ length: Math.ceil(list.length / ROW_LIMIT) }, (_, i) => list.slice(i * ROW_LIMIT, (i + 1) * ROW_LIMIT))
@@ -152,9 +154,110 @@ export function layoutFormation(type: FormationType, members: FormationMember[])
         let back = 0
         for (const m of members) {
             const slot = slots.get(m.id)
-            if (slot) back = Math.min(back, slot.forward - squadBlock(m.type, m.size).depth)
+            if (slot) back = Math.min(back, slot.forward - depthOf(m))
         }
         rows(rear, back - 20)
+    }
+    return slots
+}
+
+/** 1つの中隊に入れる小隊の数の上限。 */
+export const COMPANY_MAX_SQUADS = 4
+
+/**
+ * 陣の持ち場から、同じ兵種で隣り合う小隊を中隊にまとめる（返すのは中隊ごとの小隊のID）。
+ * 兵種ごとに左から順に並べ、離れた所（両翼の左右など）で区切り、続きは COMPANY_MAX_SQUADS 個以下の同じくらいの数に分ける。
+ */
+export function groupCompanies(members: FormationMember[], slots: Map<number, FormationSlot>): number[][] {
+    const companies: number[][] = []
+    for (const type of new Set(members.map(m => m.type))) {
+        const list = members.filter(m => m.type === type && slots.has(m.id))
+            .sort((a, b) => slots.get(a.id)!.lateral - slots.get(b.id)!.lateral || slots.get(b.id)!.forward - slots.get(a.id)!.forward)
+        let run: FormationMember[] = []
+        const flush = () => {
+            const count = Math.ceil(run.length / COMPANY_MAX_SQUADS)
+            for (let i = 0, start = 0; i < count; i++) {
+                const end = start + Math.ceil((run.length - start) / (count - i))
+                companies.push(run.slice(start, end).map(m => m.id))
+                start = end
+            }
+            run = []
+        }
+        for (const m of list) {
+            const last = run.at(-1)
+            if (last) {
+                const a = slots.get(last.id)!, b = slots.get(m.id)!
+                const reach = (squadBlock(last.type, last.size).width + squadBlock(m.type, m.size).width) / 2 + GAP + 40
+                if (Math.hypot(a.forward - b.forward, a.lateral - b.lateral) > reach) flush()
+            }
+            run.push(m)
+        }
+        if (run.length) flush()
+    }
+    return companies
+}
+
+/**
+ * 中隊の隊形: 小隊を横陣の並べ方（槍兵が前、弓兵が後ろ、騎兵が両翼）で組む。
+ * 持ち場は前列中央を原点にし（いちばん前の小隊の前列が0）、中隊のかたまりの幅と奥行きも返す。
+ */
+export function companyBlock(members: FormationMember[]) {
+    const slots = layoutFormation('line', members)
+    let front = -Infinity, back = Infinity, left = Infinity, right = -Infinity
+    for (const m of members) {
+        const slot = slots.get(m.id)
+        if (!slot) continue
+        const { width, depth } = squadBlock(m.type, m.size)
+        front = Math.max(front, slot.forward)
+        back = Math.min(back, slot.forward - depth)
+        left = Math.min(left, slot.lateral - width / 2)
+        right = Math.max(right, slot.lateral + width / 2)
+    }
+    if (!Number.isFinite(front)) return { slots, width: 0, depth: 0 }
+    const center = (left + right) / 2
+    for (const slot of slots.values()) { slot.forward -= front; slot.lateral -= center }
+    return { slots, width: right - left, depth: front - back }
+}
+
+/** 中隊の隊形の、まん中を原点にした持ち場（中隊ごとの移動で、指定地点を中隊のまん中にする）。 */
+export function layoutCompany(members: FormationMember[]): Map<number, FormationSlot> {
+    const { slots, depth } = companyBlock(members)
+    for (const slot of slots.values()) slot.forward += depth / 2
+    return slots
+}
+
+/** 中隊の主な役目の兵種（陣のどこに並ぶか）。歩兵か槍兵がいれば前線、なければ弓兵・騎兵・後方の順。 */
+export function companyRole(types: UnitType[]): UnitType {
+    if (types.includes('infantry')) return 'infantry'
+    if (types.includes('pikeman')) return 'pikeman'
+    if (types.includes('archer')) return 'archer'
+    if (types.includes('cavalry')) return 'cavalry'
+    return types.includes('supply') ? 'supply' : 'engineer'
+}
+
+/**
+ * 中隊のかたまり（blocks: かたまりのID → 中の小隊）を1つずつとして陣を組み、小隊ごとの持ち場に広げる。
+ * かたまりは主な役目の兵種の場所に並び、中の小隊はかたまりの向きに回して置く。
+ */
+export function layoutFormationWithCompanies(type: FormationType, members: FormationMember[], blocks: Map<number, FormationMember[]>): Map<number, FormationSlot> {
+    const inner = new Map<number, ReturnType<typeof companyBlock>>()
+    const units: FormationMember[] = [...members]
+    for (const [id, list] of blocks) {
+        const block = companyBlock(list)
+        inner.set(id, block)
+        units.push({ id, type: companyRole([...new Set(list.map(m => m.type))]), size: list.reduce((sum, m) => sum + m.size, 0), width: block.width, depth: block.depth })
+    }
+    const layout = layoutFormation(type, units)
+    const slots = new Map<number, FormationSlot>()
+    for (const m of members) { const slot = layout.get(m.id); if (slot) slots.set(m.id, slot) }
+    for (const [id, block] of inner) {
+        const at = layout.get(id)
+        if (!at) continue
+        // かたまりの向き（陣に対して at.facing だけ回す）で、中の持ち場を陣の前方・右手の成分に直す。
+        const cos = Math.cos(at.facing), sin = Math.sin(at.facing)
+        for (const [squadId, slot] of block.slots) {
+            slots.set(squadId, { forward: at.forward + slot.forward * cos + slot.lateral * sin, lateral: at.lateral - slot.forward * sin + slot.lateral * cos, facing: at.facing + slot.facing })
+        }
     }
     return slots
 }

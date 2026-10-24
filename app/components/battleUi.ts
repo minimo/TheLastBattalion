@@ -10,7 +10,10 @@ export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry
 export const ORDER_NAME: Record<SquadOrder, string> = { formation: '陣形', move: '移動', hold: '待機', attack: '攻撃', charge: '突撃', retreat: '退却', resupply: '補給中', support: '補給', build: '建設', demolish: '破壊' }
 export const TIRED_BELOW = 40
 
-export const squadName = (squad: { owner: Army; type: UnitType; number: number }) => `第${squad.number}${UNIT_NAME[squad.owner][squad.type]}隊`
+export const squadName = (squad: { owner: Army; type: UnitType; number: number }) => `第${squad.number}${UNIT_NAME[squad.owner][squad.type]}小隊`
+export const companyName = (company: { number: number }) => `第${company.number}中隊`
+/** 中隊の兵種の並び（例「歩兵・弓兵」）。 */
+export const companyTypes = (company: { owner: Army; types: UnitType[] }) => company.types.map(t => UNIT_NAME[company.owner][t]).join('・')
 
 /** 矢・体力・補給のどれかが心もとない部隊。 */
 export const squadNeedsCare = (squad: { stamina: number; arrows: number; maxArrows: number; supplies: number; maxSupplies: number }) =>
@@ -30,6 +33,16 @@ const BUILD_ACTIONS: SquadAction[] = [
 export const squadActions = (type: UnitType): SquadAction[] => [
   ...(type === 'engineer' ? BUILD_ACTIONS
     : [type === 'supply' ? { key: 'support', order: 'support' as const, label: '自動補給', icon: 'support' as const } : { key: 'charge', order: 'charge' as const, label: '突撃', icon: 'charge' as const }]),
+  { key: 'hold', order: 'hold', label: '待機', icon: 'hold' },
+  { key: 'formation', order: 'formation', label: '陣形に戻る', icon: 'formation' },
+  { key: 'retreat', order: 'retreat', label: '退却', icon: 'retreat' },
+  { key: 'resupply', order: 'resupply', label: '補給に戻る', icon: 'resupply' },
+]
+
+/** 中隊への指示。補給部隊と工兵だけの中隊は突撃せず、補給部隊がいれば自動補給も出せる。 */
+export const companyActions = (types: UnitType[]): SquadAction[] => [
+  ...(types.some(t => t !== 'supply' && t !== 'engineer') ? [{ key: 'charge', order: 'charge' as const, label: '突撃', icon: 'charge' as const }] : []),
+  ...(types.includes('supply') ? [{ key: 'support', order: 'support' as const, label: '自動補給', icon: 'support' as const }] : []),
   { key: 'hold', order: 'hold', label: '待機', icon: 'hold' },
   { key: 'formation', order: 'formation', label: '陣形に戻る', icon: 'formation' },
   { key: 'retreat', order: 'retreat', label: '退却', icon: 'retreat' },

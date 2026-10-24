@@ -4,11 +4,12 @@ import { generateMap } from '~/game/mapGenerator'
 import { mapTypeForMode } from '~/game/mapType'
 import { createMulberry32, hashString } from '~/game/random'
 import {
-    createBattle, moveFormation, orderArmy, orderAttack, orderBuild, orderCharge, orderConstruct, orderDemolish, orderFormation, orderHold, orderMove,
-    orderResupply, orderRetreat, orderSupport, redeployArmy, setFormation, summarize, updateBattle, type ArmyOrder, type Battle,
+    createBattle, moveFormation, orderArmy, orderAttack, orderBuild, orderCharge, orderCompany, orderCompanyAttack, orderCompanyDemolish, orderCompanyMove, orderConstruct,
+    orderDemolish, orderFormation, orderHold, orderMove, orderResupply, orderRetreat, orderSupport, redeployArmy, setFormation, summarize, updateBattle,
+    type ArmyOrder, type Battle, type CompanyOrder,
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
-import { defaultDeployment, normalizeDeployment, type DeploymentPlan } from '~/game/deployment'
+import { defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
 import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, FormationType, GameStatus, MapType, Point, SquadOrder, UnitType } from '~/types/game'
 
 /** 1倍速のときの実時間に対するゲーム内時間の倍率。 */
@@ -39,6 +40,7 @@ export interface SquadSummary {
     owner: Army
     type: UnitType
     number: number
+    companyId: number
     count: number
     size: number
     order: SquadOrder
@@ -49,6 +51,26 @@ export interface SquadSummary {
     maxSupplies: number
     /** 建てている（壊しに行く）建設物の種類と、建設の進み具合（0〜100）・耐久の割合（0〜100）。 */
     construction: { kind: ConstructionKind; progress: number; hp: number; complete: boolean } | null
+}
+
+export interface CompanySummary {
+    id: number
+    owner: Army
+    number: number
+    squadIds: number[]
+    /** 小隊の兵種（重なりなし、兵種の順）。 */
+    types: UnitType[]
+    count: number
+    size: number
+}
+
+/** 中隊への指示（地点・敵の小隊・敵の中隊・建設物と、まとめて出す指示）。 */
+export interface CompanyCommand {
+    order: CompanyOrder | 'move' | 'attack' | 'demolish'
+    point?: Point
+    targetSquadId?: number
+    targetCompanyId?: number
+    constructionId?: number
 }
 
 export interface SquadCommand {
@@ -78,6 +100,7 @@ export const useGameStore = defineStore('game', {
         isGameOver: false,
         summary: { player: emptySummary(), cpu: emptySummary() } as Record<Army, ArmySummary>,
         squads: [] as SquadSummary[],
+        companies: [] as CompanySummary[],
         formation: 'line' as FormationType,
         summaryTimer: 0,
         gameSpeed: 1 as GameSpeed,
@@ -166,9 +189,18 @@ export const useGameStore = defineStore('game', {
             this.squads = battle.squads.map(sq => {
                 const site = sq.order === 'build' || sq.order === 'demolish' ? battle.constructionById.get(sq.constructionId) : undefined
                 return {
-                    id: sq.id, owner: sq.owner, type: sq.type, number: sq.number, count: sq.count, size: sq.size, order: sq.order, arrows: Math.floor(sq.arrows), maxArrows: sq.maxArrows,
+                    id: sq.id, owner: sq.owner, type: sq.type, number: sq.number, companyId: sq.companyId, count: sq.count, size: sq.size, order: sq.order, arrows: Math.floor(sq.arrows), maxArrows: sq.maxArrows,
                     stamina: Math.round(sq.stamina), supplies: sq.supplies, maxSupplies: sq.maxSupplies,
                     construction: site ? { kind: site.kind, progress: Math.floor(site.progress * 100), hp: Math.round(site.hp / site.maxHp * 100), complete: site.complete } : null,
+                }
+            })
+            const squadById = new Map(this.squads.map(sq => [sq.id, sq]))
+            this.companies = battle.companies.map(c => {
+                const squads = c.squadIds.map(id => squadById.get(id)).filter((sq): sq is SquadSummary => !!sq)
+                const types = new Set(squads.map(sq => sq.type))
+                return {
+                    id: c.id, owner: c.owner, number: c.number, squadIds: squads.map(sq => sq.id), types: UNIT_TYPES.filter(t => types.has(t)),
+                    count: squads.reduce((sum, sq) => sum + sq.count, 0), size: squads.reduce((sum, sq) => sum + sq.size, 0),
                 }
             })
             this.formation = battle.formations.player.type
@@ -189,6 +221,21 @@ export const useGameStore = defineStore('game', {
             else if (order === 'formation') orderFormation(battle, squadId)
             else if (order === 'resupply') orderResupply(battle, squadId)
             else if (order === 'support') orderSupport(battle, squadId, options.targetSquadId)
+            // 小隊に個別の指示を出したら、その中隊は足並みをそろえるのをやめる。
+            const company = battle.companyById.get(battle.squadById.get(squadId)?.companyId ?? -1)
+            if (company) company.together = false
+            this.refresh()
+        },
+
+        /** 自軍の中隊への指示。 */
+        orderCompany(companyId: number, command: CompanyCommand): void {
+            const battle = this.battle
+            if (!battle || battle.companyById.get(companyId)?.owner !== 'player' || this.isGameOver) return
+            const { order } = command
+            if (order === 'move') { if (command.point) orderCompanyMove(battle, companyId, command.point) }
+            else if (order === 'attack') orderCompanyAttack(battle, companyId, { squadId: command.targetSquadId, companyId: command.targetCompanyId })
+            else if (order === 'demolish') { if (command.constructionId !== undefined) orderCompanyDemolish(battle, companyId, command.constructionId) }
+            else orderCompany(battle, companyId, order)
             this.refresh()
         },
 

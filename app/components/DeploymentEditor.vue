@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { FORMATIONS, SQUAD_SIZE } from '~/game/formation'
+import { COMPANY_MAX_SQUADS, FORMATIONS, SQUAD_SIZE } from '~/game/formation'
 import {
-  armyPool, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP, squadSizeMax, SQUADS_PER_TYPE_MAX, UNIT_TYPES, type DeploymentPlan,
+  armyPool, COMPANY_TEMPLATES, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, plannedCompanies, PLANNED_COMPANIES_MAX, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP,
+  squadSizeMax, SQUADS_PER_TYPE_MAX, UNIT_TYPES, type DeploymentPlan,
 } from '~/game/deployment'
 import type { BattleMode, UnitType } from '~/types/game'
 
@@ -11,14 +12,35 @@ const emit = defineEmits<{ change: [plan: DeploymentPlan]; save: [plan: Deployme
 
 /** 開戦するまでは手元の写しを編集し、変えるたびに戦場の布陣に映す。 */
 const draft = ref<DeploymentPlan>({ formation: props.plan.formation, squads: props.plan.squads.map(sq => ({ ...sq })) })
+const TYPE_MARK: Record<UnitType, string> = { infantry: '歩', pikeman: '槍', archer: '弓', cavalry: '騎', supply: '補', engineer: '工' }
 watch(draft, plan => { if (plan.squads.length) emit('change', plan) }, { deep: true })
 const pool = computed(() => armyPool(props.mode, 'player'))
 const limit = computed(() => deployLimit(props.mode, 'player'))
 const reinforced = computed(() => hasFort(props.mode, 'player'))
 const deployed = computed(() => deployedCount(draft.value))
 const room = computed(() => limit.value - deployed.value)
+/** 兵種の小隊（中隊を組んだ小隊も含む。兵種ごとの上限はこれで数える）。 */
 const squadsOf = (type: UnitType) => draft.value.squads.map((sq, index) => ({ ...sq, index })).filter(sq => sq.type === type)
-const typeTotal = (type: UnitType) => squadsOf(type).reduce((sum, sq) => sum + sq.size, 0)
+/** 中隊を組んでいない（開戦時に自動で中隊に分ける）兵種の小隊。 */
+const autoSquadsOf = (type: UnitType) => squadsOf(type).filter(sq => sq.company === undefined)
+const typeTotal = (type: UnitType) => autoSquadsOf(type).reduce((sum, sq) => sum + sq.size, 0)
+const canAdd = (type: UnitType) => room.value >= SQUAD_SIZE_MIN && squadsOf(type).length < SQUADS_PER_TYPE_MAX
+
+/** 編成で組んだ中隊（番号の順）と、その小隊。 */
+const companies = computed(() => plannedCompanies(draft.value).map(({ company, indices }) => ({ company, squads: indices.map(index => ({ ...draft.value.squads[index]!, index })) })))
+const nextCompany = () => Math.max(0, ...draft.value.squads.map(sq => sq.company ?? 0)) + 1
+/** 中隊にもう1小隊入れられるか。 */
+const canAddTo = (company: number, type: UnitType) => canAdd(type) && draft.value.squads.filter(sq => sq.company === company).length < COMPANY_MAX_SQUADS
+/** ひな形の兵種で中隊を組む（足りない人数・上限で入らない小隊は飛ばす）。 */
+const addCompany = (types: UnitType[]) => {
+  if (companies.value.length >= PLANNED_COMPANIES_MAX) return
+  const company = nextCompany()
+  for (const type of types) addSquad(type, company)
+}
+/** 中隊を解き、小隊は自動で中隊に分ける側へ戻す。 */
+const disbandCompany = (company: number) => { for (const sq of draft.value.squads) if (sq.company === company) delete sq.company }
+const removeCompany = (company: number) => { draft.value.squads = draft.value.squads.filter(sq => sq.company !== company) }
+const companyTotal = (squads: { size: number }[]) => squads.reduce((sum, sq) => sum + sq.size, 0)
 
 const applyPreset = (key: string) => { draft.value = presetDeployment(key, props.mode, 'player') }
 /** 部隊の人数を変える。布陣できる上限を超える分は増やさない。 */
@@ -29,11 +51,12 @@ const setSize = (index: number, size: number) => {
 }
 const step = (index: number, delta: number) => setSize(index, draft.value.squads[index]!.size + delta)
 /** 兵種の部隊を1つ加える（人数は定員、上限が近ければ残りの人数。兵種ごとに SQUADS_PER_TYPE_MAX 部隊まで）。兵種の順に並べて、部隊の番号を兵種ごとの順にする。 */
-const addSquad = (type: UnitType) => {
+const addSquad = (type: UnitType, company?: number) => {
   const size = Math.min(SQUAD_SIZE[type], room.value)
   if (size < SQUAD_SIZE_MIN || squadsOf(type).length >= SQUADS_PER_TYPE_MAX) return
+  if (company !== undefined && !canAddTo(company, type)) return
   const at = draft.value.squads.reduce((last, sq, i) => UNIT_TYPES.indexOf(sq.type) <= UNIT_TYPES.indexOf(type) ? i + 1 : last, 0)
-  draft.value.squads.splice(at, 0, { type, size })
+  draft.value.squads.splice(at, 0, company === undefined ? { type, size } : { type, size, company })
 }
 const removeSquad = (index: number) => { draft.value.squads.splice(index, 1) }
 const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
@@ -63,27 +86,62 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
       </div>
 
       <div class="deploy-group">
-        <span class="deploy-label">部隊（兵種と人数）</span>
+        <span class="deploy-label">中隊を組む（兵種を混ぜてよい · 1中隊{{ COMPANY_MAX_SQUADS }}小隊まで）</span>
+        <div class="deploy-buttons templates">
+          <button v-for="t in COMPANY_TEMPLATES" :key="t.key" :title="t.description" :disabled="room < SQUAD_SIZE_MIN || companies.length >= PLANNED_COMPANIES_MAX" @click="addCompany(t.types)">
+            ＋ {{ t.name }}<small>{{ t.types.map(type => TYPE_MARK[type]).join('・') }}</small>
+          </button>
+        </div>
+        <ul v-if="companies.length" class="deploy-types companies">
+          <li v-for="(c, n) in companies" :key="c.company">
+            <div class="type-head">
+              <span>第{{ n + 1 }}中隊</span>
+              <small>{{ c.squads.map(sq => TYPE_MARK[sq.type]).join('・') }} · {{ companyTotal(c.squads) }}人</small>
+              <span class="company-actions">
+                <button class="add" :aria-label="`第${n + 1}中隊を解いて、小隊を自動の中隊に戻す`" @click="disbandCompany(c.company)">解く</button>
+                <button class="add" :aria-label="`第${n + 1}中隊を外す`" @click="removeCompany(c.company)">×</button>
+              </span>
+            </div>
+            <div class="squads">
+              <div v-for="sq in c.squads" :key="sq.index" class="squad-chip">
+                <span class="squad-no">{{ unitNames[sq.type] }}</span>
+                <button :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${SQUAD_SIZE_STEP}人減らす`" :disabled="sq.size <= SQUAD_SIZE_MIN" @click="step(sq.index, -SQUAD_SIZE_STEP)">−</button>
+                <input type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(sq.type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}の人数`"
+                  @change="setSize(sq.index, Number(($event.target as HTMLInputElement).value)); ($event.target as HTMLInputElement).value = String(draft.squads[sq.index]!.size)">
+                <button :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(sq.type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
+                <button class="remove" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を外す`" @click="removeSquad(sq.index)">×</button>
+              </div>
+              <span class="add-types">
+                <button v-for="type in UNIT_TYPES" :key="type" :disabled="!canAddTo(c.company, type)" :title="`${unitNames[type]}の小隊を加える`" :aria-label="`第${n + 1}中隊に${unitNames[type]}の小隊を加える`" @click="addSquad(type, c.company)">＋{{ TYPE_MARK[type] }}</button>
+              </span>
+            </div>
+          </li>
+        </ul>
+        <p class="deploy-note">組んだ中隊は陣でひとかたまりに並び（槍兵が前、弓兵が後ろ、騎兵が両翼）、中隊で動くときは一番遅い小隊に足並みをそろえます。弓兵に敵が迫ると、同じ中隊の近接の小隊が迎え撃ちます。</p>
+      </div>
+
+      <div class="deploy-group">
+        <span class="deploy-label">{{ companies.length ? 'そのほかの小隊（陣で隣り合う同じ兵種で自動で中隊に分ける）' : '部隊（兵種と人数。陣で隣り合う同じ兵種で自動で中隊に分ける）' }}</span>
         <ul class="deploy-types">
           <li v-for="type in UNIT_TYPES" :key="type">
             <div class="type-head">
               <span>{{ unitNames[type] }}</span>
-              <small>{{ squadsOf(type).length }}部隊 · {{ typeTotal(type) }}人</small>
-              <button class="add" :disabled="room < SQUAD_SIZE_MIN || squadsOf(type).length >= SQUADS_PER_TYPE_MAX" :aria-label="`${unitNames[type]}の部隊を加える`" @click="addSquad(type)">＋ 部隊</button>
+              <small>{{ autoSquadsOf(type).length }}小隊 · {{ typeTotal(type) }}人</small>
+              <button class="add" :disabled="!canAdd(type)" :aria-label="`${unitNames[type]}の小隊を加える`" @click="addSquad(type)">＋ 小隊</button>
             </div>
             <div class="squads">
-              <div v-for="(sq, n) in squadsOf(type)" :key="sq.index" class="squad-chip">
+              <div v-for="(sq, n) in autoSquadsOf(type)" :key="sq.index" class="squad-chip">
                 <span class="squad-no">第{{ n + 1 }}</span>
-                <button :aria-label="`第${n + 1}${unitNames[type]}隊を${SQUAD_SIZE_STEP}人減らす`" :disabled="sq.size <= SQUAD_SIZE_MIN" @click="step(sq.index, -SQUAD_SIZE_STEP)">−</button>
-                <input type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}${unitNames[type]}隊の人数`"
+                <button :aria-label="`第${n + 1}${unitNames[type]}小隊を${SQUAD_SIZE_STEP}人減らす`" :disabled="sq.size <= SQUAD_SIZE_MIN" @click="step(sq.index, -SQUAD_SIZE_STEP)">−</button>
+                <input type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}${unitNames[type]}小隊の人数`"
                   @change="setSize(sq.index, Number(($event.target as HTMLInputElement).value)); ($event.target as HTMLInputElement).value = String(draft.squads[sq.index]!.size)">
-                <button :aria-label="`第${n + 1}${unitNames[type]}隊を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
-                <button class="remove" :aria-label="`第${n + 1}${unitNames[type]}隊を外す`" @click="removeSquad(sq.index)">×</button>
+                <button :aria-label="`第${n + 1}${unitNames[type]}小隊を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
+                <button class="remove" :aria-label="`第${n + 1}${unitNames[type]}小隊を外す`" @click="removeSquad(sq.index)">×</button>
               </div>
             </div>
           </li>
         </ul>
-        <p class="deploy-note">1部隊 {{ SQUAD_SIZE_MIN }}〜定員の2倍まで。兵種ごとに{{ SQUADS_PER_TYPE_MAX }}部隊まで（10部隊を超えた分は陣の2列目に並びます）。人数は軍の兵から割り当てます。</p>
+        <p class="deploy-note">1小隊 {{ SQUAD_SIZE_MIN }}〜定員の2倍まで。兵種ごとに{{ SQUADS_PER_TYPE_MAX }}小隊まで（中隊を組んだ小隊も数えます。10を超えた分は陣の2列目に並びます）。人数は軍の兵から割り当てます。</p>
       </div>
 
       <footer>
@@ -124,6 +182,12 @@ button.active { border-color: #c2a875; background: #3a3121; color: #f2e8cf; }
 .type-head { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .type-head small { color: #97a3a4; font-size: 11px; font-variant-numeric: tabular-nums; }
 .type-head .add { margin-left: auto; padding: 3px 10px; font-size: 11px; }
+.templates button { min-width: 64px; }
+.companies { margin-top: 8px; }
+.company-actions { margin-left: auto; display: flex; gap: 4px; }
+.company-actions .add { margin-left: 0; }
+.add-types { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.add-types button { padding: 2px 6px; font-size: 11px; }
 .squads { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .squads:empty { display: none; }
 .squad-chip { display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #17222a; border: 1px solid #3a474d; border-radius: 3px; font-size: 11px; }

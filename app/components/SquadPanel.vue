@@ -2,25 +2,29 @@
 import { computed, ref } from 'vue'
 import { useGameStore } from '~/stores/game'
 import { CONSTRUCTION } from '~/game/battleConfig'
-import type { SquadSummary } from '~/stores/game'
-import type { UnitType } from '~/types/game'
-import { ARMY_NAME, ORDER_NAME, TIRED_BELOW, UNIT_NAME, UNIT_TYPES, squadName, squadNeedsCare } from './battleUi'
+import type { CompanySummary, SquadSummary } from '~/stores/game'
+import { ARMY_NAME, ORDER_NAME, TIRED_BELOW, companyName, companyTypes, squadName, squadNeedsCare } from './battleUi'
 
-/** 左側の部隊パネル。選んだ部隊の状態と、自軍の部隊を兵種ごとにまとめた一覧（開閉式）。 */
-const props = defineProps<{ selectedId: number | null; listOpen: boolean }>()
-const emit = defineEmits<{ focus: [squadId: number] }>()
+/** 左側の部隊パネル。選んだ小隊・中隊の状態と、自軍の部隊を中隊ごとにまとめた一覧（大隊 › 中隊 › 小隊、開閉式）。 */
+const props = defineProps<{ selectedId: number | null; selectedCompanyId: number | null; listOpen: boolean }>()
+const emit = defineEmits<{ focus: [squadId: number]; focusCompany: [companyId: number] }>()
 const gameStore = useGameStore()
 
+const squadsOf = (company: CompanySummary) => company.squadIds.map(id => gameStore.squads.find(sq => sq.id === id)).filter((sq): sq is SquadSummary => !!sq)
 const selected = computed(() => gameStore.squads.find(sq => sq.id === props.selectedId))
-const groups = computed(() => UNIT_TYPES
-  .map(type => ({ type, squads: gameStore.squads.filter(sq => sq.owner === 'player' && sq.type === type) }))
-  .filter(group => group.squads.length))
-const expanded = ref(new Set<UnitType>())
-const toggle = (type: UnitType) => {
+const selectedCompany = computed(() => gameStore.companies.find(c => c.id === props.selectedCompanyId))
+/** 選んだ小隊の属する中隊。 */
+const parentCompany = computed(() => selected.value && gameStore.companies.find(c => c.id === selected.value!.companyId))
+const groups = computed(() => gameStore.companies.filter(c => c.owner === 'player' && c.squadIds.length).map(company => ({ company, squads: squadsOf(company) })))
+const total = computed(() => groups.value.reduce((sum, g) => sum + g.company.count, 0))
+const expanded = ref(new Set<number>())
+const toggle = (id: number) => {
   const next = new Set(expanded.value)
-  if (!next.delete(type)) next.add(type)
+  if (!next.delete(id)) next.add(id)
   expanded.value = next
 }
+/** 中隊の小隊の指示（全員同じならその指示、ばらばらなら「各自」）。 */
+const companyOrder = (squads: SquadSummary[]) => new Set(squads.map(sq => sq.order)).size === 1 ? ORDER_NAME[squads[0]!.order] : '各自'
 const percent = (value: number, max: number) => `${Math.max(0, Math.min(100, value / max * 100))}%`
 
 const constructionStatus = (squad: SquadSummary) => {
@@ -49,6 +53,7 @@ const squadStatus = (squad: SquadSummary) => {
         <span class="unit-name" :class="selected.owner">{{ ARMY_NAME[selected.owner] }} · {{ squadName(selected) }}</span>
         <span class="card-order">{{ ORDER_NAME[selected.order] }}</span>
       </div>
+      <button v-if="parentCompany" class="card-parent" :aria-label="`${companyName(parentCompany)}を選ぶ`" @click="emit('focusCompany', parentCompany.id)">{{ companyName(parentCompany) }} · {{ companyTypes(parentCompany) }} ›</button>
       <div class="meter">
         <span>人数</span><div class="bar"><span :style="{ width: percent(selected.count, selected.size) }"></span></div><b>{{ selected.count }}/{{ selected.size }}</b>
       </div>
@@ -67,16 +72,36 @@ const squadStatus = (squad: SquadSummary) => {
         <b>{{ selected.construction.complete || selected.order === 'demolish' ? selected.construction.hp : selected.construction.progress }}%</b>
       </div>
     </div>
+    <div v-else-if="selectedCompany" class="squad-card" role="status">
+      <div class="card-head">
+        <span class="unit-name" :class="selectedCompany.owner">{{ ARMY_NAME[selectedCompany.owner] }} · {{ companyName(selectedCompany) }}</span>
+        <span class="card-order">{{ companyOrder(squadsOf(selectedCompany)) }}</span>
+      </div>
+      <span class="card-types">{{ companyTypes(selectedCompany) }} · {{ selectedCompany.squadIds.length }}小隊</span>
+      <div class="meter">
+        <span>人数</span><div class="bar"><span :style="{ width: percent(selectedCompany.count, selectedCompany.size) }"></span></div><b>{{ selectedCompany.count }}/{{ selectedCompany.size }}</b>
+      </div>
+      <ul class="card-squads">
+        <li v-for="squad in squadsOf(selectedCompany)" :key="squad.id">
+          <button class="squad-row" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}`" @click="emit('focus', squad.id)">
+            <span>{{ squadName(squad) }}</span><span class="order" :class="{ low: squadNeedsCare(squad) }">{{ squadStatus(squad) }}</span><b>{{ squad.count }}</b>
+          </button>
+        </li>
+      </ul>
+    </div>
     <div v-if="listOpen" class="squad-list">
       <p v-if="!groups.length" class="empty">部隊がいません</p>
-      <section v-for="group in groups" :key="group.type">
-        <button class="group-head" :aria-expanded="expanded.has(group.type)" @click="toggle(group.type)">
-          <span class="caret">{{ expanded.has(group.type) ? '▾' : '▸' }}</span>
-          <span>{{ UNIT_NAME.player[group.type] }}</span>
-          <span v-if="group.squads.some(squadNeedsCare)" class="care" title="矢・体力・補給が心もとない部隊がいます">⚠</span>
-          <b>{{ group.squads.length }}部隊 · {{ group.squads.reduce((sum, sq) => sum + sq.count, 0) }}</b>
-        </button>
-        <ul v-if="expanded.has(group.type)">
+      <p v-else class="battalion">大隊 · {{ groups.length }}中隊 · {{ total }}人</p>
+      <section v-for="group in groups" :key="group.company.id">
+        <div class="group-head" :class="{ selected: group.company.id === selectedCompanyId }">
+          <button class="caret" :aria-expanded="expanded.has(group.company.id)" :aria-label="`${companyName(group.company)}の小隊を${expanded.has(group.company.id) ? '閉じる' : '開く'}`" @click="toggle(group.company.id)">{{ expanded.has(group.company.id) ? '▾' : '▸' }}</button>
+          <button class="company-name" :aria-label="`${companyName(group.company)}（${companyTypes(group.company)}） ${group.company.count}人を選ぶ`" @click="emit('focusCompany', group.company.id)">
+            <span>{{ companyName(group.company) }}</span><small>{{ companyTypes(group.company) }}</small>
+            <span v-if="group.squads.some(squadNeedsCare)" class="care" title="矢・体力・補給が心もとない小隊がいます">⚠</span>
+            <b>{{ group.squads.length }}小隊 · {{ group.company.count }}</b>
+          </button>
+        </div>
+        <ul v-if="expanded.has(group.company.id)">
           <li v-for="squad in group.squads" :key="squad.id">
             <button class="squad-row" :class="{ selected: squad.id === selectedId }" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}`" @click="emit('focus', squad.id)">
               <span>{{ squadName(squad) }}</span><span class="order" :class="{ low: squadNeedsCare(squad) }">{{ squadStatus(squad) }}</span><b>{{ squad.count }}</b>
@@ -110,13 +135,22 @@ const squadStatus = (squad: SquadSummary) => {
 .squad-list { padding: 4px; overflow-y: auto; min-height: 0; }
 .squad-list ul { list-style: none; margin: 0 0 4px; padding: 0 0 0 10px; display: flex; flex-direction: column; gap: 1px; }
 .empty { margin: 6px 8px; font-size: 11px; color: #8f9a9b; }
-.group-head, .squad-row { width: 100%; margin: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: #c6cfcd; cursor: pointer; text-align: left; }
-.group-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 12px; }
-.group-head b { margin-left: auto; font-weight: 400; font-size: 11px; color: #9fc0f5; font-variant-numeric: tabular-nums; }
-.caret { width: 10px; color: #c5af83; }
+.battalion { margin: 4px 8px 6px; font-size: 10px; letter-spacing: .12em; color: #c5af83; }
+.card-types { color: #8fa3a6; font-size: 10px; }
+.card-parent { align-self: flex-start; margin: 0; padding: 0; background: none; border: 0; color: #8fa3a6; font-size: 10px; cursor: pointer; }
+.card-parent:hover { color: #fff1c2; transform: none; }
+.card-squads { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 140px; overflow-y: auto; }
+.company-name, .caret, .squad-row { margin: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: #c6cfcd; cursor: pointer; text-align: left; }
+.squad-row { width: 100%; }
+.group-head { display: flex; align-items: center; gap: 2px; border: 1px solid transparent; border-radius: 4px; }
+.group-head.selected { border-color: #fff1c2; }
+.company-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; padding: 6px 8px 6px 2px; font-size: 12px; }
+.company-name small { font-size: 10px; color: #8fa3a6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-name b { margin-left: auto; font-weight: 400; font-size: 11px; color: #9fc0f5; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.caret { width: 22px; padding: 6px 0 6px 6px; color: #c5af83; font-size: 12px; }
 .care { color: #e8b25a; }
 .squad-row { display: grid; grid-template-columns: 1fr auto 28px; gap: 6px; align-items: center; padding: 4px 8px; font-size: 10px; }
-.group-head:hover, .squad-row:hover { border-color: #526469; transform: none; }
+.company-name:hover, .caret:hover, .squad-row:hover { border-color: #526469; transform: none; }
 .squad-row.selected { border-color: #fff1c2; color: #fff; }
 .squad-row .order { color: #8fa3a6; }
 .squad-row .order.low { color: #e8b25a; }

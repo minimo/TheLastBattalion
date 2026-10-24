@@ -100,14 +100,14 @@ export function createArmyRenderer(scene: THREE.Scene) {
 
     return {
         group,
-        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number, selectedSquadId: number | null, leaderIds: ReadonlySet<number>) {
+        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number, selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>) {
             counts.clear()
             for (const s of soldiers) { const key = `${s.owner}:${s.type}`; counts.set(key, (counts.get(key) ?? 0) + 1) }
             for (const [key, batch] of batches) if ((counts.get(key) ?? 0) > batch.capacity) grow(batch, counts.get(key)!)
             counts.clear()
             let ringCount = 0
             for (const army of ARMIES) { banners[army].ensure(leaderIds.size); bannerCounts[army] = 0 }
-            const selectedCount = selectedSquadId === null ? 0 : soldiers.reduce((n, s) => n + (s.squadId === selectedSquadId && s.state !== 'dead' ? 1 : 0), 0)
+            const selectedCount = selectedSquadIds.size ? soldiers.reduce((n, s) => n + (selectedSquadIds.has(s.squadId) && s.state !== 'dead' ? 1 : 0), 0) : 0
             if (selectedCount > ringCapacity) {
                 while (ringCapacity < selectedCount) ringCapacity *= 2
                 const old = rings
@@ -167,7 +167,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
                     out.multiplyMatrices(base, bannerLocal)
                     banners[s.owner].mesh.setMatrixAt(bannerCounts[s.owner]++, out)
                 }
-                if (s.squadId === selectedSquadId && !dead) {
+                if (selectedSquadIds.has(s.squadId) && !dead) {
                     const size = s.type === 'cavalry' ? 1.5 : 1
                     ringMatrix.makeScale(size, 1, size).setPosition(s.x, ground + .6, s.y)
                     rings.setMatrixAt(ringCount++, ringMatrix)

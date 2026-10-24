@@ -103,6 +103,11 @@ export const RESUPPLY_THRESHOLD = .05
 /** 補給部隊が補給に向かう、矢または体力の割合。 */
 export const SUPPORT_THRESHOLD = .6
 /** 補給部隊が補給できる距離（部隊の中心どうし）と、1回の補給で満タンにするまでの秒数。 */
+/**
+ * 中隊の中の連携。中隊で移動・攻撃しているあいだは、行き先（攻撃なら相手）から release より遠い小隊が、いちばん遅い小隊に歩みをそろえる。
+ * 弓兵の小隊の guard 以内に敵の小隊が迫ったら、同じ中隊で構えている近接の小隊（歩兵・槍兵・騎兵）のうち一番近い小隊が迎え撃つ。
+ */
+export const COMPANY = { releaseMove: 40, releaseAttack: 130, guard: 75 }
 export const SUPPORT_RANGE = 55
 export const SUPPLY_DURATION = 4
 /** 補給部隊が自陣へ戻らずに補給できる回数（1回で1部隊を満タンにする）。 */

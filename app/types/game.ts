@@ -94,12 +94,15 @@ export type SquadOrder = 'formation' | 'move' | 'hold' | 'attack' | 'charge' | '
 
 export type FormationType = 'line' | 'crane' | 'scale' | 'circle' | 'arrow'
 
+/** 小隊（兵種ごとの部隊）。いくつかの小隊で中隊を組む。 */
 export interface Squad {
     id: number
     owner: Army
     type: UnitType
-    /** 兵種ごとの通し番号（第n歩兵隊）。 */
+    /** 兵種ごとの通し番号（第n歩兵小隊）。 */
     number: number
+    /** 属する中隊（Company）のID。 */
+    companyId: number
     order: SquadOrder
     /** 持ち場の前列中央と向き（formation/move/hold）。 */
     anchor: Point
@@ -135,6 +138,20 @@ export interface Squad {
     march: { x: number; y: number; facing: number; moving: boolean } | null
     /** 補給に戻る前の指示（補給が終わったら戻す）。 */
     resume: { order: SquadOrder; anchor: Point; facing: number; targetSquadId: number; constructionId: number } | null
+}
+
+/** 中隊: 隣り合う数個の小隊のまとまり。指示は中隊ごとにまとめて出せる（各小隊はそれぞれの指示でも動ける）。 */
+export interface Company {
+    id: number
+    owner: Army
+    /** 軍ごとの通し番号（第n中隊）。 */
+    number: number
+    /** 属する小隊のID（全滅した小隊は外す）。 */
+    squadIds: number[]
+    /** 編成で組んだ中隊か。組んだ中隊は兵種を混ぜてよく、陣でもひとかたまりに並ぶ（自動の中隊は小隊ごとに兵種の場所へ並ぶ）。 */
+    planned: boolean
+    /** 中隊ごとの移動・攻撃を受けて、中隊で足並みをそろえて動いているか（小隊に個別の指示を出すとやめる）。 */
+    together: boolean
 }
 
 /** 工兵が建てる建設物。outpost: 拠点（補給できる小さな陣地） / barricade: バリケード / bridge: 橋 */

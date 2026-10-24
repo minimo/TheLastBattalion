@@ -3,10 +3,11 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { GAME_SPEEDS, useGameStore } from '~/stores/game'
 import { FORMATIONS } from '~/game/formation'
 import type { BattleInput } from '~/composables/useBattleInput'
+import type { CompanyOrder } from '~/game/battle'
 import type { ConstructionKind, SquadOrder } from '~/types/game'
 import ArmyMenu from './ArmyMenu.vue'
 import CommandIcon from './CommandIcon.vue'
-import { squadActions, squadName, type SquadAction } from './battleUi'
+import { companyActions, companyName, squadActions, squadName, type SquadAction } from './battleUi'
 
 /** 画面下中央の操作バー。左は選んでいるものへの指示（何も選んでいなければ全軍）、右は進行の操作。上に一言のヒントを出す。 */
 const props = defineProps<{ input: BattleInput; deploying: boolean; menuOpen: boolean; squadsOpen: boolean }>()
@@ -16,6 +17,16 @@ const root = ref<HTMLElement | null>(null)
 const armyOpen = ref(false)
 
 const selected = computed(() => gameStore.squads.find(sq => sq.id === props.input.selectedSquadId.value))
+const selectedCompany = computed(() => gameStore.companies.find(c => c.id === props.input.selectedCompanyId.value))
+/** 中隊の指示が出ているか（中隊の小隊がみなその指示で動いているか）。 */
+const isCompanyActive = (action: SquadAction) => {
+  const company = selectedCompany.value
+  return !!company && company.squadIds.length > 0 && company.squadIds.every(id => gameStore.squads.find(sq => sq.id === id)?.order === action.order)
+}
+const runCompanyAction = (action: SquadAction) => {
+  const company = selectedCompany.value
+  if (company && action.order) gameStore.orderCompany(company.id, { order: action.order as CompanyOrder })
+}
 const buildMode = computed(() => props.input.buildMode.value)
 const paused = computed(() => gameStore.status === 'paused')
 const formationName = computed(() => FORMATIONS.find(f => f.type === gameStore.formation)?.name ?? '')
@@ -31,7 +42,7 @@ const runAction = (action: SquadAction) => {
     else props.input.startBuild(squad.id, action.build)
   } else if (action.order) gameStore.orderSquad(squad.id, action.order)
 }
-const deselect = () => { props.input.cancelBuild(); props.input.selectSquad(null) }
+const deselect = () => { props.input.cancelBuild(); props.input.selectSquad(null); props.input.selectCompany(null) }
 const nextSpeed = () => {
   const index = GAME_SPEEDS.indexOf(gameStore.gameSpeed)
   gameStore.setGameSpeed(GAME_SPEEDS[(index + 1) % GAME_SPEEDS.length]!)
@@ -52,6 +63,11 @@ const hint = computed(() => {
   if (mode) return `${BUILD_HINT[mode.kind]} · Esc で取り消し`
   const dragging = props.input.dragging.value
   if (dragging === 'army') return '離した場所へ陣全体を動かす'
+  if (props.input.draggingCompany.value !== null) {
+    const command = props.input.previewCompanyCommand()
+    const name = command ? DROP_NAME[command.order as SquadOrder] : ''
+    return `離すと中隊ごと${name ? `「${name}」` : '指示'} · 敵の中隊・小隊で攻撃 · 自陣で退却 · 敵陣で突撃`
+  }
   if (typeof dragging === 'number') {
     const command = props.input.previewCommand()
     const name = command?.order === 'build' ? (command.kind === 'bridge' ? '橋を架ける' : '建設・修理') : command ? DROP_NAME[command.order] : ''
@@ -64,7 +80,8 @@ const hint = computed(() => {
     if (squad.type === 'supply') return '旗をドラッグして指示 · 味方の部隊へドラッグで補給を届ける'
     return '旗をドラッグして指示 · 長押しでメニュー'
   }
-  return '部隊の旗をドラッグして指示 · 全軍の旗で陣を動かす · 長押しでメニュー'
+  if (selectedCompany.value?.owner === 'player') return '中隊の旗をドラッグして中隊ごと指示 · 長押しでメニュー'
+  return '中隊・小隊の旗をドラッグして指示 · 全軍の旗で陣を動かす · 長押しでメニュー'
 })
 
 const closeOnOutside = (event: PointerEvent) => {
@@ -98,6 +115,16 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
               </button>
               <button v-if="buildMode?.kind === 'barricade'" class="command" @click="input.rotateBuild()">
                 <CommandIcon name="rotate" /><span class="label">向き · {{ buildMode.axis === 'y' ? '南北' : '東西' }}</span>
+              </button>
+            </template>
+          </template>
+          <template v-else-if="selectedCompany">
+            <button class="command squad-name" :class="selectedCompany.owner" :title="`${companyName(selectedCompany)}の選択を外す`" @click="deselect">
+              <CommandIcon name="close" /><span class="label">{{ companyName(selectedCompany) }}</span>
+            </button>
+            <template v-if="selectedCompany.owner === 'player'">
+              <button v-for="action in companyActions(selectedCompany.types)" :key="action.key" class="command" :class="{ active: isCompanyActive(action) }" :aria-pressed="isCompanyActive(action)" @click="runCompanyAction(action)">
+                <CommandIcon :name="action.icon" /><span class="label">{{ action.label }}</span>
               </button>
             </template>
           </template>

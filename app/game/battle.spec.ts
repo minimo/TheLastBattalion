@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { generateMap } from './mapGenerator'
 import { createMulberry32, hashString } from './random'
 import {
-    cohesionRadius, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderConstruct, orderDemolish, orderHold, orderMove, orderResupply,
+    cohesionRadius, companySquads, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderCompany, orderCompanyAttack, orderCompanyMove, orderConstruct,
+    orderDemolish, orderHold, orderMove, orderResupply,
     orderRetreat, previewConstruction, redeployArmy, setFormation, staminaFactor, summarize, updateBattle,
 } from './battle'
 import { createCpuCommander } from './cpuCommander'
-import { axes, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
+import { axes, COMPANY_MAX_SQUADS, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
 import { FORT_DEPTH, FORT_WIDTH, isBlockedLocal, localToGrid } from './fortLayout'
 import { CASTLE_ASSAULT_CELLS, CASTLE_DEPTH, CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
 import { findPath } from './pathfinding'
@@ -16,7 +17,7 @@ import { TILE } from './constants'
 import { getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
-import { armyPool, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, presetDeployment, type DeploymentPlan } from './deployment'
+import { armyPool, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, type DeploymentPlan } from './deployment'
 import type { BattleMode, MapType, UnitType } from '../types/game'
 
 const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType = mapTypeForMode(mode, 'standard'), plan?: DeploymentPlan) => {
@@ -858,5 +859,186 @@ describe('開戦時の編成', () => {
         const battle = makeBattle('123456', 'siege', undefined, plan)
         expect(battle.formations.player.type).toBe('arrow')
         expect(summarize(battle).player.total).toBe(plan.squads.reduce((sum, sq) => sum + sq.size, 0))
+    })
+})
+
+describe('中隊', () => {
+    const run = (battle: ReturnType<typeof makeBattle>, seconds: number) => { for (let t = 0; t < seconds; t += 1 / 30) updateBattle(battle, 1 / 30) }
+
+    it('開戦時、どの小隊も同じ兵種の隣り合う小隊と中隊を組む', () => {
+        const battle = makeBattle('123456')
+        for (const owner of ['player', 'cpu'] as const) {
+            const squads = battle.squads.filter(sq => sq.owner === owner)
+            for (const squad of squads) expect(battle.companyById.get(squad.companyId)?.squadIds).toContain(squad.id)
+            for (const company of battle.companies.filter(c => c.owner === owner)) {
+                const members = companySquads(battle, company.id)
+                expect(members.length).toBeGreaterThan(0)
+                expect(members.length).toBeLessThanOrEqual(COMPANY_MAX_SQUADS)
+                expect(new Set(members.map(sq => sq.type)).size).toBe(1)
+            }
+            // 歩兵6小隊は3小隊ずつの2中隊。両翼の騎兵は左右で別の中隊になる。
+            const companiesOf = (type: UnitType) => battle.companies.filter(c => c.owner === owner && companySquads(battle, c.id)[0]!.type === type)
+            expect(companiesOf('infantry').map(c => c.squadIds.length)).toEqual([3, 3])
+            expect(companiesOf('cavalry')).toHaveLength(2)
+        }
+        expect(battle.companies.filter(c => c.owner === 'player').map(c => c.number)).toEqual(battle.companies.filter(c => c.owner === 'player').map((_, i) => i + 1))
+    })
+
+    it('中隊を動かすと、小隊は横に並んで同じ向きで構える', () => {
+        const battle = makeBattle('424242')
+        const company = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        const squads = companySquads(battle, company.id)
+        // ほかの部隊の間を抜ける押し合いは見ないので、中隊の兵だけを残す。
+        for (const s of battle.soldiers) if (s.owner === 'player' && !company.squadIds.includes(s.squadId)) { s.state = 'dead'; s.deathTime = battle.time }
+        run(battle, .1)
+        // 中隊からまっすぐ川を渡らずに行ける開けた地点へ動かす。
+        const from = { x: squads.reduce((sum, sq) => sum + sq.center.x, 0) / squads.length, y: squads.reduce((sum, sq) => sum + sq.center.y, 0) / squads.length }
+        const clear = (p: { x: number; y: number }, reach: number) => [-1, -.5, 0, .5, 1].every(dy => [-1, -.5, 0, .5, 1].every(dx => battle.paths.passable(p.x + dx * reach, p.y + dy * reach)))
+        const dry = (p: { x: number; y: number }) => clear(p, 100)
+            && Array.from({ length: 21 }, (_, i) => i / 20).every(t => clear({ x: from.x + (p.x - from.x) * t, y: from.y + (p.y - from.y) * t }, 30))
+        const point = Array.from({ length: 48 }, (_, i) => {
+            const angle = (i % 16) / 16 * Math.PI * 2, distance = 100 + Math.floor(i / 16) * 40
+            return { x: from.x + Math.cos(angle) * distance, y: from.y + Math.sin(angle) * distance }
+        }).find(dry)!
+        orderCompanyMove(battle, company.id, point)
+        expect(squads.every(sq => sq.order === 'move')).toBe(true)
+        expect(new Set(squads.map(sq => sq.facing.toFixed(6))).size).toBe(1)
+        // 小隊の持ち場は互いに重ならず、まん中が指定地点に来る。
+        const facing = squads[0]!.facing
+        const { rx, ry } = axes(facing)
+        const laterals = squads.map(sq => (sq.anchor.x - point.x) * rx + (sq.anchor.y - point.y) * ry).sort((a, b) => a - b)
+        for (let i = 1; i < laterals.length; i++) expect(laterals[i]! - laterals[i - 1]!).toBeGreaterThanOrEqual(squadBlock('infantry', 70).width)
+        expect(Math.abs(laterals[0]! + laterals.at(-1)!)).toBeLessThan(1)
+        run(battle, 45)
+        for (const squad of squads) {
+            const post = toWorld(squad.anchor, squad.facing, -squadBlock(squad.type, squad.count).depth / 2, 0)
+            expect(Math.hypot(squad.center.x - post.x, squad.center.y - post.y)).toBeLessThan(25)
+        }
+    }, 60000)
+
+    it('中隊での攻撃は、敵の中隊のうち各小隊に最も近い小隊を狙う', () => {
+        const battle = makeBattle('123456')
+        run(battle, .1)
+        const own = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        const enemy = battle.companies.find(c => c.owner === 'cpu' && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        orderCompanyAttack(battle, own.id, { companyId: enemy.id })
+        for (const squad of companySquads(battle, own.id)) {
+            expect(squad.order).toBe('attack')
+            const nearest = companySquads(battle, enemy.id).sort((a, b) => Math.hypot(a.center.x - squad.center.x, a.center.y - squad.center.y) - Math.hypot(b.center.x - squad.center.x, b.center.y - squad.center.y))[0]!
+            expect(squad.targetSquadId).toBe(nearest.id)
+        }
+    })
+
+    it('中隊への突撃に補給部隊と工兵は加わらない', () => {
+        const battle = makeBattle('123456')
+        const company = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id)[0]!.type === 'engineer')!
+        orderCompany(battle, company.id, 'charge')
+        expect(companySquads(battle, company.id).every(sq => sq.order === 'formation')).toBe(true)
+        orderCompany(battle, company.id, 'hold')
+        expect(companySquads(battle, company.id).every(sq => sq.order === 'hold')).toBe(true)
+    })
+
+    it('増援の小隊は陣にいる同じ兵種の中隊に加わり、全滅した小隊は中隊から外れる', () => {
+        const battle = makeBattle('123456')
+        run(battle, 9.2)
+        const added = battle.squads.filter(sq => sq.owner === 'player').at(-1)!
+        const company = battle.companyById.get(added.companyId)!
+        expect(company.squadIds).toContain(added.id)
+        expect(company.squadIds.length).toBeLessThanOrEqual(COMPANY_MAX_SQUADS)
+        expect(companySquads(battle, company.id).every(sq => sq.type === added.type)).toBe(true)
+        for (const s of battle.members.get(added.id)!) { s.hp = 0; s.state = 'dead'; s.deathTime = battle.time }
+        run(battle, 1 / 30)
+        expect(battle.companyById.get(added.companyId)?.squadIds ?? []).not.toContain(added.id)
+        expect(battle.companies.every(c => c.squadIds.length > 0)).toBe(true)
+    })
+
+    it('開戦前に編成し直すと、中隊も組み直す', () => {
+        const battle = makeBattle('123456')
+        redeployArmy(battle, 'player', { formation: 'line', squads: Array.from({ length: 8 }, () => ({ type: 'archer' as const, size: 60 })) })
+        const companies = battle.companies.filter(c => c.owner === 'player')
+        expect(companies.map(c => c.squadIds.length)).toEqual([4, 4])
+        expect(companies.map(c => c.number)).toEqual([1, 2])
+    })
+})
+
+describe('編成で組む中隊', () => {
+    const run = (battle: ReturnType<typeof makeBattle>, seconds: number) => { for (let t = 0; t < seconds; t += 1 / 30) updateBattle(battle, 1 / 30) }
+    /** 槍・歩・弓の混成中隊と、槍・騎の中隊を組み、残りは自動の中隊にする編成。 */
+    const mixedPlan = (): DeploymentPlan => ({
+        formation: 'line',
+        squads: [
+            { type: 'archer', size: 60, company: 5 }, { type: 'pikeman', size: 50, company: 5 }, { type: 'infantry', size: 70, company: 5 },
+            { type: 'pikeman', size: 50, company: 9 }, { type: 'cavalry', size: 35, company: 9 },
+            { type: 'infantry', size: 70 }, { type: 'infantry', size: 70 }, { type: 'archer', size: 60 },
+        ],
+    })
+
+    it('編成の中隊は1中隊4小隊までにし、番号を元の順に1から詰める', () => {
+        const plan = normalizeDeployment({ formation: 'line', squads: [...mixedPlan().squads, ...Array.from({ length: 4 }, () => ({ type: 'infantry' as const, size: 70, company: 5 }))] }, 'field', 'player')
+        const companies = plannedCompanies(plan)
+        expect(companies.map(c => c.company)).toEqual([1, 2])
+        expect(companies[0]!.indices).toHaveLength(4)
+        expect(companies[1]!.indices.map(i => plan.squads[i]!.type).sort()).toEqual(['cavalry', 'pikeman'])
+        // あふれた歩兵は自動の中隊の側に残る。
+        expect(plan.squads.filter(sq => sq.company === undefined && sq.type === 'infantry')).toHaveLength(5)
+    })
+
+    it('組んだ中隊は兵種を混ぜたまま布陣し、陣でひとかたまりに並ぶ（槍兵が前、弓兵が後ろ）', () => {
+        const battle = makeBattle('123456', 'field', undefined, mixedPlan())
+        run(battle, .1)
+        const planned = battle.companies.filter(c => c.owner === 'player' && c.planned)
+        expect(planned.map(c => c.number)).toEqual([1, 2])
+        const mixed = companySquads(battle, planned[0]!.id)
+        expect(mixed.map(sq => sq.type).sort()).toEqual(['archer', 'infantry', 'pikeman'])
+        const facing = battle.formations.player.facing
+        const { fx, fy } = axes(facing)
+        const forward = (sq: (typeof mixed)[number]) => sq.center.x * fx + sq.center.y * fy
+        const pike = mixed.find(sq => sq.type === 'pikeman')!, infantry = mixed.find(sq => sq.type === 'infantry')!, archer = mixed.find(sq => sq.type === 'archer')!
+        expect(forward(pike)).toBeGreaterThan(forward(infantry))
+        expect(forward(infantry)).toBeGreaterThan(forward(archer))
+        // 中隊の小隊は互いに近く（ほかの中隊の小隊をはさまない）。
+        for (const a of mixed) for (const b of mixed) expect(Math.hypot(a.center.x - b.center.x, a.center.y - b.center.y)).toBeLessThan(110)
+        // 組まなかった小隊は自動の中隊（同じ兵種だけ）になる。
+        for (const company of battle.companies.filter(c => c.owner === 'player' && !c.planned)) expect(new Set(companySquads(battle, company.id).map(sq => sq.type)).size).toBe(1)
+    })
+
+    it('混成中隊のプリセットで、中隊を組んだ編成になる', () => {
+        for (const mode of ['field', 'siege'] as const) {
+            const plan = presetDeployment('combined', mode, 'player')
+            expect(plannedCompanies(plan).length).toBeGreaterThanOrEqual(7)
+            const battle = makeBattle('123456', mode, undefined, plan)
+            expect(battle.companies.filter(c => c.owner === 'player' && c.planned).length).toBe(plannedCompanies(plan).length)
+            expect(battle.squads.filter(sq => sq.owner === 'player').every(sq => battle.companyById.has(sq.companyId))).toBe(true)
+        }
+    })
+
+    it('中隊で動くと、速い小隊は一番遅い小隊に歩みをそろえる', () => {
+        const battle = makeBattle('123456', 'field', undefined, mixedPlan())
+        run(battle, .1)
+        const company = battle.companies.find(c => c.owner === 'player' && c.planned && companySquads(battle, c.id).some(sq => sq.type === 'cavalry'))!
+        const [pike, cavalry] = ['pikeman', 'cavalry'].map(t => companySquads(battle, company.id).find(sq => sq.type === t)!)
+        const at = { x: battle.formations.player.anchor.x, y: battle.formations.player.anchor.y + 200 }
+        orderCompanyMove(battle, company.id, at)
+        run(battle, 1 / 30)
+        expect(battle.stride.get(cavalry!.id)).toBeLessThan(.5)
+        expect(battle.stride.get(pike!.id) ?? 1).toBeCloseTo(1)
+        // 小隊に個別の指示を出した中隊はそろえない。
+        company.together = false
+        run(battle, 1 / 30)
+        expect(battle.stride.has(cavalry!.id)).toBe(false)
+    })
+
+    it('弓兵に敵の小隊が迫ると、同じ中隊で構えている近接の小隊が迎え撃つ', () => {
+        const battle = makeBattle('123456', 'field', undefined, mixedPlan())
+        run(battle, .1)
+        const company = battle.companies.find(c => c.owner === 'player' && c.planned && companySquads(battle, c.id).some(sq => sq.type === 'archer'))!
+        orderCompany(battle, company.id, 'hold')
+        const archer = companySquads(battle, company.id).find(sq => sq.type === 'archer')!
+        const enemy = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === 'infantry')!
+        for (const s of battle.members.get(enemy.id)!) { s.x = archer.center.x + (battle.random() - .5) * 20; s.y = archer.center.y + 40 + (battle.random() - .5) * 20 }
+        run(battle, 1 / 30)
+        const guards = companySquads(battle, company.id).filter(sq => sq.type !== 'archer')
+        expect(guards.some(sq => sq.order === 'attack' && sq.targetSquadId === enemy.id)).toBe(true)
+        expect(archer.order).toBe('hold')
     })
 })

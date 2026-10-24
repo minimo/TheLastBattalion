@@ -10,7 +10,7 @@ import BattleMenu from './BattleMenu.vue'
 import CommandBar from './CommandBar.vue'
 import CommandIcon from './CommandIcon.vue'
 import SquadPanel from './SquadPanel.vue'
-import { ARMY_NAME, UNIT_NAME, squadActions, squadName } from './battleUi'
+import { ARMY_NAME, UNIT_NAME, companyActions, companyName, squadActions, squadName } from './battleUi'
 import type { GameScene } from '~/render/gameScene'
 import { MAP_TYPE_DESCRIPTION, MAP_TYPE_NAME, MAP_TYPES, mapTypeForMode } from '~/game/mapType'
 import type { Army, BattleMode, MapType } from '~/types/game'
@@ -42,6 +42,7 @@ const shownMap = computed(() => mapTypeForMode(selectedMode.value, selectedMap.v
 const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy) }
 const resetView = () => scene?.resetCamera()
 const focusSquad = (squadId: number) => { input.selectSquad(squadId); scene?.focusSquad(squadId) }
+const focusCompany = (companyId: number) => { input.selectCompany(companyId); scene?.focusCompany(companyId) }
 const title = () => { input.reset(); menuOpen.value = false; gameStore.backToTitle() }
 /** 開戦前（戦場で部隊編成をしている間）。 */
 const deploying = computed(() => gameStore.status === 'deploying')
@@ -50,6 +51,7 @@ const menuOpen = ref(false)
 const squadsOpen = ref(false)
 const commandBar = ref<InstanceType<typeof CommandBar> | null>(null)
 const menuSquad = computed(() => gameStore.squads.find(sq => sq.id === contextMenu.value.squadId))
+const menuCompany = computed(() => gameStore.companies.find(c => c.id === contextMenu.value.companyId))
 /** 決着の理由（砦を持たない軍は全滅、砦を持つ軍は本陣の陥落）。 */
 const defeatReason = computed(() => {
   const loser: Army = gameStore.winner === 'player' ? 'cpu' : 'player'
@@ -118,7 +120,7 @@ onUnmounted(() => {
           <input v-model="customSeed" aria-label="SEED" placeholder="SEEDを入力" maxlength="32" autofocus>
           <button type="submit">開始</button>
         </form>
-        <p class="title-help">部隊の旗をドラッグして指示 · 全軍の旗で陣を動かす</p>
+        <p class="title-help">中隊・小隊の旗をドラッグして指示 · 全軍の旗で陣を動かす</p>
       </div>
     </div>
     <template v-if="ready && gameStore.status !== 'title'">
@@ -129,7 +131,7 @@ onUnmounted(() => {
       </header>
       <DeploymentEditor v-if="deploying" :key="`${gameStore.mode}:${gameStore.seed}`" :mode="gameStore.mode" :mode-name="MODE_NAME[gameStore.mode]" :plan="gameStore.plans[gameStore.mode]" :unit-names="UNIT_NAME.player"
         @change="plan => gameStore.previewPlan(plan)" @save="plan => gameStore.beginBattle(plan)" @close="title" />
-      <SquadPanel v-else :selected-id="input.selectedSquadId.value" :list-open="squadsOpen" @focus="focusSquad" />
+      <SquadPanel v-else :selected-id="input.selectedSquadId.value" :selected-company-id="input.selectedCompanyId.value" :list-open="squadsOpen" @focus="focusSquad" @focus-company="focusCompany" />
       <CommandBar ref="commandBar" :input="input" :deploying="deploying" :menu-open="menuOpen" :squads-open="squadsOpen"
         @toggle-menu="menuOpen = !menuOpen" @toggle-squads="squadsOpen = !squadsOpen" @reset-view="resetView" />
       <BattleMenu v-if="menuOpen && !deploying" :mode-name="MODE_NAME[gameStore.mode]" :map-name="MAP_TYPE_NAME[gameStore.mapType]" @close="menuOpen = false" @title="title" />
@@ -153,6 +155,10 @@ onUnmounted(() => {
         <template v-if="contextMenu.type === 'squad' && menuSquad">
           <span class="context-menu-title">{{ squadName(menuSquad) }}</span>
           <button v-for="action in squadActions(menuSquad.type)" :key="action.key" class="context-menu-item" @click="handleContextMenuAction(action.key)"><CommandIcon :name="action.icon" />{{ action.label }}</button>
+        </template>
+        <template v-if="contextMenu.type === 'company' && menuCompany">
+          <span class="context-menu-title">{{ companyName(menuCompany) }}</span>
+          <button v-for="action in companyActions(menuCompany.types)" :key="action.key" class="context-menu-item" @click="handleContextMenuAction(action.key)"><CommandIcon :name="action.icon" />{{ action.label }}</button>
         </template>
         <ArmyMenu v-if="contextMenu.type === 'army'" :formation="gameStore.formation" @formation="handleContextMenuAction" @order="handleContextMenuAction" />
       </div>
@@ -209,13 +215,18 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.world-labels[hidden]) { display: none; }
 .canvas-wrapper :deep(.world-label) { position: absolute; left: 0; top: 0; padding: 5px 7px; color: var(--faction); font: 600 14px system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; text-shadow: 0 1px 3px #000, 0 0 5px #000, 1px 0 2px #000, -1px 0 2px #000; }
 .canvas-wrapper :deep(.world-label[hidden]) { display: none; }
-.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.army-label) { margin: 0; background: none; border: 0; border-radius: 0; cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; display: flex; gap: 4px; align-items: baseline; }
+.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.company-label), .canvas-wrapper :deep(.army-label) { margin: 0; background: none; border: 0; border-radius: 0; cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; display: flex; gap: 4px; align-items: baseline; }
 .canvas-wrapper :deep(.squad-label .squad-count) { font-size: 10px; font-weight: 500; opacity: .85; }
 .canvas-wrapper :deep(.squad-label .squad-ammo) { font-size: 9px; font-weight: 500; opacity: .75; }
 .canvas-wrapper :deep(.squad-label.low-ammo .squad-ammo) { color: #ffcf6e; opacity: 1; }
 .canvas-wrapper :deep(.squad-label:hover) { transform: none; }
 .canvas-wrapper :deep(.squad-label.cpu) { font-size: 11px; }
-.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.army-label:hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
+.canvas-wrapper :deep(.company-label) { padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--faction) 65%, transparent); background: #0e1d25a8; border-radius: 3px; z-index: 1; }
+.canvas-wrapper :deep(.company-label .company-count) { font-size: 10px; font-weight: 500; opacity: .85; }
+.canvas-wrapper :deep(.company-label.compact) { padding: 2px 5px; font-size: 10px; opacity: .85; }
+.canvas-wrapper :deep(.company-label.compact .company-count) { display: none; }
+.canvas-wrapper :deep(.company-label.is-selected), .canvas-wrapper :deep(.company-label.is-target), .canvas-wrapper :deep(.company-label:hover) { border-color: #eecf7d; opacity: 1; }
+.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.army-label:hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
 .canvas-wrapper :deep(.world-label.is-source) { color: #e3edff; }
 .canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #0b1216cc; border: 1px solid #000a; border-radius: 2px; overflow: hidden; box-shadow: 0 1px 3px #0008; }
