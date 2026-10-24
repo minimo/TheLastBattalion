@@ -480,6 +480,9 @@ export function orderFormation(battle: Battle, squadId: number) {
     const squad = battle.squadById.get(squadId)
     if (!squad) return
     squad.order = 'formation'
+    // 持ち場はすぐに陣形の中の位置へ移す（一時停止中でも指示の矢印が行き先を指すように）。
+    const slot = formationSlots(battle, squad.owner).get(squad.id)
+    if (slot) { squad.anchor = slot.anchor; squad.facing = slot.facing }
     resetMembers(battle, squad, false)
 }
 
@@ -739,16 +742,18 @@ export function squadRoute(battle: Battle, squad: Squad, destination: Point): Po
         const best = nearestAssault(fort, from)
         return route(fort.assaultPoints[best]!, fortGoalKey(fort.owner, best))
     }
+    // 持ち場（battle.posts）は次の更新まで前の指示のまま残る（一時停止中はずっと）ので、経路の目標は今の指示から求める。
     let points: Point[]
-    const post = battle.posts.get(squad.id)
+    const site = battle.constructionById.get(squad.constructionId)
     if (squad.order === 'retreat') points = fortRoute(battle.homes[squad.owner])
     else if (squad.order === 'resupply') {
-        const site = depotOf(battle, squad).site
-        points = site ? route(site.center, depotGoalKey(site)) : fortRoute(battle.homes[squad.owner])
+        const depot = depotOf(battle, squad).site
+        points = depot ? route(depot.center, depotGoalKey(depot)) : fortRoute(battle.homes[squad.owner])
     } else if (squad.order === 'charge') points = fortRoute(battle.homes[enemyOf(squad.owner)])
     else if (squad.order === 'attack' || squad.order === 'demolish') points = route(squad.anchor, squad.goalKey)
-    else if (post) points = route(post.goal, post.goalKey)
-    else points = [from]
+    else if (squad.order === 'formation') points = route(battle.formations[squad.owner].anchor, formationGoalKey(battle, squad.owner))
+    else if (squad.order === 'build') points = site ? route(site.approach, buildGoalKey(site)) : [from]
+    else points = route(battle.paths.passable(squad.anchor.x, squad.anchor.y) ? squad.anchor : snapToPassable(battle, squad.anchor), squad.goalKey)
     const last = points.at(-1)!
     if (Math.hypot(destination.x - last.x, destination.y - last.y) > 1) points.push(destination)
     return points
