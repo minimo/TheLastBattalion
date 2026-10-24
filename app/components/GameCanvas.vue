@@ -4,7 +4,6 @@ import { useGameStore } from '~/stores/game'
 import { useBattleInput } from '~/composables/useBattleInput'
 import TimePlate from './TimePlate.vue'
 import DeploymentEditor from './DeploymentEditor.vue'
-import ArmyMenu from './ArmyMenu.vue'
 import ArmyStatus from './ArmyStatus.vue'
 import BattleMenu from './BattleMenu.vue'
 import CommandBar from './CommandBar.vue'
@@ -120,7 +119,7 @@ onUnmounted(() => {
           <input v-model="customSeed" aria-label="SEED" placeholder="SEEDを入力" maxlength="32" autofocus>
           <button type="submit">開始</button>
         </form>
-        <p class="title-help">中隊・小隊の旗をドラッグして指示 · 全軍の旗で陣を動かす</p>
+        <p class="title-help">中隊・小隊の旗をドラッグして指示 · 陣形は画面下の「全軍」から</p>
       </div>
     </div>
     <template v-if="ready && gameStore.status !== 'title'">
@@ -160,7 +159,6 @@ onUnmounted(() => {
           <span class="context-menu-title">{{ companyName(menuCompany) }}</span>
           <button v-for="action in companyActions(menuCompany.types)" :key="action.key" class="context-menu-item" @click="handleContextMenuAction(action.key)"><CommandIcon :name="action.icon" />{{ action.label }}</button>
         </template>
-        <ArmyMenu v-if="contextMenu.type === 'army'" :formation="gameStore.formation" @formation="handleContextMenuAction" @order="handleContextMenuAction" />
       </div>
     </div>
   </div>
@@ -215,7 +213,7 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.world-labels[hidden]) { display: none; }
 .canvas-wrapper :deep(.world-label) { position: absolute; left: 0; top: 0; padding: 5px 7px; color: var(--faction); font: 600 14px system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; text-shadow: 0 1px 3px #000, 0 0 5px #000, 1px 0 2px #000, -1px 0 2px #000; }
 .canvas-wrapper :deep(.world-label[hidden]) { display: none; }
-.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.company-label), .canvas-wrapper :deep(.army-label) { margin: 0; background: none; border: 0; border-radius: 0; cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; display: flex; gap: 4px; align-items: baseline; }
+.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.company-label) { margin: 0; background: none; border: 0; border-radius: 0; cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; display: flex; gap: 4px; align-items: baseline; }
 .canvas-wrapper :deep(.squad-label .squad-count) { font-size: 10px; font-weight: 500; opacity: .85; }
 .canvas-wrapper :deep(.squad-label .squad-ammo) { font-size: 9px; font-weight: 500; opacity: .75; }
 .canvas-wrapper :deep(.squad-label.low-ammo .squad-ammo) { color: #ffcf6e; opacity: 1; }
@@ -225,14 +223,13 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.company-label .company-count) { font-size: 10px; font-weight: 500; opacity: .85; }
 .canvas-wrapper :deep(.company-label.compact) { padding: 2px 5px; font-size: 10px; opacity: .85; }
 .canvas-wrapper :deep(.company-label.compact .company-count) { display: none; }
-.canvas-wrapper :deep(.company-label.is-selected), .canvas-wrapper :deep(.company-label.is-target), .canvas-wrapper :deep(.company-label:hover) { border-color: #eecf7d; opacity: 1; }
-.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.army-label:hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
+.canvas-wrapper :deep(.company-label.is-selected), .canvas-wrapper :deep(.company-label.is-target), .canvas-wrapper :deep(.company-label.is-hover), .canvas-wrapper :deep(.company-label:hover) { border-color: #eecf7d; opacity: 1; }
+.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
 .canvas-wrapper :deep(.world-label.is-source) { color: #e3edff; }
 .canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #0b1216cc; border: 1px solid #000a; border-radius: 2px; overflow: hidden; box-shadow: 0 1px 3px #0008; }
 .canvas-wrapper :deep(.construction-gauge-fill) { display: block; height: 100%; background: var(--faction); }
 .canvas-wrapper :deep(.construction-label.damaged) { color: #ffcf6e; }
 .canvas-wrapper :deep(.construction-label.damaged .construction-gauge-fill) { background: #ffcf6e; }
-.canvas-wrapper :deep(.army-label) { font-size: 13px; letter-spacing: .08em; padding: 4px 9px; border: 1px solid #6f9be8aa; background: #0e1d25a8; border-radius: 3px; z-index: 2; }
 @media (max-width: 550px) { .battle-header { padding: 6px 8px 20px; } .clock { top: 8px; } .title-help { line-height: 2; } }
 </style>

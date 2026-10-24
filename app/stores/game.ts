@@ -4,7 +4,7 @@ import { generateMap } from '~/game/mapGenerator'
 import { mapTypeForMode } from '~/game/mapType'
 import { createMulberry32, hashString } from '~/game/random'
 import {
-    createBattle, moveFormation, orderArmy, orderAttack, orderBuild, orderCharge, orderCompany, orderCompanyAttack, orderCompanyDemolish, orderCompanyMove, orderConstruct,
+    createBattle, orderArmy, orderAttack, orderBuild, orderCharge, orderCompany, orderCompanyAttack, orderCompanyDemolish, orderCompanyMove, orderConstruct,
     orderDemolish, orderFormation, orderHold, orderMove, orderResupply, orderRetreat, orderSupport, redeployArmy, setFormation, summarize, updateBattle,
     type ArmyOrder, type Battle, type CompanyOrder,
 } from '~/game/battle'
@@ -257,12 +257,6 @@ export const useGameStore = defineStore('game', {
         setFormation(type: FormationType): void {
             if (!this.battle || this.isGameOver) return
             setFormation(this.battle, 'player', type)
-            this.refresh()
-        },
-
-        moveFormation(point: Point): void {
-            if (!this.battle || this.isGameOver) return
-            moveFormation(this.battle, 'player', point)
             this.refresh()
         },
 

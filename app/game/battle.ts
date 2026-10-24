@@ -382,6 +382,13 @@ function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
         // 補給部隊は陣の最後尾から、自動で弓兵への補給を始める。
         if (squad.type === 'supply') squad.order = 'support'
     }
+    // 開戦前（部隊編成の間）は時間が止まっていて毎ティックの集計が走らないので、布陣した兵から小隊の中心と中隊長を決めておく。
+    for (const squad of battle.squads) {
+        const members = battle.members.get(squad.id)
+        if (squad.owner !== owner || !members?.length) continue
+        squad.center = { x: members.reduce((sum, s) => sum + s.x, 0) / members.length, y: members.reduce((sum, s) => sum + s.y, 0) / members.length }
+    }
+    for (const company of battle.companies) if (company.owner === owner) chooseCompanyLeader(battle, company, companySquads(battle, company.id))
 }
 
 const memberOf = (sq: Squad): FormationMember => ({ id: sq.id, type: sq.type, size: sq.size })
@@ -406,7 +413,7 @@ function layoutWithCompanies(battle: Battle, type: FormationType, squads: Squad[
 }
 
 function createCompany(battle: Battle, owner: Army, squads: Squad[], planned = false): Company {
-    const company: Company = { id: battle.nextCompanyId++, owner, number: ++battle.companyNumbers[owner], squadIds: squads.map(sq => sq.id), planned, together: false }
+    const company: Company = { id: battle.nextCompanyId++, owner, number: ++battle.companyNumbers[owner], squadIds: squads.map(sq => sq.id), planned, together: false, leaderSquadId: -1 }
     for (const squad of squads) squad.companyId = company.id
     battle.companies.push(company)
     battle.companyById.set(company.id, company)
@@ -801,6 +808,7 @@ function updateCompanies(battle: Battle) {
     battle.stride.clear()
     for (const company of battle.companies) {
         const squads = companySquads(battle, company.id)
+        chooseCompanyLeader(battle, company, squads)
         keepTogether(battle, company, squads)
         if (squads.length < 2) continue
         const order = squads[0]!.order
@@ -839,12 +847,37 @@ export function companySquads(battle: Battle, companyId: number): Squad[] {
 
 /** 中隊の位置（小隊の隊長の幟の位置の、人数で重みを付けた平均）。 */
 export function companyPosition(battle: Battle, company: Company): Point {
+    const head = companyLeader(battle, company)
+    if (head) return head
+    // 隊長が決まる前（開戦前）は、中隊長を出す小隊の中心（隊長はそこに立つ）。
+    const leaderSquad = battle.squadById.get(company.leaderSquadId)
+    if (leaderSquad?.companyId === company.id) return leaderSquad.center
     let x = 0, y = 0, n = 0
     for (const squad of companySquads(battle, company.id)) {
         const at = squadPosition(battle, squad), w = Math.max(1, squad.count)
         x += at.x * w; y += at.y * w; n += w
     }
     return n ? { x: x / n, y: y / n } : { x: 0, y: 0 }
+}
+
+/** 中隊長（中隊のまん中の小隊の隊長。小隊長と同じく、中隊の中心にいて押すと中隊を選べるだけのユニット）。 */
+export function companyLeader(battle: Battle, company: Company): Soldier | undefined {
+    const squad = battle.squadById.get(company.leaderSquadId)
+    return squad && squad.companyId === company.id ? leaderOf(battle, squad) : undefined
+}
+
+/**
+ * 中隊長を出す小隊を決める。今の小隊がいなくなった（または切り離された）ら、中隊のまん中に一番近い小隊に替える。
+ * 補給部隊と工兵は、ほかの兵種の小隊がいれば選ばない。
+ */
+function chooseCompanyLeader(battle: Battle, company: Company, squads: Squad[]) {
+    const current = battle.squadById.get(company.leaderSquadId)
+    const candidates = squads.filter(sq => !sq.detached && sq.type !== 'supply' && sq.type !== 'engineer')
+    const pool = candidates.length ? candidates : squads
+    if (current && current.companyId === company.id && pool.includes(current)) return
+    if (!pool.length) { company.leaderSquadId = -1; return }
+    const cx = pool.reduce((sum, sq) => sum + sq.center.x, 0) / pool.length, cy = pool.reduce((sum, sq) => sum + sq.center.y, 0) / pool.length
+    company.leaderSquadId = pool.reduce((a, b) => Math.hypot(b.center.x - cx, b.center.y - cy) < Math.hypot(a.center.x - cx, a.center.y - cy) ? b : a).id
 }
 
 /** 中隊の小隊のうち、地点に最も近い小隊（中隊を狙う指示で、各小隊が向かう相手）。 */

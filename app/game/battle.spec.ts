@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { generateMap } from './mapGenerator'
 import { createMulberry32, hashString } from './random'
 import {
-    cohesionRadius, companySquads, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderCompany, orderCompanyAttack, orderCompanyMove, orderConstruct,
+    cohesionRadius, companyLeader, companyPosition, companySquads, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderCompany, orderCompanyAttack, orderCompanyMove, orderConstruct,
     orderDemolish, orderHold, orderMove, orderResupply,
     orderRetreat, previewConstruction, redeployArmy, setFormation, staminaFactor, summarize, updateBattle,
 } from './battle'
@@ -1105,4 +1105,61 @@ describe('中隊のまとまり', () => {
         }
         expect(worst).toBeLessThan(200)
     }, 120000)
+})
+
+describe('中隊長', () => {
+    const run = (battle: ReturnType<typeof makeBattle>, seconds: number) => { for (let t = 0; t < seconds; t += 1 / 30) updateBattle(battle, 1 / 30) }
+
+    it('中隊のまん中の小隊の隊長が中隊長を兼ね、中隊の位置は中隊長の位置になる', () => {
+        const battle = makeBattle('123456')
+        run(battle, .1)
+        for (const company of battle.companies) {
+            const head = companyLeader(battle, company)!
+            expect(head).toBeDefined()
+            expect(company.squadIds).toContain(company.leaderSquadId)
+            expect(battle.squadById.get(company.leaderSquadId)!.leaderId).toBe(head.id)
+            expect(companyPosition(battle, company)).toBe(head)
+        }
+        // 3小隊が横に並ぶ歩兵の中隊では、まん中の小隊。
+        const infantry = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id).length === 3 && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        const { rx, ry } = axes(battle.formations.player.facing)
+        const order = companySquads(battle, infantry.id).sort((a, b) => (a.center.x * rx + a.center.y * ry) - (b.center.x * rx + b.center.y * ry))
+        expect(infantry.leaderSquadId).toBe(order[1]!.id)
+    })
+
+    it('中隊長の小隊が全滅したり切り離されたりしたら、残りの小隊から選び直す', () => {
+        const battle = makeBattle('123456')
+        run(battle, .1)
+        const company = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id).length === 3)!
+        const first = company.leaderSquadId
+        for (const s of battle.members.get(first)!) { s.hp = 0; s.state = 'dead'; s.deathTime = battle.time }
+        run(battle, 1 / 30)
+        expect(company.leaderSquadId).not.toBe(first)
+        expect(company.squadIds).toContain(company.leaderSquadId)
+        const second = company.leaderSquadId
+        battle.squadById.get(second)!.detached = true
+        run(battle, 1 / 30)
+        expect(company.leaderSquadId).not.toBe(second)
+    })
+})
+
+describe('開戦前の中隊の位置', () => {
+    it('時間が止まっている開戦前でも、中隊の位置は中隊の小隊のまん中にあり、中隊どうしで重ならない', () => {
+        const battle = makeBattle('123456')
+        const at = battle.companies.filter(c => c.owner === 'player').map(c => {
+            const squads = companySquads(battle, c.id)
+            const p = companyPosition(battle, c)
+            // 中隊長を出す小隊の兵のまん中。
+            const members = battle.members.get(c.leaderSquadId)!
+            const cx = members.reduce((sum, s) => sum + s.x, 0) / members.length, cy = members.reduce((sum, s) => sum + s.y, 0) / members.length
+            expect(squads.map(sq => sq.id)).toContain(c.leaderSquadId)
+            expect(Math.hypot(p.x - cx, p.y - cy)).toBeLessThan(1)
+            return p
+        })
+        for (let i = 0; i < at.length; i++) for (let j = i + 1; j < at.length; j++) expect(Math.hypot(at[i]!.x - at[j]!.x, at[i]!.y - at[j]!.y)).toBeGreaterThan(20)
+        // 編成し直しても同じ。
+        redeployArmy(battle, 'player', presetDeployment('combined', 'field', 'player'))
+        const points = battle.companies.filter(c => c.owner === 'player').map(c => companyPosition(battle, c))
+        for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) expect(Math.hypot(points[i]!.x - points[j]!.x, points[i]!.y - points[j]!.y)).toBeGreaterThan(20)
+    })
 })

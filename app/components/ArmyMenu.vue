@@ -3,7 +3,7 @@ import { FORMATIONS } from '~/game/formation'
 import type { FormationType } from '~/types/game'
 import { ARMY_ACTIONS } from './battleUi'
 
-/** 全軍の陣形と命令（操作バーの「全軍」と、全軍の旗の長押しメニューで共通）。 */
+/** 全軍の陣形と命令（操作バーの「全軍」）。 */
 defineProps<{ formation: FormationType }>()
 const emit = defineEmits<{ formation: [type: FormationType]; order: [order: 'charge' | 'hold' | 'retreat'] }>()
 </script>

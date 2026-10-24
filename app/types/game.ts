@@ -156,6 +156,8 @@ export interface Company {
     planned: boolean
     /** 中隊ごとの移動・攻撃を受けて、中隊で足並みをそろえて動いているか（小隊に個別の指示を出すとやめる）。 */
     together: boolean
+    /** 中隊長を出す小隊（中隊のまん中の小隊。その小隊の隊長が中隊長を兼ね、中隊の幟を背負う。いなくなったら選び直す）。 */
+    leaderSquadId: number
 }
 
 /** 工兵が建てる建設物。outpost: 拠点（補給できる小さな陣地） / barricade: バリケード / bridge: 橋 */

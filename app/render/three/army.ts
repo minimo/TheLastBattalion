@@ -7,6 +7,8 @@ type SurfaceHeight = (x: number, y: number) => number
 
 const ARMIES: Army[] = ['player', 'cpu']
 const TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
+/** 中隊長の幟の大きさ（小隊長の幟に対する倍率）。 */
+export const COMPANY_BANNER_SCALE = 1.4
 
 interface PartBatch { role: PartRole; pivot: THREE.Vector3; mesh: THREE.InstancedMesh }
 
@@ -78,6 +80,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
     const banners = Object.fromEntries(ARMIES.map(army => [army, growable(bannerGeometries[army], material, true)])) as Record<Army, ReturnType<typeof growable>>
     const bannerCounts = { player: 0, cpu: 0 } as Record<Army, number>
     const bannerLocal = new THREE.Matrix4(), bannerSway = new THREE.Matrix4(), bannerEuler = new THREE.Euler()
+    const bannerScale = new THREE.Matrix4().makeScale(COMPANY_BANNER_SCALE, COMPANY_BANNER_SCALE, COMPANY_BANNER_SCALE)
 
     // 選択中の部隊の兵の足元に輪を出す。
     const ringGeometry = new THREE.RingGeometry(2.6, 3.4, 20)
@@ -100,7 +103,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
 
     return {
         group,
-        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number, selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>) {
+        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number, selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>, companyLeaderIds: ReadonlySet<number> = new Set()) {
             counts.clear()
             for (const s of soldiers) { const key = `${s.owner}:${s.type}`; counts.set(key, (counts.get(key) ?? 0) + 1) }
             for (const [key, batch] of batches) if ((counts.get(key) ?? 0) > batch.capacity) grow(batch, counts.get(key)!)
@@ -164,6 +167,8 @@ export function createArmyRenderer(scene: THREE.Scene) {
                     const sway = s.moving ? Math.sin(phase * .5) * .07 : Math.sin(time * 1.4 + s.id) * .035
                     bannerSway.makeRotationFromEuler(bannerEuler.set(sway * .4, 0, sway))
                     bannerLocal.makeTranslation(0, (rider ? 12.5 : 7.6) + bob, rider ? -1.6 : -1.7).multiply(bannerSway)
+                    // 中隊長（中隊のまん中の小隊の隊長）は、同じ幟を大きくして背負う。
+                    if (companyLeaderIds.has(s.id)) bannerLocal.multiply(bannerScale)
                     out.multiplyMatrices(base, bannerLocal)
                     banners[s.owner].mesh.setMatrixAt(bannerCounts[s.owner]++, out)
                 }

@@ -1,7 +1,7 @@
 import { nextTick, ref } from 'vue'
 import type { CompanyCommand, SquadCommand, useGameStore } from '~/stores/game'
 import { constructionNear, nearestCompanySquad, previewConstruction, squadPosition, type CompanyOrder } from '~/game/battle'
-import type { ConstructionAxis, ConstructionKind, FormationType, Point, SquadOrder } from '~/types/game'
+import type { ConstructionAxis, ConstructionKind, Point, SquadOrder } from '~/types/game'
 
 type EntityPointerEvent = Pick<PointerEvent, 'clientX' | 'clientY'>
 
@@ -17,19 +17,18 @@ const CONSTRUCTION_DROP_RADIUS = 14
  * no-life-kingの入力作法を部隊に当てはめる。
  * 部隊の旗からドラッグ → 地面で移動・敵部隊で攻撃・自陣で退却・敵陣で突撃。長押しでメニュー。
  * 中隊の旗からドラッグ → 中隊ごと移動（隊形を組む）・敵部隊で攻撃・自陣で退却・敵陣で突撃。長押しで中隊へのメニュー。
- * 「全軍」の旗からドラッグで陣全体を移動、長押しで陣形メニュー。
  * 工兵は建設物を選んでから地面をクリックして建設場所を決める（川へドラッグすると橋を架ける）。
  */
 export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
     const contextMenuRef = ref<HTMLElement | null>(null)
     const worldMousePos = ref<Point>({ x: 0, y: 0 })
     const pointerDownPos = ref({ x: 0, y: 0 })
-    /** ドラッグ中の部隊ID、または全軍（'army'）。押してから CLICK_DISTANCE 以上動かしたときだけ立つ。 */
-    const dragging = ref<number | 'army' | null>(null)
+    /** ドラッグ中の部隊ID。押してから CLICK_DISTANCE 以上動かしたときだけ立つ。 */
+    const dragging = ref<number | null>(null)
     /** ドラッグ中の中隊ID。 */
     const draggingCompany = ref<number | null>(null)
     /** 押している旗（まだ動かしていない間は、クリックかドラッグか決まっていない）。 */
-    let pressed: { source: number | 'army' } | { company: number } | null = null
+    let pressed: { source: number } | { company: number } | null = null
     const hoverSquadId = ref<number | null>(null)
     /** ポインターの下の中隊の旗。 */
     const hoverCompanyId = ref<number | null>(null)
@@ -41,7 +40,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
     const buildMode = ref<{ squadId: number; kind: ConstructionKind; axis: ConstructionAxis } | null>(null)
     /** 直前に建設場所を選べなかった理由（表示用）。 */
     const buildError = ref('')
-    type MenuType = 'squad' | 'company' | 'army'
+    type MenuType = 'squad' | 'company'
     const contextMenu = ref<{ visible: boolean; x: number; y: number; type: MenuType | null; squadId: number | null; companyId: number | null }>({
         visible: false, x: 0, y: 0, type: null, squadId: null, companyId: null,
     })
@@ -96,11 +95,6 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (company.owner !== 'player') { clearLongPress(); pressed = null; return }
         pressed = { company: companyId }
         startLongPress(e, () => openContextMenu('company', companyId, e.clientX, e.clientY))
-    }
-
-    const handleArmyPointerDown = (e: EntityPointerEvent) => {
-        pressed = { source: 'army' }
-        startLongPress(e, () => openContextMenu('army', null, e.clientX, e.clientY))
     }
 
     /** 描画側が地面上のポインター位置と、ポインター下の部隊（小隊の旗・幟、中隊の旗）を渡す。 */
@@ -186,7 +180,6 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (Math.hypot(e.clientX - pointerDownPos.value.x, e.clientY - pointerDownPos.value.y) < CLICK_DISTANCE) return
         if (worldMousePos.value.x < -9000) return
         if (company !== null) gameStore.orderCompany(company, companyDropCommand())
-        else if (source === 'army') gameStore.moveFormation({ ...worldMousePos.value })
         else if (source !== null) {
             const command = dropCommand(source)
             gameStore.orderSquad(source, command.order, command)
@@ -243,10 +236,6 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (type === 'company' && companyId !== null) { gameStore.orderCompany(companyId, { order: action as CompanyOrder }); return }
         if (type === 'squad' && squadId !== null && action.startsWith('build:')) startBuild(squadId, action.slice(6) as ConstructionKind)
         else if (type === 'squad' && squadId !== null) gameStore.orderSquad(squadId, action as SquadOrder)
-        else if (type === 'army') {
-            if (action === 'charge' || action === 'hold' || action === 'retreat') gameStore.orderArmy(action)
-            else gameStore.setFormation(action as FormationType)
-        }
     }
 
     const reset = () => {
@@ -284,7 +273,6 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         setWorldPointer,
         handleSquadPointerDown,
         handleCompanyPointerDown,
-        handleArmyPointerDown,
         handleGlobalPointerMove,
         handleGlobalPointerUp,
         handleContextMenuAction,

@@ -62,7 +62,6 @@ const hint = computed(() => {
   const mode = buildMode.value
   if (mode) return `${BUILD_HINT[mode.kind]} · Esc で取り消し`
   const dragging = props.input.dragging.value
-  if (dragging === 'army') return '離した場所へ陣全体を動かす'
   if (props.input.draggingCompany.value !== null) {
     const command = props.input.previewCompanyCommand()
     const name = command ? DROP_NAME[command.order as SquadOrder] : ''
@@ -81,7 +80,7 @@ const hint = computed(() => {
     return '旗をドラッグして指示 · 長押しでメニュー'
   }
   if (selectedCompany.value?.owner === 'player') return '中隊の旗をドラッグして中隊ごと指示 · 長押しでメニュー'
-  return '中隊・小隊の旗をドラッグして指示 · 全軍の旗で陣を動かす · 長押しでメニュー'
+  return '中隊・小隊の旗をドラッグして指示 · 長押しでメニュー · 陣形は「全軍」から'
 })
 
 const closeOnOutside = (event: PointerEvent) => {
