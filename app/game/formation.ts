@@ -45,8 +45,8 @@ export function toWorld(origin: Point, facing: number, forward: number, lateral:
     return { x: origin.x + fx * forward + rx * lateral, y: origin.y + fy * forward + ry * lateral }
 }
 
-/** 陣に並べるもの。ふつうは小隊。width・depth があれば、中隊のかたまり（中の小隊はまとめて並べる）の幅と奥行き。 */
-export interface FormationMember { id: number; type: UnitType; size: number; width?: number; depth?: number }
+/** 陣に並べるもの。ふつうは小隊。width・depth があれば、中隊のかたまり（中の小隊はまとめて並べる）の幅と奥行きで、squads はその小隊の数。 */
+export interface FormationMember { id: number; type: UnitType; size: number; width?: number; depth?: number; squads?: number }
 export interface FormationSlot { forward: number; lateral: number; facing: number }
 
 /**
@@ -61,8 +61,18 @@ export function layoutFormation(type: FormationType, members: FormationMember[])
     const depthOf = (m: FormationMember) => m.depth ?? squadBlock(m.type, m.size).depth
     const depth = (list: FormationMember[]) => Math.max(0, ...list.map(depthOf))
     const rowWidth = (list: FormationMember[]) => list.reduce((sum, m) => sum + width(m), 0) + Math.max(0, list.length - 1) * GAP
-    /** ROW_LIMIT 部隊ずつの列に分ける。 */
-    const chunks = (list: FormationMember[]) => Array.from({ length: Math.ceil(list.length / ROW_LIMIT) }, (_, i) => list.slice(i * ROW_LIMIT, (i + 1) * ROW_LIMIT))
+    /** ROW_LIMIT 部隊ずつの列に分ける（中隊のかたまりは中の小隊の数で数え、かたまりは途中で切らない）。 */
+    const chunks = (list: FormationMember[]) => {
+        const result: FormationMember[][] = []
+        let row: FormationMember[] = [], count = 0
+        for (const m of list) {
+            const n = m.squads ?? 1
+            if (row.length && count + n > ROW_LIMIT) { result.push(row); row = []; count = 0 }
+            row.push(m); count += n
+        }
+        if (row.length) result.push(row)
+        return result
+    }
     /** 列に分けて前から順に並べたときの、全体の奥行きと最も広い列の幅。 */
     const blockDepth = (list: FormationMember[]) => chunks(list).reduce((sum, c, i) => sum + depth(c) + (i ? ROW_GAP : 0), 0)
     const blockWidth = (list: FormationMember[]) => Math.max(0, ...chunks(list).map(rowWidth))
@@ -245,7 +255,7 @@ export function layoutFormationWithCompanies(type: FormationType, members: Forma
     for (const [id, list] of blocks) {
         const block = companyBlock(list)
         inner.set(id, block)
-        units.push({ id, type: companyRole([...new Set(list.map(m => m.type))]), size: list.reduce((sum, m) => sum + m.size, 0), width: block.width, depth: block.depth })
+        units.push({ id, type: companyRole([...new Set(list.map(m => m.type))]), size: list.reduce((sum, m) => sum + m.size, 0), width: block.width, depth: block.depth, squads: list.length })
     }
     const layout = layoutFormation(type, units)
     const slots = new Map<number, FormationSlot>()

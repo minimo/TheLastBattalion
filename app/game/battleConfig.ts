@@ -106,8 +106,10 @@ export const SUPPORT_THRESHOLD = .6
 /**
  * 中隊の中の連携。中隊で移動・攻撃しているあいだは、行き先（攻撃なら相手）から release より遠い小隊が、いちばん遅い小隊に歩みをそろえる。
  * 弓兵の小隊の guard 以内に敵の小隊が迫ったら、同じ中隊で構えている近接の小隊（歩兵・槍兵・騎兵）のうち一番近い小隊が迎え撃つ。
+ * 中隊の小隊は、隊長どうしが link 以内でつながる一番大きいかたまり（本隊）から離れたら、敵に構わず本隊へ戻り、本隊の小隊に rejoin まで近づいたら元の指示に戻る。
+ * 戻っている小隊がいるあいだ、本隊は歩みを wait 倍に緩めて待つ。攻撃している小隊は、本隊の中心から chase より遠い相手を追わない（本隊の近くの敵へ狙いを替え、いなければその場で構える）。
  */
-export const COMPANY = { releaseMove: 40, releaseAttack: 130, guard: 75 }
+export const COMPANY = { releaseMove: 40, releaseAttack: 130, guard: 75, link: 110, rejoin: 70, chase: 150, wait: .3 }
 export const SUPPORT_RANGE = 55
 export const SUPPLY_DURATION = 4
 /** 補給部隊が自陣へ戻らずに補給できる回数（1回で1部隊を満タンにする）。 */

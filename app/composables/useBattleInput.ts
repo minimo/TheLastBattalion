@@ -24,10 +24,12 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
     const contextMenuRef = ref<HTMLElement | null>(null)
     const worldMousePos = ref<Point>({ x: 0, y: 0 })
     const pointerDownPos = ref({ x: 0, y: 0 })
-    /** ドラッグ中の部隊ID、または全軍（'army'）。 */
+    /** ドラッグ中の部隊ID、または全軍（'army'）。押してから CLICK_DISTANCE 以上動かしたときだけ立つ。 */
     const dragging = ref<number | 'army' | null>(null)
     /** ドラッグ中の中隊ID。 */
     const draggingCompany = ref<number | null>(null)
+    /** 押している旗（まだ動かしていない間は、クリックかドラッグか決まっていない）。 */
+    let pressed: { source: number | 'army' } | { company: number } | null = null
     const hoverSquadId = ref<number | null>(null)
     /** ポインターの下の中隊の旗。 */
     const hoverCompanyId = ref<number | null>(null)
@@ -59,6 +61,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
             contextMenu.value.y = Math.min(clickY, window.innerHeight - rect.height - 10)
         }
         gameStore.pauseGame()
+        pressed = null
         dragging.value = null
         draggingCompany.value = null
         menuJustOpened.value = true
@@ -80,8 +83,8 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (!squad) return
         selectSquad(squadId)
         pointerDownPos.value = { x: e.clientX, y: e.clientY }
-        if (squad.owner !== 'player') { clearLongPress(); dragging.value = null; return }
-        dragging.value = squadId
+        if (squad.owner !== 'player') { clearLongPress(); pressed = null; return }
+        pressed = { source: squadId }
         startLongPress(e, () => openContextMenu('squad', squadId, e.clientX, e.clientY))
     }
 
@@ -90,13 +93,13 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (!company) return
         selectCompany(companyId)
         pointerDownPos.value = { x: e.clientX, y: e.clientY }
-        if (company.owner !== 'player') { clearLongPress(); draggingCompany.value = null; return }
-        draggingCompany.value = companyId
+        if (company.owner !== 'player') { clearLongPress(); pressed = null; return }
+        pressed = { company: companyId }
         startLongPress(e, () => openContextMenu('company', companyId, e.clientX, e.clientY))
     }
 
     const handleArmyPointerDown = (e: EntityPointerEvent) => {
-        dragging.value = 'army'
+        pressed = { source: 'army' }
         startLongPress(e, () => openContextMenu('army', null, e.clientX, e.clientY))
     }
 
@@ -118,7 +121,12 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
     }
 
     const handleGlobalPointerMove = (e: PointerEvent) => {
-        if (longPressTimeout && Math.hypot(e.clientX - pointerDownPos.value.x, e.clientY - pointerDownPos.value.y) > CLICK_DISTANCE) clearLongPress()
+        if (Math.hypot(e.clientX - pointerDownPos.value.x, e.clientY - pointerDownPos.value.y) <= CLICK_DISTANCE) return
+        clearLongPress()
+        // 押した旗を動かして初めてドラッグにする（クリックで選ぶだけなら、指示の矢印を出さない）。
+        if (pressed && 'company' in pressed) draggingCompany.value = pressed.company
+        else if (pressed) dragging.value = pressed.source
+        pressed = null
     }
 
     /** ドラッグを離した地点から、部隊への指示を決める。 */
@@ -170,10 +178,11 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (menuJustOpened.value) { menuJustOpened.value = false; return }
         if (contextMenu.value.visible && !contextMenuRef.value?.contains(e.target as Node)) closeContextMenu()
         const source = dragging.value, company = draggingCompany.value
+        pressed = null
         dragging.value = null
         draggingCompany.value = null
+        // 動かさずに（または押した所へ戻して）離したら選択のみ
         if (source === null && company === null) return
-        // 動かさずに離したら選択のみ
         if (Math.hypot(e.clientX - pointerDownPos.value.x, e.clientY - pointerDownPos.value.y) < CLICK_DISTANCE) return
         if (worldMousePos.value.x < -9000) return
         if (company !== null) gameStore.orderCompany(company, companyDropCommand())
@@ -186,8 +195,9 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
 
     /** ドラッグ中（手を離す前）なら、指示を出さずにドラッグと選択を取り消す。取り消したら true。 */
     const cancelDrag = () => {
-        if (dragging.value === null && draggingCompany.value === null) return false
+        if (!pressed && dragging.value === null && draggingCompany.value === null) return false
         clearLongPress()
+        pressed = null
         dragging.value = null
         draggingCompany.value = null
         selectedSquadId.value = null
@@ -241,6 +251,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
 
     const reset = () => {
         clearLongPress()
+        pressed = null
         dragging.value = null
         draggingCompany.value = null
         hoverSquadId.value = null

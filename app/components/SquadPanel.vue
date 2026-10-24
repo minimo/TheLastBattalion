@@ -36,6 +36,7 @@ const constructionStatus = (squad: SquadSummary) => {
 }
 /** 一覧の状態欄（指示・建設・矢・補給回数・体力）。 */
 const squadStatus = (squad: SquadSummary) => {
+  if (squad.rejoining) return '中隊へ戻る'
   if (squad.order === 'resupply') return ORDER_NAME.resupply
   const parts = [ORDER_NAME[squad.order]]
   if (squad.construction && squad.order === 'build') parts.push(squad.construction.complete ? '修理' : `${squad.construction.progress}%`)
@@ -51,7 +52,7 @@ const squadStatus = (squad: SquadSummary) => {
     <div v-if="selected" class="squad-card" role="status">
       <div class="card-head">
         <span class="unit-name" :class="selected.owner">{{ ARMY_NAME[selected.owner] }} · {{ squadName(selected) }}</span>
-        <span class="card-order">{{ ORDER_NAME[selected.order] }}</span>
+        <span class="card-order">{{ selected.rejoining ? '中隊へ戻る' : ORDER_NAME[selected.order] }}</span>
       </div>
       <button v-if="parentCompany" class="card-parent" :aria-label="`${companyName(parentCompany)}を選ぶ`" @click="emit('focusCompany', parentCompany.id)">{{ companyName(parentCompany) }} · {{ companyTypes(parentCompany) }} ›</button>
       <div class="meter">

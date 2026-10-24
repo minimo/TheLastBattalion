@@ -629,8 +629,9 @@ describe('工兵の建設物', () => {
         expect(site.work).toBe(CONSTRUCTION.outpost.work)
         // 拠点の近くで矢が尽きた弓兵は、砦ではなく拠点で補給して元の指示に戻る
         const archers = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'archer')!
-        orderMove(battle, archers.id, { x: site.center.x + 150, y: site.center.y + 40 })
-        run(battle, 20)
+        const station = { x: site.center.x + 150, y: site.center.y + 40 }
+        orderMove(battle, archers.id, station)
+        for (let t = 0; t < 60 && Math.hypot(archers.center.x - station.x, archers.center.y - station.y) > 30; t += 1) run(battle, 1)
         battle.members.get(archers.id)!.forEach(s => { s.arrows = 0 })
         run(battle, .1)
         expect(archers.order).toBe('resupply')
@@ -1041,4 +1042,67 @@ describe('編成で組む中隊', () => {
         expect(guards.some(sq => sq.order === 'attack' && sq.targetSquadId === enemy.id)).toBe(true)
         expect(archer.order).toBe('hold')
     })
+})
+
+describe('中隊のまとまり', () => {
+    const run = (battle: ReturnType<typeof makeBattle>, seconds: number) => { for (let t = 0; t < seconds; t += 1 / 30) updateBattle(battle, 1 / 30) }
+    /** 中隊の小隊のうち、同じ中隊のほかの小隊から一番離れている小隊の、一番近い仲間までの距離。 */
+    const spread = (battle: ReturnType<typeof makeBattle>, companyId: number) => {
+        // 陣形の持ち場へ向かう小隊（砦から順に出てくる増援）は、持ち場がもともと隣り合うので数えない。
+        const squads = companySquads(battle, companyId).filter(sq => !sq.detached && sq.type !== 'supply' && sq.type !== 'engineer' && sq.order !== 'formation')
+        if (squads.length < 2) return 0
+        return Math.max(...squads.map(a => Math.min(...squads.filter(b => b !== a).map(b => Math.hypot(a.center.x - b.center.x, a.center.y - b.center.y)))))
+    }
+
+    it('本隊から離れた小隊は、敵に構わず本隊へ戻り、近づいたら元の指示に戻る', () => {
+        const battle = makeBattle('424242')
+        const company = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        run(battle, .1)
+        orderCompany(battle, company.id, 'hold')
+        const [stray] = companySquads(battle, company.id)
+        for (const s of battle.members.get(stray!.id)!) s.x += 160 * Math.sin(battle.formations.player.facing)
+        run(battle, 1 / 30)
+        expect(stray!.rejoin).not.toBeNull()
+        expect(stray!.order).toBe('hold')
+        // 小隊は振り向いた兵が付いて来るのを待ちながら歩くので、戻りきるまで少しかかる。
+        run(battle, 40)
+        expect(stray!.rejoin).toBeNull()
+        expect(spread(battle, company.id)).toBeLessThan(110)
+    }, 60000)
+
+    it('攻撃している小隊は、本隊から遠く離れた相手を追わない', () => {
+        const battle = makeBattle('424242')
+        const company = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        run(battle, .1)
+        orderCompany(battle, company.id, 'hold')
+        const [chaser] = companySquads(battle, company.id)
+        const far = battle.squads.find(sq => sq.owner === 'cpu')!
+        orderAttack(battle, chaser!.id, far.id)
+        run(battle, 1 / 30)
+        expect(chaser!.order === 'hold' || (chaser!.order === 'attack' && chaser!.targetSquadId !== far.id)).toBe(true)
+    })
+
+    it('プレイヤーが個別に切り離した小隊は、本隊へ戻らない', () => {
+        const battle = makeBattle('424242')
+        const company = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        run(battle, .1)
+        orderCompany(battle, company.id, 'hold')
+        const [stray] = companySquads(battle, company.id)
+        stray!.detached = true
+        for (const s of battle.members.get(stray!.id)!) s.x += 160 * Math.sin(battle.formations.player.facing)
+        run(battle, 1 / 30)
+        expect(stray!.rejoin).toBeNull()
+    })
+
+    it('全軍突撃で戦っても、中隊の小隊は中隊から大きく離れない', () => {
+        const battle = makeBattle('123456')
+        const commander = createCpuCommander(battle)
+        orderArmy(battle, 'player', 'charge')
+        let worst = 0
+        for (let t = 0; t < 60 && !battle.winner; t += 1 / 30) {
+            updateBattle(battle, 1 / 30); commander.update(1 / 30)
+            if (Math.round(t * 30) % 30 === 0) for (const c of battle.companies.filter(c => c.owner === 'player')) worst = Math.max(worst, spread(battle, c.id))
+        }
+        expect(worst).toBeLessThan(200)
+    }, 120000)
 })

@@ -349,7 +349,7 @@ function createSquad(battle: Battle, owner: Army, type: UnitType, size: number, 
         anchor: { ...formation.anchor }, facing: formation.facing, goalKey: '', targetSquadId: -1,
         center: { ...formation.anchor }, count: 0, size, leaderId: -1, arrows: 0, maxArrows: 0, resume: null,
         stamina: STAMINA.max, supplies: type === 'supply' ? SUPPLY_CHARGES : 0, maxSupplies: type === 'supply' ? SUPPLY_CHARGES : 0, servingId: -1,
-        constructionId: -1, depotId: -1, march: null,
+        constructionId: -1, depotId: -1, march: null, rejoin: null, detached: false,
     }
     battle.squads.push(squad)
     battle.squadById.set(squad.id, squad)
@@ -364,7 +364,7 @@ function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
     // 編成で組んだ中隊を作り、残りの小隊は陣で隣り合う同じ兵種の小隊と中隊にまとめる。
     for (const { indices } of plannedCompanies(plan)) createCompany(battle, owner, indices.map(i => created[i]!), true)
     const rest = created.filter(sq => sq.companyId < 0)
-    const layout = layoutWithCompanies(battle, battle.formations[owner].type, created)
+    const layout = layoutWithCompanies(battle, battle.formations[owner].type, created, true)
     for (const ids of groupCompanies(rest.map(memberOf), layout)) createCompany(battle, owner, ids.map(id => battle.squadById.get(id)!))
     const slots = formationSlots(battle, owner)
     const formation = battle.formations[owner]
@@ -386,17 +386,22 @@ function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
 
 const memberOf = (sq: Squad): FormationMember => ({ id: sq.id, type: sq.type, size: sq.size })
 
-/** 小隊を陣に並べた持ち場（陣の前列中央からの相対位置）。編成で組んだ中隊の小隊は、中隊のかたまりで並べる。 */
-function layoutWithCompanies(battle: Battle, type: FormationType, squads: Squad[]) {
+/**
+ * 小隊を陣に並べた持ち場（陣の前列中央からの相対位置）。中隊の小隊は中隊のかたまりで並べ、同じ中隊の小隊が陣の離れた所（両翼の左右など）に分かれないようにする。
+ * plannedOnly なら編成で組んだ中隊だけをかたまりにする（開戦時、残りの小隊を自動で中隊に分ける前）。
+ */
+function layoutWithCompanies(battle: Battle, type: FormationType, squads: Squad[], plannedOnly = false) {
     const singles: FormationMember[] = [], blocks = new Map<number, FormationMember[]>()
     for (const sq of squads) {
         const company = battle.companyById.get(sq.companyId)
         // かたまりのIDは小隊のIDと重ならないよう負にする。
-        if (company?.planned) {
+        if (company && (company.planned || !plannedOnly)) {
             if (!blocks.has(-company.id)) blocks.set(-company.id, [])
             blocks.get(-company.id)!.push(memberOf(sq))
         } else singles.push(memberOf(sq))
     }
+    // 陣に1小隊しかいない中隊は、かたまりにしなくてよい。
+    for (const [id, list] of blocks) if (list.length === 1 && !battle.companyById.get(-id)!.planned) { singles.push(list[0]!); blocks.delete(id) }
     return layoutFormationWithCompanies(type, singles, blocks)
 }
 
@@ -711,6 +716,76 @@ export function moveFormation(battle: Battle, owner: Army, point: Point) {
 
 // ---- 中隊への指示 ----
 
+/**
+ * 中隊の小隊が中隊から離れすぎないようにする。
+ * 本隊（隊長どうしが COMPANY.link 以内でつながる、一番人数の多いかたまり）から離れた小隊は本隊へ戻らせ、
+ * 攻撃している小隊は本隊から遠い相手を追わせない。見るのは攻撃・突撃・待機の小隊だけで、プレイヤーが個別に指示して切り離した小隊も見ない。
+ */
+function keepTogether(battle: Battle, company: Company, squads: Squad[]) {
+    // 陣形と中隊ごとの移動の持ち場はもともと隣り合うので見ない（砦から来る増援を本隊と取り違えない）。
+    const tied = squads.filter(sq => sq.type !== 'supply' && sq.type !== 'engineer' && !sq.detached
+        && (sq.order === 'attack' || sq.order === 'charge' || sq.order === 'hold'))
+    for (const sq of squads) if (!tied.includes(sq)) sq.rejoin = null
+    if (tied.length < 2) { for (const sq of tied) sq.rejoin = null; return }
+    const at = new Map(tied.map(sq => [sq, squadPosition(battle, sq)]))
+    // 隊長どうしの距離でつながるかたまりに分け、一番人数の多いかたまりを本隊にする。
+    const group = new Map<Squad, number>()
+    let groups = 0
+    for (const start of tied) {
+        if (group.has(start)) continue
+        const queue = [start]
+        group.set(start, groups)
+        for (let i = 0; i < queue.length; i++) {
+            const a = at.get(queue[i]!)!
+            for (const other of tied) {
+                if (group.has(other)) continue
+                const b = at.get(other)!
+                if (Math.hypot(a.x - b.x, a.y - b.y) <= COMPANY.link) { group.set(other, groups); queue.push(other) }
+            }
+        }
+        groups++
+    }
+    const counts = Array.from({ length: groups }, (_, g) => tied.filter(sq => group.get(sq) === g).reduce((sum, sq) => sum + sq.count, 0))
+    const main = counts.indexOf(Math.max(...counts))
+    const core = tied.filter(sq => group.get(sq) === main)
+    const center = { x: core.reduce((sum, sq) => sum + at.get(sq)!.x, 0) / core.length, y: core.reduce((sum, sq) => sum + at.get(sq)!.y, 0) / core.length }
+    for (const sq of tied) {
+        const p = at.get(sq)!
+        let nearest = core[0]!, distance = Infinity
+        for (const other of core) {
+            if (other === sq) continue
+            const d = Math.hypot(at.get(other)!.x - p.x, at.get(other)!.y - p.y)
+            if (d < distance) { distance = d; nearest = other }
+        }
+        // 本隊から離れたら戻り始め、本隊の小隊に十分近づいたら元の指示に戻る。
+        if (group.get(sq) !== main && !sq.rejoin) {
+            sq.rejoin = { ...at.get(nearest)! }
+            for (const s of battle.members.get(sq.id) ?? []) { s.targetId = -1; s.pathGoal = ''; s.detour = 0 }
+        } else if (sq.rejoin && distance < COMPANY.rejoin) {
+            sq.rejoin = null
+            for (const s of battle.members.get(sq.id) ?? []) { s.pathGoal = ''; s.thinkTimer = Math.min(s.thinkTimer, .05) }
+        }
+        if (sq.rejoin) {
+            sq.rejoin = { ...at.get(nearest)! }
+            // 本隊は歩みを緩めて、戻ってくる小隊を待つ。
+            for (const other of core) battle.stride.set(other.id, Math.min(battle.stride.get(other.id) ?? 1, COMPANY.wait))
+            continue
+        }
+        // 攻撃している小隊は、本隊から遠い相手を追わない。本隊の近くの敵へ狙いを替え、いなければその場で構える。
+        if (sq.order !== 'attack') continue
+        const target = battle.squadById.get(sq.targetSquadId)
+        if (!target || Math.hypot(target.center.x - center.x, target.center.y - center.y) <= COMPANY.chase) continue
+        let closer: Squad | undefined, closest: number = COMPANY.chase
+        for (const enemy of battle.squads) {
+            if (enemy.owner === sq.owner || !enemy.count) continue
+            const d = Math.hypot(enemy.center.x - center.x, enemy.center.y - center.y)
+            if (d < closest) { closest = d; closer = enemy }
+        }
+        if (closer) orderAttack(battle, sq.id, closer.id)
+        else orderHold(battle, sq.id)
+    }
+}
+
 /** 小隊が進む速さ（兵種の速さ×時間帯×体力。槍兵は隊列の進む速さ、ほかは隊長の歩く速さ）。中隊の足並みをそろえるのに使う。 */
 function squadSpeed(battle: Battle, squad: Squad) {
     const base = UNIT_STATS[squad.owner][squad.type].speed * (squad.type === 'pikeman' ? PIKEMAN.marchPace : FOLLOW.leaderPace)
@@ -726,6 +801,7 @@ function updateCompanies(battle: Battle) {
     battle.stride.clear()
     for (const company of battle.companies) {
         const squads = companySquads(battle, company.id)
+        keepTogether(battle, company, squads)
         if (squads.length < 2) continue
         const order = squads[0]!.order
         if (company.together && (order === 'move' || order === 'attack') && squads.every(sq => sq.order === order)) {
@@ -736,11 +812,11 @@ function updateCompanies(battle: Battle) {
             })
             if (marching.length > 1) {
                 const slowest = Math.min(...marching.map(sq => squadSpeed(battle, sq)))
-                for (const sq of marching) battle.stride.set(sq.id, Math.min(1, slowest / Math.max(.01, squadSpeed(battle, sq))))
+                for (const sq of marching) battle.stride.set(sq.id, Math.min(battle.stride.get(sq.id) ?? 1, slowest / Math.max(.01, squadSpeed(battle, sq))))
             }
         }
         const archers = squads.filter(sq => sq.type === 'archer')
-        const guards = squads.filter(sq => (sq.type === 'infantry' || sq.type === 'pikeman' || sq.type === 'cavalry') && (sq.order === 'move' || sq.order === 'hold') && !battle.stride.has(sq.id))
+        const guards = squads.filter(sq => (sq.type === 'infantry' || sq.type === 'pikeman' || sq.type === 'cavalry') && (sq.order === 'move' || sq.order === 'hold') && !sq.rejoin && !(company.together && sq.order === 'move' && battle.stride.has(sq.id)))
         if (!archers.length || !guards.length) continue
         let threat: Squad | undefined, threatDistance: number = COMPANY.guard
         for (const enemy of battle.squads) {
@@ -795,6 +871,7 @@ export function orderCompanyMove(battle: Battle, companyId: number, point: Point
     const facing = Math.hypot(target.x - cx, target.y - cy) > 1 ? Math.atan2(target.x - cx, target.y - cy) : squads[0]!.facing
     const slots = layoutCompany(squads.map(sq => ({ id: sq.id, type: sq.type, size: Math.max(1, sq.count) })))
     battle.companyById.get(companyId)!.together = true
+    for (const squad of squads) squad.detached = false
     for (const squad of squads) {
         const slot = slots.get(squad.id)
         if (!slot) continue
@@ -809,6 +886,7 @@ export function orderCompanyAttack(battle: Battle, companyId: number, target: { 
     const company = battle.companyById.get(companyId)
     if (company) company.together = true
     for (const squad of companySquads(battle, companyId)) {
+        squad.detached = false
         if (squad.type === 'supply' || squad.type === 'engineer' || squad.order === 'resupply') continue
         const enemy = target.companyId !== undefined ? nearestCompanySquad(battle, target.companyId, squad.center) : battle.squadById.get(target.squadId ?? -1)
         if (enemy) orderAttack(battle, squad.id, enemy.id)
@@ -822,6 +900,7 @@ export function orderCompany(battle: Battle, companyId: number, order: CompanyOr
     const company = battle.companyById.get(companyId)
     if (company) company.together = false
     for (const squad of companySquads(battle, companyId)) {
+        squad.detached = false
         if (order === 'charge') { if (squad.type !== 'supply' && squad.type !== 'engineer' && squad.order !== 'resupply') orderCharge(battle, squad.id) }
         else if (order === 'hold') orderHold(battle, squad.id)
         else if (order === 'formation') orderFormation(battle, squad.id)
@@ -841,8 +920,10 @@ export function orderCompanyDemolish(battle: Battle, companyId: number, construc
 export type ArmyOrder = 'charge' | 'hold' | 'retreat'
 
 export function orderArmy(battle: Battle, owner: Army, order: ArmyOrder) {
+    for (const company of battle.companies) if (company.owner === owner) company.together = false
     for (const squad of battle.squads) {
         if (squad.owner !== owner) continue
+        squad.detached = false
         // 補給部隊と工兵は突撃に加わらず、補給中の部隊は補給を続ける。
         if (order === 'charge' && (squad.type === 'supply' || squad.type === 'engineer' || squad.order === 'resupply')) continue
         if (order === 'charge') orderCharge(battle, squad.id)
@@ -1010,7 +1091,7 @@ function centerSlot(type: UnitType, count: number) {
  * 隊長が持ち場に着いたら、また隊長自身・持ち場へ向かう槍兵・建設・帰り着く先の近くの退却と補給ではundefined。
  */
 function escortPoint(battle: Battle, s: Soldier, squad: Squad): Point | undefined {
-    if (s.id === squad.leaderId || squad.march || squad.order === 'build') return undefined
+    if (s.id === squad.leaderId || (squad.march && !squad.rejoin) || squad.order === 'build') return undefined
     const leader = leaderOf(battle, squad)
     if (!leader) return undefined
     // 退却・補給は、帰り着く先の近くまで隊長に付いて行き、そこからは門や陣地の中へ散る。
@@ -1018,7 +1099,8 @@ function escortPoint(battle: Battle, s: Soldier, squad: Squad): Point | undefine
     if (depot && Math.hypot(depot.x - leader.x, depot.y - leader.y) < cohesionRadius(squad) * 1.5) return undefined
     const count = Math.max(1, squad.count)
     const middle = slotOffset(squad.type, count, centerSlot(squad.type, count))
-    const post = battle.posts.get(squad.id)
+    // 中隊の本隊へ戻るあいだは、持ち場ではなく隊長のまわりに付いて歩く。
+    const post = squad.rejoin ? undefined : battle.posts.get(squad.id)
     // 持ち場へ向かう槍兵は、隊長ではなく隊列（march）ごと進む。
     if (post && squad.type === 'pikeman') return undefined
     let facing = battle.travel.get(squad.id) ?? squad.facing
@@ -1126,6 +1208,25 @@ function regroup(battle: Battle, s: Soldier, squad: Squad, dt: number) {
         followPath(battle, s, goal, `cell:${gx},${gy}`, dt, 1, 0)
     }
     return true
+}
+
+/** 中隊の本隊へ戻る小隊の兵: 敵に構わず、隊長は本隊へ向かい、兵は隊長のまわりに付いて歩く。 */
+function rejoinCompany(battle: Battle, s: Soldier, squad: Squad, escort: Point | undefined, dt: number, pace: number) {
+    s.targetId = -1; s.constructionId = -1
+    s.state = 'advance'
+    const leader = leaderOf(battle, squad)
+    if (leader && s !== leader) {
+        if (escort) followLeader(battle, s, squad, escort, dt)
+        else moveToward(battle, s, leader.x, leader.y, dt)
+        return
+    }
+    if (waitsForSquad(battle, s, squad)) { s.state = 'hold'; return }
+    const goal = squad.rejoin!
+    if (isClearLine(battle, s.x, s.y, goal.x, goal.y)) moveToward(battle, s, goal.x, goal.y, dt, pace)
+    else {
+        const gx = Math.round(goal.x / TILE_PX / 4) * 4, gy = Math.round(goal.y / TILE_PX / 4) * 4
+        followPath(battle, s, snapToPassable(battle, { x: gx * TILE_PX, y: gy * TILE_PX }), `cell:${gx},${gy}`, dt, pace, 0)
+    }
 }
 
 /** 隊長が足を止めて部隊を待つか（隊長のもとへ戻っている兵や遅れている兵が多いとき）。槍兵は隊列ごと遅れた兵を待つので見ない。 */
@@ -1375,6 +1476,7 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         if (s.desertion) return
     }
     if (regroup(battle, s, squad, dt)) return
+    if (squad.rejoin && s.state !== 'flee') { rejoinCompany(battle, s, squad, escort, dt, pace); return }
     // 敵が砦を持たなければ（攻城戦・防衛戦の守り手）、突撃は敵の野営地へ向かう。
     const home = battle.homes[s.owner], enemyFort = fortOf(battle, enemyOf(s.owner)), enemyHome = battle.homes[enemyOf(s.owner)]
     if (s.state === 'flee' || squad.order === 'retreat' || squad.order === 'resupply') {
@@ -1844,7 +1946,7 @@ function updateSquads(battle: Battle, dt: number) {
     for (const squad of battle.squads) {
         if (squad.type !== 'pikeman') continue
         const post = battle.posts.get(squad.id)
-        if (!post || squad.order === 'build') { squad.march = null; continue }
+        if (!post || squad.order === 'build' || squad.rejoin) { squad.march = null; continue }
         battle.posts.set(squad.id, advanceMarch(battle, squad, post, dt))
     }
 }

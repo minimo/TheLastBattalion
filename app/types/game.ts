@@ -136,6 +136,10 @@ export interface Squad {
      * 兵は各自の持ち場ではなく、ここを基準にした持ち場へ向かうので、横隊を崩さずに進む。
      */
     march: { x: number; y: number; facing: number; moving: boolean } | null
+    /** 中隊の本隊から離れすぎて、敵に構わず本隊のもとへ戻っている最中なら、戻る先（本隊の一番近い小隊の位置。毎ティック更新）。 */
+    rejoin: Point | null
+    /** プレイヤーが小隊に個別の指示を出して、中隊から切り離しているか（中隊・全軍への指示でまた中隊に戻る）。切り離した小隊は本隊へ戻らない。 */
+    detached: boolean
     /** 補給に戻る前の指示（補給が終わったら戻す）。 */
     resume: { order: SquadOrder; anchor: Point; facing: number; targetSquadId: number; constructionId: number } | null
 }

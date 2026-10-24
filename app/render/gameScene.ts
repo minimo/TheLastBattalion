@@ -594,7 +594,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 // 補給に戻っている間はその旨を、弓兵は矢の残り、補給部隊は補給の残り回数、工兵は建設の進み具合、疲れていれば「疲労」を示す。
                 const tired = squad.stamina < STAMINA.tiredBelow
                 const site = squad.order === 'build' ? battle.constructionById.get(squad.constructionId) : undefined
-                const ammoText = squad.order === 'resupply' ? '補給中'
+                const ammoText = squad.rejoin ? '中隊へ' : squad.order === 'resupply' ? '補給中'
                     : [squad.maxArrows > 0 ? `矢${Math.round(squad.arrows / squad.maxArrows * 100)}%` : '', squad.maxSupplies > 0 ? `残${squad.supplies}回` : '',
                         site ? (site.complete ? '修理中' : `建設${Math.floor(site.progress * 100)}%`) : '', tired ? '疲労' : ''].filter(Boolean).join(' ')
                 if (visual.ammo.textContent !== ammoText) visual.ammo.textContent = ammoText
