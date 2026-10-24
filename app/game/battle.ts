@@ -1,7 +1,7 @@
 import { TILE, TILE_PX, TILE_VARIANT } from './constants'
 import { getTimeDecayMultiplier, getTimeSpeedMultiplier } from './daynight'
 import { getTerrainSpeedMultiplier, getTileCost, mobilityOf } from './terrain'
-import { clearConstructionTiles, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
+import { clearConstructionTiles, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
 import { cellPoint, constructionWorkSite, planConstruction } from './construction'
 import { createFortGeometry, fortCenter, fortDims, fortFootprint, localToWorld } from './fortLayout'
 import { CASTLE_CORE_RADIUS } from './castleLayout'
@@ -400,11 +400,52 @@ function formationSlots(battle: Battle, owner: Army) {
     const cache = battle.formationCache[owner]
     if (cache.key === key) return cache.slots
     const layout = layoutFormation(formation.type, members.map(sq => ({ id: sq.id, type: sq.type, size: sq.size })))
-    cache.slots = new Map([...layout].map(([id, slot]) => [id, {
-        anchor: toWorld(formation.anchor, formation.facing, slot.forward, slot.lateral), facing: formation.facing + slot.facing,
-    }]))
+    const posts = [...layout].map(([id, slot]) => {
+        const squad = battle.squadById.get(id)!
+        return { id, squad, anchor: toWorld(formation.anchor, formation.facing, slot.forward, slot.lateral), facing: formation.facing + slot.facing }
+    })
+    // 陣が戦場の端にあると両翼などの持ち場が戦場の外に出て、その部隊がたどり着けずに動かなくなる。
+    // まず陣ごと平行にずらして戦場に収め、それでも収まらない（陣が戦場より広い）持ち場は陣の中心へ寄せる。
+    let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity
+    for (const post of posts) for (const p of blockCorners(post.anchor, post.facing, post.squad)) {
+        left = Math.min(left, p.x); right = Math.max(right, p.x); top = Math.min(top, p.y); bottom = Math.max(bottom, p.y)
+    }
+    const shift = { x: fieldShift(left, right), y: fieldShift(top, bottom) }
+    cache.slots = new Map(posts.map(post => {
+        const anchor = { x: post.anchor.x + shift.x, y: post.anchor.y + shift.y }
+        return [post.id, { anchor: fitInField(formation.anchor, anchor, post.facing, post.squad), facing: post.facing }]
+    }))
     cache.key = key
     return cache.slots
+}
+
+/** 戦場（経路を探せる範囲）の端。 */
+const FIELD_MIN = PLAYABLE_GRID_MIN * TILE_PX, FIELD_MAX = PLAYABLE_GRID_MAX * TILE_PX
+const inField = (p: Point) => p.x >= FIELD_MIN && p.x <= FIELD_MAX && p.y >= FIELD_MIN && p.y <= FIELD_MAX
+
+/** 持ち場（前列中央）に組んだ部隊の隊列の四隅。 */
+function blockCorners(anchor: Point, facing: number, squad: Squad) {
+    const { width, depth } = squadBlock(squad.type, Math.max(1, squad.size))
+    return [[0, -.5], [0, .5], [-1, -.5], [-1, .5]].map(([f, l]) => toWorld(anchor, facing, f! * depth, l! * width))
+}
+
+/** min〜max の幅を戦場の中へ収めるずらし量（戦場より広ければ、はみ出しの少ない側へ寄せない）。 */
+function fieldShift(min: number, max: number) {
+    if (min < FIELD_MIN && max > FIELD_MAX) return 0
+    if (min < FIELD_MIN) return Math.min(FIELD_MIN - min, FIELD_MAX - max)
+    if (max > FIELD_MAX) return Math.max(FIELD_MAX - max, FIELD_MIN - min)
+    return 0
+}
+
+/** 持ち場の隊列が戦場の外へはみ出すなら、陣の中心へ向かって寄せて収める。 */
+function fitInField(center: Point, anchor: Point, facing: number, squad: Squad): Point {
+    const fits = (p: Point) => blockCorners(p, facing, squad).every(inField)
+    if (fits(anchor)) return anchor
+    for (let t = .05; t < 1; t += .05) {
+        const p = { x: anchor.x + (center.x - anchor.x) * t, y: anchor.y + (center.y - anchor.y) * t }
+        if (fits(p)) return p
+    }
+    return { ...center }
 }
 
 function formationGoalKey(battle: Battle, owner: Army) {

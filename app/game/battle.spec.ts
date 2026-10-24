@@ -13,7 +13,7 @@ import { findPath } from './pathfinding'
 import { TILE_PX } from './constants'
 import { ARROWS_PER_ARCHER, CONSTRUCTION, FORT_REFILL_RANGE, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
-import { getPlayableTile } from './playableArea'
+import { getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
 import { armyPool, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, presetDeployment, type DeploymentPlan } from './deployment'
@@ -227,6 +227,21 @@ describe('部隊', () => {
         expect(cx).toBeGreaterThan(before.x + 40)
         // 補給部隊は陣形を変えても補給任務を続ける
         expect(squads.every(sq => sq.order === (sq.type === 'supply' ? 'support' : 'formation'))).toBe(true)
+    }, 60000)
+
+    it('陣が戦場の端にあっても、持ち場は戦場の中に収まり、両翼の部隊も持ち場に着く', () => {
+        // この地形では横陣の右翼の外側の騎兵の持ち場が、そのままだと戦場の外に出る。
+        const battle = makeBattle('625612')
+        orderArmy(battle, 'cpu', 'hold')
+        setFormation(battle, 'player', 'line')
+        run(battle, 10)
+        const inField = (p: { x: number; y: number }) => [p.x, p.y].every(v => v >= PLAYABLE_GRID_MIN * TILE_PX && v <= PLAYABLE_GRID_MAX * TILE_PX)
+        const squads = battle.squads.filter(sq => sq.owner === 'player' && sq.order === 'formation')
+        for (const squad of squads) expect(inField(squad.anchor), `${squad.type}${squad.number}`).toBe(true)
+        // 右翼の外側の第4騎兵隊は、戦場の端で止まらずに持ち場に着いて構える。
+        const cavalry = squads.find(sq => sq.type === 'cavalry' && sq.number === 4)!
+        const middle = toWorld(cavalry.anchor, cavalry.facing, -squadBlock(cavalry.type, cavalry.count).depth / 2, 0)
+        expect(Math.hypot(cavalry.center.x - middle.x, cavalry.center.y - middle.y)).toBeLessThan(15)
     }, 60000)
 
     it('指定した敵部隊を攻撃しに向かう', () => {
@@ -584,8 +599,9 @@ describe('工兵の建設物', () => {
         let standing: ReturnType<typeof onDeck> = []
         for (let t = 0; t < 30 && battle.constructionById.has(site.id); t += 1 / 30) { standing = onDeck(); run(battle, 1 / 30) }
         expect(battle.constructionById.has(site.id)).toBe(false)
-        expect(standing.length).toBeGreaterThan(0)
-        expect(standing.every(s => s.state === 'dead')).toBe(true)
+        expect(standing.some(s => s.state === 'dead')).toBe(true)
+        // 崩れたときに橋の上にいた兵は落ちて倒れる（直前に橋から降りた兵は無事）。
+        expect(onDeck().every(s => s.state === 'dead')).toBe(true)
         expect(deckCost().every(c => c === 1 / WATER_SPEED.foot)).toBe(true)
     }, 240000)
 
