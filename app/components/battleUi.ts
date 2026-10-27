@@ -2,10 +2,9 @@ import type { Army, ConstructionKind, SquadOrder, UnitType } from '~/types/game'
 
 /** 戦闘画面の表示名と、部隊への指示の並び（操作バー・長押しメニュー・部隊一覧で共通）。 */
 export const ARMY_NAME: Record<Army, string> = { player: '人間軍', cpu: '魔王軍' }
-export const UNIT_NAME: Record<Army, Record<UnitType, string>> = {
-  player: { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給兵', engineer: '工兵' },
-  cpu: { infantry: 'オーク歩兵', pikeman: 'オーク槍兵', archer: 'ゴブリン弓兵', cavalry: '狼騎兵', supply: 'ゴブリン運び手', engineer: 'オーク工兵' },
-}
+// 魔王軍も種族は出さず、人間軍と同じ兵種名で示す。
+const TYPE_LABEL: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給兵', engineer: '工兵' }
+export const UNIT_NAME: Record<Army, Record<UnitType, string>> = { player: TYPE_LABEL, cpu: TYPE_LABEL }
 export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
 export const ORDER_NAME: Record<SquadOrder, string> = { formation: '陣形', move: '移動', hold: '待機', attack: '攻撃', charge: '突撃', retreat: '退却', resupply: '補給中', support: '補給', build: '建設', demolish: '破壊' }
 export const TIRED_BELOW = 40

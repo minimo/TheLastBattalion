@@ -5,7 +5,14 @@ import { createHeightfield } from '../render/three/heightfield'
 import { createLandscape, TERRAIN_CENTER } from '../render/three/landscape'
 
 // Placement and navigation expand around the existing terrain and camera center.
-export const PLAYABLE_SIZE = 1400
+/** 両軍の砦を置く戦場の広さ（砦はこの範囲の東西の端に置く）。 */
+export const BATTLEFIELD_SIZE = 1400
+export const BATTLEFIELD_MIN = TERRAIN_CENTER - BATTLEFIELD_SIZE / 2
+export const BATTLEFIELD_MAX = TERRAIN_CENTER + BATTLEFIELD_SIZE / 2
+const BATTLEFIELD_GRID_MIN = Math.ceil(BATTLEFIELD_MIN / TILE_PX)
+const BATTLEFIELD_GRID_MAX = Math.floor(BATTLEFIELD_MAX / TILE_PX)
+/** 部隊が動ける範囲。砦の背後の丘にも出られるよう、戦場より四方に広く取る。 */
+export const PLAYABLE_SIZE = BATTLEFIELD_SIZE + 240 * 2
 export const PLAYABLE_MIN = TERRAIN_CENTER - PLAYABLE_SIZE / 2
 export const PLAYABLE_MAX = TERRAIN_CENTER + PLAYABLE_SIZE / 2
 export const PLAYABLE_GRID_MIN = Math.ceil(PLAYABLE_MIN / TILE_PX)
@@ -190,14 +197,14 @@ function fortCandidates(side: { owner: Army; kind: FortKind; front: 1 | -1 }, te
     const { kind } = side
     const { depth, width, front: marginFront, side: marginSide } = fortDims(kind)
     const centerGy = Math.round(TERRAIN_CENTER / TILE_PX) - Math.floor(width / 2)
-    const span = PLAYABLE_GRID_MAX - PLAYABLE_GRID_MIN - width - 4
+    const span = BATTLEFIELD_GRID_MAX - BATTLEFIELD_GRID_MIN - width - 4
     const list: FortCandidate[] = []
     // 城は大きいので戦場の端に置く。キャンプは内側へずらしてもよい（少しだけ嫌う）。
     for (let inset = 0; inset <= (kind === 'camp' ? CAMP_MAX_INSET : 0); inset++) {
-        const originGx = side.front === 1 ? PLAYABLE_GRID_MIN + inset : PLAYABLE_GRID_MAX - depth + 1 - inset
+        const originGx = side.front === 1 ? BATTLEFIELD_GRID_MIN + inset : BATTLEFIELD_GRID_MAX - depth + 1 - inset
         for (let offset = 0; offset <= span; offset++) for (const sign of offset ? [-1, 1] : [1]) {
             const originGy = centerGy + offset * sign
-            if (originGy - marginSide < PLAYABLE_GRID_MIN + 1 || originGy + width + marginSide > PLAYABLE_GRID_MAX - 1) continue
+            if (originGy - marginSide < BATTLEFIELD_GRID_MIN + 1 || originGy + width + marginSide > BATTLEFIELD_GRID_MAX - 1) continue
             const frame = { kind, front: side.front, originGx, originGy }
             // 敷地と正門前（ローカル -1〜depth+marginFront+2, -marginSide-1〜width+marginSide）の水と起伏。
             const a = localToGrid(frame, -1, -marginSide - 1), b = localToGrid(frame, depth + marginFront + 2, width + marginSide)
