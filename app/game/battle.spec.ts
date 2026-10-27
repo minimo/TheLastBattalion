@@ -12,7 +12,7 @@ import { FORT_DEPTH, FORT_WIDTH, isBlockedLocal, localToGrid } from './fortLayou
 import { CASTLE_ASSAULT_CELLS, CASTLE_DEPTH, CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
 import { findPath } from './pathfinding'
 import { TILE_PX } from './constants'
-import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
+import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, fortVicinityOf, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
 import { getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
@@ -129,6 +129,22 @@ describe('戦闘', () => {
         for (let t = 0; t < 80 && !battle.winner; t += 1 / 30) { updateBattle(battle, 1 / 30); commander.update(1 / 30) }
         expect(battle.killed.player + battle.killed.cpu).toBeGreaterThan(100)
         for (const s of battle.soldiers) if (s.state !== 'dead') expect(isBlocked(battle.grid, s.x, s.y)).toBe(false)
+    }, 120000)
+
+    it('魔王軍の工兵は、自軍の砦や陣のそばではなく前線に拠点を築く', () => {
+        for (const mode of ['field', 'siege'] as BattleMode[]) {
+            const battle = makeBattle('123456', mode)
+            if (!battle.squads.some(sq => sq.owner === 'cpu' && sq.type === 'engineer')) continue
+            const commander = createCpuCommander(battle)
+            orderArmy(battle, 'player', 'hold')
+            for (let t = 0; t < 10 && !battle.constructions.some(c => c.owner === 'cpu' && c.kind === 'outpost'); t += 1 / 30) { updateBattle(battle, 1 / 30); commander.update(1 / 30) }
+            const outpost = battle.constructions.find(c => c.owner === 'cpu' && c.kind === 'outpost')
+            expect(outpost, mode).toBeDefined()
+            const fort = battle.forts.find(f => f.owner === 'cpu')!, home = battle.homes.cpu, enemy = battle.homes.player
+            expect(Math.hypot(outpost!.center.x - home.x, outpost!.center.y - home.y)).toBeGreaterThan(fortVicinityOf(fort.kind) + 100)
+            // 敵本陣の方へ出ている。
+            expect(Math.hypot(outpost!.center.x - enemy.x, outpost!.center.y - enemy.y)).toBeLessThan(Math.hypot(home.x - enemy.x, home.y - enemy.y))
+        }
     }, 120000)
 })
 
@@ -633,14 +649,14 @@ describe('工兵の建設物', () => {
         const point = { x: first!.center.x + 60, y: first!.center.y }
         const plan = previewConstruction(battle, 'player', 'outpost', point)
         expect(plan.valid).toBe(true)
-        // 拠点は7×7マス（砦の12×16マスより小さい）。外周の柵に四方の門がある
-        expect(plan.area).toHaveLength(49)
-        expect(plan.walls).toHaveLength(20)
+        // 拠点は5×5マス（砦の12×16マスより小さい）。外周の柵に四方の門がある
+        expect(plan.area).toHaveLength(25)
+        expect(plan.walls).toHaveLength(12)
         expect(orderConstruct(battle, first!.id, 'outpost', point)).toBe(true)
         const site = battle.constructions[0]!
         orderBuild(battle, second!.id, site.id)
-        // 工兵2部隊（60人）でも1分では建たない
-        run(battle, 60)
+        // 工兵2部隊（60人）でも30秒では建たない
+        run(battle, 30)
         expect(site.complete).toBe(false)
         expect(site.progress).toBeGreaterThan(.3)
         for (let t = 0; t < 120 && !site.complete; t += 5) run(battle, 5)
