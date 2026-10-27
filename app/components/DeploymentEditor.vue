@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { COMPANY_MAX_SQUADS, FORMATIONS, SQUAD_SIZE } from '~/game/formation'
+import { COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, SQUAD_SIZE } from '~/game/formation'
 import {
   armyPool, COMPANY_TEMPLATES, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, plannedCompanies, PLANNED_COMPANIES_MAX, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP,
   squadSizeMax, SQUADS_PER_TYPE_MAX, UNIT_TYPES, type DeploymentPlan,
@@ -21,7 +21,8 @@ const deployed = computed(() => deployedCount(draft.value))
 const room = computed(() => limit.value - deployed.value)
 /** 兵種の小隊（中隊を組んだ小隊も含む。兵種ごとの上限はこれで数える）。 */
 const squadsOf = (type: UnitType) => draft.value.squads.map((sq, index) => ({ ...sq, index })).filter(sq => sq.type === type)
-/** 中隊を組んでいない（開戦時に自動で中隊に分ける）兵種の小隊。 */
+/** 中隊に入らない兵種（工兵・補給兵）と、その小隊。歩兵・槍兵・弓兵・騎兵は必ず中隊に入れる。 */
+const LOOSE_TYPES = UNIT_TYPES.filter(type => !joinsCompany(type))
 const autoSquadsOf = (type: UnitType) => squadsOf(type).filter(sq => sq.company === undefined)
 const typeTotal = (type: UnitType) => autoSquadsOf(type).reduce((sum, sq) => sum + sq.size, 0)
 const canAdd = (type: UnitType) => room.value >= SQUAD_SIZE_MIN && squadsOf(type).length < SQUADS_PER_TYPE_MAX
@@ -30,15 +31,13 @@ const canAdd = (type: UnitType) => room.value >= SQUAD_SIZE_MIN && squadsOf(type
 const companies = computed(() => plannedCompanies(draft.value).map(({ company, indices }) => ({ company, squads: indices.map(index => ({ ...draft.value.squads[index]!, index })) })))
 const nextCompany = () => Math.max(0, ...draft.value.squads.map(sq => sq.company ?? 0)) + 1
 /** 中隊にもう1小隊入れられるか。 */
-const canAddTo = (company: number, type: UnitType) => canAdd(type) && draft.value.squads.filter(sq => sq.company === company).length < COMPANY_MAX_SQUADS
+const canAddTo = (company: number, type: UnitType) => joinsCompany(type) && canAdd(type) && draft.value.squads.filter(sq => sq.company === company).length < COMPANY_MAX_SQUADS
 /** ひな形の兵種で中隊を組む（足りない人数・上限で入らない小隊は飛ばす）。 */
 const addCompany = (types: UnitType[]) => {
   if (companies.value.length >= PLANNED_COMPANIES_MAX) return
   const company = nextCompany()
   for (const type of types) addSquad(type, company)
 }
-/** 中隊を解き、小隊は自動で中隊に分ける側へ戻す。 */
-const disbandCompany = (company: number) => { for (const sq of draft.value.squads) if (sq.company === company) delete sq.company }
 const removeCompany = (company: number) => { draft.value.squads = draft.value.squads.filter(sq => sq.company !== company) }
 const companyTotal = (squads: { size: number }[]) => squads.reduce((sum, sq) => sum + sq.size, 0)
 
@@ -55,6 +54,8 @@ const addSquad = (type: UnitType, company?: number) => {
   const size = Math.min(SQUAD_SIZE[type], room.value)
   if (size < SQUAD_SIZE_MIN || squadsOf(type).length >= SQUADS_PER_TYPE_MAX) return
   if (company !== undefined && !canAddTo(company, type)) return
+  // 歩兵・槍兵・弓兵・騎兵は中隊の外には加えない。
+  if (company === undefined && joinsCompany(type)) return
   const at = draft.value.squads.reduce((last, sq, i) => UNIT_TYPES.indexOf(sq.type) <= UNIT_TYPES.indexOf(type) ? i + 1 : last, 0)
   draft.value.squads.splice(at, 0, company === undefined ? { type, size } : { type, size, company })
 }
@@ -98,7 +99,6 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
               <span>第{{ n + 1 }}中隊</span>
               <small>{{ c.squads.map(sq => TYPE_MARK[sq.type]).join('・') }} · {{ companyTotal(c.squads) }}人</small>
               <span class="company-actions">
-                <button class="add" :aria-label="`第${n + 1}中隊を解いて、小隊を自動の中隊に戻す`" @click="disbandCompany(c.company)">解く</button>
                 <button class="add" :aria-label="`第${n + 1}中隊を外す`" @click="removeCompany(c.company)">×</button>
               </span>
             </div>
@@ -112,7 +112,7 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
                 <button class="remove" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を外す`" @click="removeSquad(sq.index)">×</button>
               </div>
               <span class="add-types">
-                <button v-for="type in UNIT_TYPES" :key="type" :disabled="!canAddTo(c.company, type)" :title="`${unitNames[type]}の小隊を加える`" :aria-label="`第${n + 1}中隊に${unitNames[type]}の小隊を加える`" @click="addSquad(type, c.company)">＋{{ TYPE_MARK[type] }}</button>
+                <button v-for="type in UNIT_TYPES.filter(joinsCompany)" :key="type" :disabled="!canAddTo(c.company, type)" :title="`${unitNames[type]}の小隊を加える`" :aria-label="`第${n + 1}中隊に${unitNames[type]}の小隊を加える`" @click="addSquad(type, c.company)">＋{{ TYPE_MARK[type] }}</button>
               </span>
             </div>
           </li>
@@ -121,9 +121,9 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
       </div>
 
       <div class="deploy-group">
-        <span class="deploy-label">{{ companies.length ? 'そのほかの小隊（陣で隣り合う同じ兵種で自動で中隊に分ける）' : '部隊（兵種と人数。陣で隣り合う同じ兵種で自動で中隊に分ける）' }}</span>
+        <span class="deploy-label">工兵・補給兵（中隊に入らず、小隊のまま動く）</span>
         <ul class="deploy-types">
-          <li v-for="type in UNIT_TYPES" :key="type">
+          <li v-for="type in LOOSE_TYPES" :key="type">
             <div class="type-head">
               <span>{{ unitNames[type] }}</span>
               <small>{{ autoSquadsOf(type).length }}小隊 · {{ typeTotal(type) }}人</small>

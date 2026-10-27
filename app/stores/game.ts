@@ -42,7 +42,6 @@ export interface SquadSummary {
     number: number
     companyId: number
     /** 中隊の本隊へ戻っている最中か。 */
-    rejoining: boolean
     count: number
     size: number
     order: SquadOrder
@@ -191,7 +190,7 @@ export const useGameStore = defineStore('game', {
             this.squads = battle.squads.map(sq => {
                 const site = sq.order === 'build' || sq.order === 'demolish' ? battle.constructionById.get(sq.constructionId) : undefined
                 return {
-                    id: sq.id, owner: sq.owner, type: sq.type, number: sq.number, companyId: sq.companyId, rejoining: !!sq.rejoin, count: sq.count, size: sq.size, order: sq.order, arrows: Math.floor(sq.arrows), maxArrows: sq.maxArrows,
+                    id: sq.id, owner: sq.owner, type: sq.type, number: sq.number, companyId: sq.companyId, count: sq.count, size: sq.size, order: sq.order, arrows: Math.floor(sq.arrows), maxArrows: sq.maxArrows,
                     stamina: Math.round(sq.stamina), supplies: sq.supplies, maxSupplies: sq.maxSupplies,
                     construction: site ? { kind: site.kind, progress: Math.floor(site.progress * 100), hp: Math.round(site.hp / site.maxHp * 100), complete: site.complete } : null,
                 }
@@ -208,10 +207,11 @@ export const useGameStore = defineStore('game', {
             this.formation = battle.formations.player.type
         },
 
-        /** 自軍の部隊への指示。 */
+        /** 自軍の部隊への指示。中隊の小隊には個別に指示できない（中隊へ指示する）。 */
         orderSquad(squadId: number, order: SquadOrder, options: SquadCommand = {}): void {
             const battle = this.battle
-            if (!battle || battle.squadById.get(squadId)?.owner !== 'player' || this.isGameOver) return
+            const squad = battle?.squadById.get(squadId)
+            if (!battle || squad?.owner !== 'player' || battle.companyById.has(squad.companyId) || this.isGameOver) return
             if (order === 'move' && options.point) orderMove(battle, squadId, options.point)
             else if (order === 'build' && options.constructionId !== undefined) orderBuild(battle, squadId, options.constructionId)
             else if (order === 'build' && options.kind && options.point) orderConstruct(battle, squadId, options.kind, options.point, options.axis)
@@ -223,11 +223,8 @@ export const useGameStore = defineStore('game', {
             else if (order === 'formation') orderFormation(battle, squadId)
             else if (order === 'resupply') orderResupply(battle, squadId)
             else if (order === 'support') orderSupport(battle, squadId, options.targetSquadId)
-            // 小隊に個別の指示を出したら、その小隊は中隊から切り離し（本隊へ戻らない）、中隊は足並みをそろえるのをやめる。
-            const squad = battle.squadById.get(squadId)!
-            squad.detached = true
-            squad.rejoin = null
-            const company = battle.companyById.get(squad.companyId)
+            // 小隊に個別の指示を出したら、中隊は足並みをそろえるのをやめる（小隊は中隊の範囲の中で動く）。
+            const company = battle.companyById.get(battle.squadById.get(squadId)!.companyId)
             if (company) company.together = false
             this.refresh()
         },
@@ -244,12 +241,12 @@ export const useGameStore = defineStore('game', {
             this.refresh()
         },
 
-        /** 工兵に建設物を建てさせる。建てられない場所ならfalse。 */
+        /** 工兵に建設物を建てさせる。建てられない場所ならfalse。中隊の小隊には個別に指示できない。 */
         construct(squadId: number, kind: ConstructionKind, point: Point, axis: ConstructionAxis): boolean {
             const battle = this.battle
-            if (!battle || battle.squadById.get(squadId)?.owner !== 'player' || this.isGameOver) return false
+            const squad = battle?.squadById.get(squadId)
+            if (!battle || squad?.owner !== 'player' || battle.companyById.has(squad.companyId) || this.isGameOver) return false
             const placed = orderConstruct(battle, squadId, kind, point, axis)
-            if (placed) battle.squadById.get(squadId)!.detached = true
             this.refresh()
             return placed
         },

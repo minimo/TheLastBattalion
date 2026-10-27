@@ -5,9 +5,8 @@ import { getNightAlpha } from '~/game/daynight'
 import type { useGameStore } from '~/stores/game'
 import type { BattleInput } from '~/composables/useBattleInput'
 import type { Company, Construction, Fort, Point, Squad, UnitType } from '~/types/game'
-import { squadBlock, toWorld } from '~/game/formation'
 import { CONSTRUCTION, STAMINA } from '~/game/battleConfig'
-import { companyLeader, companyPosition, companySquads, depotOf, nearestCompanySquad, squadPosition, squadRoute, type Battle } from '~/game/battle'
+import { companyLeader, companyPosition, companySquads, orderDestination, previewCompanyRoute, squadPosition, squadRoute, type Battle } from '~/game/battle'
 import { createModelKit, FACTION, OCCLUDER_LAYER } from './three/models'
 import { createWorld } from './three/world'
 import { createAtmosphere } from './three/atmosphere'
@@ -317,21 +316,6 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const pathOverlay = createPathOverlay(camera, canvasEl, (x, y) => world.field.surfaceAt(x, y), isOccluded)
     scene.add(pathOverlay.group)
     let pathKey = ''
-    /** 部隊の今の指示の行き先（表示用）。 */
-    const orderDestination = (squad: Squad): Point | undefined => {
-        const battle = gameStore.battle!
-        if (squad.order === 'attack') { const target = battle.squadById.get(squad.targetSquadId); return target && squadPosition(battle, target) }
-        if (squad.order === 'charge') return battle.homes[squad.owner === 'player' ? 'cpu' : 'player'].core
-        if (squad.order === 'resupply') {
-            const depot = depotOf(battle, squad)
-            return depot.site ? depot.site.center : battle.homes[squad.owner].core
-        }
-        if (squad.order === 'retreat') return battle.homes[squad.owner].core
-        if (squad.order === 'build' || squad.order === 'demolish') return battle.constructionById.get(squad.constructionId)?.center
-        if (squad.order === 'support' && battle.squadById.has(squad.targetSquadId)) return squadPosition(battle, battle.squadById.get(squad.targetSquadId)!)
-        // 持ち場の原点は前列中央なので、部隊の中心へ戻して示す。
-        return toWorld(squad.anchor, squad.facing, -squadBlock(squad.type, Math.max(1, squad.count)).depth / 2, 0)
-    }
     const updatePaths = () => {
         const battle = gameStore.battle!
         const dragging = input.dragging.value
@@ -351,13 +335,9 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         pathKey = key
         pathOverlay.clear()
         if (draggingCompany) {
-            // 中隊の旗から、狙う部隊（敵の中隊なら一番近い小隊）・建設物・離す地点へ引く。
-            const from = companyPosition(battle, draggingCompany)
-            const targetSquad = companyPreview?.targetCompanyId !== undefined ? nearestCompanySquad(battle, companyPreview.targetCompanyId, from)
-                : companyPreview?.targetSquadId !== undefined ? battle.squadById.get(companyPreview.targetSquadId) : undefined
-            const target = targetSquad ? squadPosition(battle, targetSquad)
-                : companyPreview?.constructionId !== undefined ? battle.constructionById.get(companyPreview.constructionId)?.center : cursor
-            if (target && cursor.x > -9000) pathOverlay.add([from, target])
+            // 離したら出る指示で中隊長の小隊が進む経路を、指示を出したあとの矢印と同じく引く。
+            const route = companyPreview && cursor.x > -9000 ? previewCompanyRoute(battle, draggingCompany.id, companyPreview) : undefined
+            if (route) pathOverlay.add(route)
         } else if (typeof dragging === 'number') {
             const squad = battle.squadById.get(dragging)
             // 矢印はラベルの立つ隊長の幟から、狙う部隊なら相手の隊長の幟へ引く。
@@ -366,9 +346,12 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 : preview?.constructionId !== undefined ? battle.constructionById.get(preview.constructionId)?.center : cursor
             if (squad && target && cursor.x > -9000) pathOverlay.add([squadPosition(battle, squad), target])
         } else {
-            // 選んでいる小隊（中隊なら中隊のすべての小隊）の行き先を示す。
-            for (const squad of selected ? [selected] : selectedCompany ? companySquads(battle, selectedCompany.id) : []) {
-                const destination = orderDestination(squad)
+            // 選んでいる小隊の行き先を示す。中隊なら小隊ごとには引かず、中隊長の幟から中隊長の小隊の行き先へ1本だけ引く。
+            // 敵は選んでも情報を見るだけなので、行き先は引かない。
+            const head = selectedCompany ? battle.squadById.get(selectedCompany.leaderSquadId) : undefined
+            for (const squad of selected ? [selected] : head ? [head] : []) {
+                if (squad.owner !== 'player') continue
+                const destination = orderDestination(battle, squad)
                 const from = squadPosition(battle, squad)
                 if (destination && Math.hypot(destination.x - from.x, destination.y - from.y) > 20) pathOverlay.add(squadRoute(battle, squad, destination), squad.owner)
             }
@@ -411,7 +394,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         const companyId = element?.dataset.company ? Number(element.dataset.company) : bannerCompanyHover
         const squadId = element?.dataset.squad ? Number(element.dataset.squad) : bannerHover
         input.setWorldPointer(groundPoint(event), squadId, companyId)
-        renderer.domElement.style.cursor = input.buildMode.value ? 'crosshair' : squadId !== null || companyId !== null ? 'pointer' : 'default'
+        const selectable = squadId !== null && input.canSelectSquad(squadId)
+        renderer.domElement.style.cursor = input.buildMode.value ? 'crosshair' : selectable || companyId !== null ? 'pointer' : 'default'
         return { squadId, companyId }
     }
     /**
@@ -447,21 +431,24 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         const company = heads.get(leader.id)
         return company !== undefined ? { squadId: null, companyId: company } : { squadId: squad.id, companyId: null }
     }
-    /** クリックした幟、またはクリックした地点に最も近い兵の部隊を選ぶ。 */
+    /** クリックした幟、またはクリックした地点に最も近い兵の部隊を選ぶ。選べる部隊がなければ（地面・中隊の小隊）、選択を外す。 */
     const pickSquad = (event: PointerEvent) => {
         const battle = gameStore.battle
         const banner = bannerAt(event)
         if (banner.companyId !== null) { input.selectCompany(banner.companyId); return }
-        if (banner.squadId !== null) { input.selectSquad(banner.squadId); return }
+        let best: number | null = banner.squadId
         const point = groundPoint(event)
-        if (!battle || point.x < -9000) { input.selectSquad(null); return }
-        let best: number | null = null, bestDistance = 6 + camera.position.distanceTo(controls.target) * .006
-        battle.hash.forEachNear(point.x, point.y, bestDistance, s => {
-            const d = Math.hypot(s.x - point.x, s.y - point.y)
-            // 部隊を離れて逃げ出した兵は選べない。
-            if (d < bestDistance && s.squadId >= 0) { bestDistance = d; best = s.squadId }
-        })
-        input.selectSquad(best)
+        if (best === null && battle && point.x > -9000) {
+            let bestDistance = 6 + camera.position.distanceTo(controls.target) * .006
+            battle.hash.forEachNear(point.x, point.y, bestDistance, s => {
+                const d = Math.hypot(s.x - point.x, s.y - point.y)
+                // 部隊を離れて逃げ出した兵は選べない。
+                if (d < bestDistance && s.squadId >= 0) { bestDistance = d; best = s.squadId }
+            })
+        }
+        if (best !== null && input.canSelectSquad(best)) { input.selectSquad(best); return }
+        input.selectSquad(null)
+        input.selectCompany(null)
     }
     const canCommand = () => gameStore.status === 'playing' || gameStore.status === 'paused'
     const down = (event: PointerEvent) => {
@@ -484,11 +471,13 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         // Decide once, before OrbitControls receives pointerdown. Crossing a banner
         // during a background drag must never turn that gesture into an order.
         // 建設場所を選んでいる間は、旗の上を押しても部隊は掴まず、その地点に建てる。
-        backgroundGesture = !!input.buildMode.value || (squadId === null && companyId === null)
+        // 選べない小隊（中隊の小隊）の旗を押したときは、地面を押したのと同じにする。
+        const grabbed = squadId !== null && input.canSelectSquad(squadId)
+        backgroundGesture = !!input.buildMode.value || (!grabbed && companyId === null)
         setBackgroundGesture(backgroundGesture)
         if (backgroundGesture) { pressed = { x: event.clientX, y: event.clientY }; renderer.domElement.style.cursor = 'grabbing' }
         else if (companyId !== null) input.handleCompanyPointerDown(companyId, event)
-        else if (squadId !== null) input.handleSquadPointerDown(squadId, event)
+        else if (grabbed) input.handleSquadPointerDown(squadId!, event)
     }
     const move = (event: PointerEvent) => {
         if (!canCommand() || backgroundGesture) return
@@ -595,13 +584,16 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 const count = String(squad.count)
                 if (visual.count.textContent !== count) visual.count.textContent = count
                 visual.label.classList.toggle('is-selected', input.selectedSquadId.value === squad.id)
-                visual.label.classList.toggle('is-hover', bannerHover === squad.id)
+                // 中隊の小隊の旗は選べないので、押せる見た目にしない。
+                const locked = !input.canSelectSquad(squad.id)
+                visual.label.classList.toggle('is-locked', locked)
+                visual.label.classList.toggle('is-hover', bannerHover === squad.id && !locked)
                 visual.label.classList.toggle('is-source', dragging === squad.id)
                 visual.label.classList.toggle('is-target', input.hoverSquadId.value === squad.id && targeting)
                 // 補給に戻っている間はその旨を、弓兵は矢の残り、補給部隊は補給の残り回数、工兵は建設の進み具合、疲れていれば「疲労」を示す。
                 const tired = squad.stamina < STAMINA.tiredBelow
                 const site = squad.order === 'build' ? battle.constructionById.get(squad.constructionId) : undefined
-                const ammoText = squad.rejoin ? '中隊へ' : squad.order === 'resupply' ? '補給中'
+                const ammoText = squad.order === 'resupply' ? '補給中'
                     : [squad.maxArrows > 0 ? `矢${Math.round(squad.arrows / squad.maxArrows * 100)}%` : '', squad.maxSupplies > 0 ? `残${squad.supplies}回` : '',
                         site ? (site.complete ? '修理中' : `建設${Math.floor(site.progress * 100)}%`) : '', tired ? '疲労' : ''].filter(Boolean).join(' ')
                 if (visual.ammo.textContent !== ammoText) visual.ammo.textContent = ammoText
@@ -611,7 +603,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 const leader = battle.byId.get(squad.leaderId)
                 const at = leader && leader.state !== 'dead' ? leader : membersCenter(battle.members.get(squad.id)) ?? squad.center
                 placeLabel(visual.label, at.x, at.y, bannerSpan(squad.type, !!leader && heads.has(leader.id))[1] + 2)
-                if (far && input.selectedSquadId.value !== squad.id && dragging !== squad.id && (selectedCompany === null || squad.companyId !== selectedCompany)) visual.label.hidden = true
+                // 引いた視点では中隊の小隊の旗を隠す（中隊の旗が代わりに立つ）。中隊に入らない小隊（工兵・補給兵）の旗は残す。
+                if (far && locked && dragging !== squad.id && (selectedCompany === null || squad.companyId !== selectedCompany)) visual.label.hidden = true
             }
             squadLabels.forEach((v, id) => { if (!alive.has(id)) { v.label.remove(); squadLabels.delete(id) } })
             // 中隊の旗を中隊の小隊の幟の真ん中の上に掲げる。

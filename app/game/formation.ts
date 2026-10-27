@@ -173,6 +173,8 @@ export function layoutFormation(type: FormationType, members: FormationMember[])
 
 /** 1つの中隊に入れる小隊の数の上限。 */
 export const COMPANY_MAX_SQUADS = 4
+/** 中隊に入れる兵種か（工兵と補給兵は中隊に入らず、小隊のまま動く）。 */
+export const joinsCompany = (type: UnitType) => type !== 'supply' && type !== 'engineer'
 
 /**
  * 陣の持ち場から、同じ兵種で隣り合う小隊を中隊にまとめる（返すのは中隊ごとの小隊のID）。

@@ -77,9 +77,15 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         longPressTimeout = setTimeout(() => { longPressTimeout = null; open() }, LONG_PRESS_THRESHOLD)
     }
 
+    /** 小隊を選べるか（中隊の小隊は選べず、個別に指示できない）。 */
+    const canSelectSquad = (squadId: number) => {
+        const battle = gameStore.battle, squad = battle?.squadById.get(squadId)
+        return !!squad && !battle!.companyById.has(squad.companyId)
+    }
+
     const handleSquadPointerDown = (squadId: number, e: EntityPointerEvent) => {
         const squad = gameStore.battle?.squadById.get(squadId)
-        if (!squad) return
+        if (!squad || !canSelectSquad(squadId)) return
         selectSquad(squadId)
         pointerDownPos.value = { x: e.clientX, y: e.clientY }
         if (squad.owner !== 'player') { clearLongPress(); pressed = null; return }
@@ -198,8 +204,12 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         return true
     }
 
-    /** 小隊を選ぶ（中隊の選択は外す）。 */
-    const selectSquad = (id: number | null) => { selectedSquadId.value = id; if (id !== null) selectedCompanyId.value = null }
+    /** 小隊を選ぶ（中隊の選択は外す）。選べない小隊（中隊の小隊）なら、小隊は選ばない。 */
+    const selectSquad = (id: number | null) => {
+        if (id !== null && !canSelectSquad(id)) id = null
+        selectedSquadId.value = id
+        if (id !== null) selectedCompanyId.value = null
+    }
     /** 中隊を選ぶ（小隊の選択は外す）。 */
     const selectCompany = (id: number | null) => { selectedCompanyId.value = id; if (id !== null) selectedSquadId.value = null }
 
@@ -278,6 +288,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         handleContextMenuAction,
         closeContextMenu,
         cancelDrag,
+        canSelectSquad,
         selectSquad,
         selectCompany,
         reset,

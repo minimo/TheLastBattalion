@@ -218,13 +218,14 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.squad-label .squad-ammo) { font-size: 9px; font-weight: 500; opacity: .75; }
 .canvas-wrapper :deep(.squad-label.low-ammo .squad-ammo) { color: #ffcf6e; opacity: 1; }
 .canvas-wrapper :deep(.squad-label:hover) { transform: none; }
+.canvas-wrapper :deep(.squad-label.is-locked) { cursor: default; }
 .canvas-wrapper :deep(.squad-label.cpu) { font-size: 11px; }
 .canvas-wrapper :deep(.company-label) { padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--faction) 65%, transparent); background: #0e1d25a8; border-radius: 3px; z-index: 1; }
 .canvas-wrapper :deep(.company-label .company-count) { font-size: 10px; font-weight: 500; opacity: .85; }
 .canvas-wrapper :deep(.company-label.compact) { padding: 2px 5px; font-size: 10px; opacity: .85; }
 .canvas-wrapper :deep(.company-label.compact .company-count) { display: none; }
 .canvas-wrapper :deep(.company-label.is-selected), .canvas-wrapper :deep(.company-label.is-target), .canvas-wrapper :deep(.company-label.is-hover), .canvas-wrapper :deep(.company-label:hover) { border-color: #eecf7d; opacity: 1; }
-.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
+.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:not(.is-locked):hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
 .canvas-wrapper :deep(.world-label.is-source) { color: #e3edff; }
 .canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #0b1216cc; border: 1px solid #000a; border-radius: 2px; overflow: hidden; box-shadow: 0 1px 3px #0008; }

@@ -136,10 +136,8 @@ export interface Squad {
      * 兵は各自の持ち場ではなく、ここを基準にした持ち場へ向かうので、横隊を崩さずに進む。
      */
     march: { x: number; y: number; facing: number; moving: boolean } | null
-    /** 中隊の本隊から離れすぎて、敵に構わず本隊のもとへ戻っている最中なら、戻る先（本隊の一番近い小隊の位置。毎ティック更新）。 */
-    rejoin: Point | null
-    /** プレイヤーが小隊に個別の指示を出して、中隊から切り離しているか（中隊・全軍への指示でまた中隊に戻る）。切り離した小隊は本隊へ戻らない。 */
-    detached: boolean
+    /** 砦から出た増援が、加わる中隊にまだ着いていないか（着くまでは中隊の小隊どうしの距離の決まりに入らない）。 */
+    arriving: boolean
     /** 補給に戻る前の指示（補給が終わったら戻す）。 */
     resume: { order: SquadOrder; anchor: Point; facing: number; targetSquadId: number; constructionId: number } | null
 }
@@ -158,6 +156,8 @@ export interface Company {
     together: boolean
     /** 中隊長を出す小隊（中隊のまん中の小隊。その小隊の隊長が中隊長を兼ね、中隊の幟を背負う。いなくなったら選び直す）。 */
     leaderSquadId: number
+    /** 中隊の隊形での小隊の持ち場（小隊ID → 前方・右手の位置）。小隊どうしが離れてよい距離の元になる。組んだとき・加わったときに決める。 */
+    layout: Record<number, { forward: number; lateral: number }>
 }
 
 /** 工兵が建てる建設物。outpost: 拠点（補給できる小さな陣地） / barricade: バリケード / bridge: 橋 */

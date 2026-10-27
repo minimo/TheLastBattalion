@@ -1,11 +1,11 @@
 import { ARMY_CAP, INITIAL_SQUADS, RESERVES, SIEGE_ATTACKER_POOL, SIEGE_ATTACKER_SQUADS, SIEGE_DEFENDER_RESERVES } from './battleConfig'
-import { COMPANY_MAX_SQUADS, SQUAD_SIZE } from './formation'
+import { COMPANY_MAX_SQUADS, joinsCompany, SQUAD_SIZE } from './formation'
 import type { Army, BattleMode, FormationType, UnitType } from '../types/game'
 
 /**
  * 開戦時の編成: 全軍の陣形と、布陣する小隊（兵種と人数）。人数は軍の兵（予備兵）から割り当て、残りが増援になる。
  * company は編成で組んだ中隊の番号（1から）。同じ番号の小隊が1つの中隊になり（兵種を混ぜてよい）、陣でもひとかたまりに並ぶ。
- * company のない小隊は、開戦時に陣で隣り合う同じ兵種の小隊と自動で中隊に分ける。
+ * 歩兵・槍兵・弓兵・騎兵の小隊は必ず中隊に入る（編成を整えるときに、中隊のない小隊は同じ兵種ごとに中隊へまとめる）。工兵と補給兵は中隊に入らない。
  */
 export interface PlannedSquad { type: UnitType; size: number; company?: number }
 export interface DeploymentPlan {
@@ -32,7 +32,7 @@ const totalOf = (counts: Record<UnitType, number>) => UNIT_TYPES.reduce((sum, ty
 
 /** 既定の編成（横陣。砦を持つ軍は INITIAL_SQUADS、攻め手は SIEGE_ATTACKER_SQUADS）。 */
 export function defaultDeployment(mode: BattleMode, owner: Army): DeploymentPlan {
-    return { formation: 'line', squads: squadsOf(hasFort(mode, owner) ? INITIAL_SQUADS : SIEGE_ATTACKER_SQUADS) }
+    return normalizeDeployment({ formation: 'line', squads: squadsOf(hasFort(mode, owner) ? INITIAL_SQUADS : SIEGE_ATTACKER_SQUADS) }, mode, owner)
 }
 
 /** 軍の兵の総数（開戦時に布陣する兵＋砦に残る予備兵）。既定の編成なら、残りが従来の予備兵の数になる。 */
@@ -88,7 +88,7 @@ export function presetDeployment(key: string, mode: BattleMode, owner: Army): De
     const preset = DEPLOYMENT_PRESETS.find(p => p.key === key)
     const base = defaultDeployment(mode, owner)
     if (preset?.companies) {
-        // 中隊のひな形どおりに組み、残りの補給兵と工兵は既定の数だけ自動の中隊にする（砦を持たない攻め手は中隊の数を増やす）。
+        // 中隊のひな形どおりに組み、補給兵と工兵は既定の数だけ中隊に入れずに加える（砦を持たない攻め手は中隊の数を増やす）。
         const repeat = hasFort(mode, owner) ? 1 : Math.max(1, Math.floor(deployLimit(mode, owner) / deployedCount(base)))
         const squads: PlannedSquad[] = []
         for (let r = 0; r < repeat; r++) preset.companies.forEach((types, i) => types.forEach(type => squads.push({ type, size: SQUAD_SIZE[type], company: r * preset.companies!.length + i + 1 })))
@@ -108,7 +108,9 @@ export function presetDeployment(key: string, mode: BattleMode, owner: Army): De
 
 /**
  * 編成を兵種の順に並べ、人数を範囲に収め、兵種ごとの部隊数と布陣できる上限を超えた分の部隊を後ろから削る。
- * 中隊は1中隊 COMPANY_MAX_SQUADS 小隊・PLANNED_COMPANIES_MAX 中隊までにし（あふれた小隊は自動の中隊へ）、番号を出てくる順に1から振り直す。
+ * 中隊は1中隊 COMPANY_MAX_SQUADS 小隊・PLANNED_COMPANIES_MAX 中隊までにし（工兵と補給兵は中隊に入れない）、番号を出てくる順に1から振り直す。
+ * 中隊に入っていない歩兵・槍兵・弓兵・騎兵の小隊は、兵種ごとに COMPANY_MAX_SQUADS 小隊以下の同じくらいの数の中隊にまとめて、組んだ中隊の後ろに加える
+ * （中隊の数の上限で入らない小隊は削る）。
  */
 export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owner: Army): DeploymentPlan {
     const limit = deployLimit(mode, owner)
@@ -120,7 +122,7 @@ export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owne
     const accepted = new Set<PlannedSquad>(), members = new Map<number, number>()
     for (const sq of plan.squads) {
         const key = sq.company
-        if (key === undefined || !keys.includes(key) || !sorted.includes(sq) || (members.get(key) ?? 0) >= COMPANY_MAX_SQUADS) continue
+        if (key === undefined || !keys.includes(key) || !joinsCompany(sq.type) || !sorted.includes(sq) || (members.get(key) ?? 0) >= COMPANY_MAX_SQUADS) continue
         members.set(key, (members.get(key) ?? 0) + 1)
         accepted.add(sq)
     }
@@ -136,6 +138,18 @@ export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owne
         }
         squads.push(squad)
         total += size
+    }
+    // 中隊に入っていない歩兵・槍兵・弓兵・騎兵の小隊を、兵種ごとに中隊へまとめる。
+    let next = Math.max(0, ...members.keys()) + 1
+    for (const type of UNIT_TYPES.filter(joinsCompany)) {
+        const loose = squads.filter(sq => sq.type === type && sq.company === undefined)
+        const count = Math.ceil(loose.length / COMPANY_MAX_SQUADS)
+        for (let i = 0; i < count; i++) {
+            const group = loose.slice(Math.round(i * loose.length / count), Math.round((i + 1) * loose.length / count))
+            if (members.size >= PLANNED_COMPANIES_MAX) { for (const sq of group) squads.splice(squads.indexOf(sq), 1); continue }
+            for (const sq of group) sq.company = next
+            members.set(next++, group.length)
+        }
     }
     // 残った中隊の番号を、元の順のまま1から詰める。
     const numbers = new Map([...members.keys()].sort((a, b) => a - b).map((key, i) => [key, i + 1]))

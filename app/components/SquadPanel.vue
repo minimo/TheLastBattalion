@@ -16,7 +16,9 @@ const selectedCompany = computed(() => gameStore.companies.find(c => c.id === pr
 /** 選んだ小隊の属する中隊。 */
 const parentCompany = computed(() => selected.value && gameStore.companies.find(c => c.id === selected.value!.companyId))
 const groups = computed(() => gameStore.companies.filter(c => c.owner === 'player' && c.squadIds.length).map(company => ({ company, squads: squadsOf(company) })))
-const total = computed(() => groups.value.reduce((sum, g) => sum + g.company.count, 0))
+/** 中隊に入らない自軍の小隊（工兵・補給兵）。選んで小隊ごとに指示できる。 */
+const loose = computed(() => gameStore.squads.filter(sq => sq.owner === 'player' && !gameStore.companies.some(c => c.id === sq.companyId)))
+const total = computed(() => groups.value.reduce((sum, g) => sum + g.company.count, 0) + loose.value.reduce((sum, sq) => sum + sq.count, 0))
 const expanded = ref(new Set<number>())
 const toggle = (id: number) => {
   const next = new Set(expanded.value)
@@ -36,7 +38,6 @@ const constructionStatus = (squad: SquadSummary) => {
 }
 /** 一覧の状態欄（指示・建設・矢・補給回数・体力）。 */
 const squadStatus = (squad: SquadSummary) => {
-  if (squad.rejoining) return '中隊へ戻る'
   if (squad.order === 'resupply') return ORDER_NAME.resupply
   const parts = [ORDER_NAME[squad.order]]
   if (squad.construction && squad.order === 'build') parts.push(squad.construction.complete ? '修理' : `${squad.construction.progress}%`)
@@ -52,7 +53,7 @@ const squadStatus = (squad: SquadSummary) => {
     <div v-if="selected" class="squad-card" role="status">
       <div class="card-head">
         <span class="unit-name" :class="selected.owner">{{ ARMY_NAME[selected.owner] }} · {{ squadName(selected) }}</span>
-        <span class="card-order">{{ selected.rejoining ? '中隊へ戻る' : ORDER_NAME[selected.order] }}</span>
+        <span class="card-order">{{ ORDER_NAME[selected.order] }}</span>
       </div>
       <button v-if="parentCompany" class="card-parent" :aria-label="`${companyName(parentCompany)}を選ぶ`" @click="emit('focusCompany', parentCompany.id)">{{ companyName(parentCompany) }} · {{ companyTypes(parentCompany) }} ›</button>
       <div class="meter">
@@ -84,15 +85,15 @@ const squadStatus = (squad: SquadSummary) => {
       </div>
       <ul class="card-squads">
         <li v-for="squad in squadsOf(selectedCompany)" :key="squad.id">
-          <button class="squad-row" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}`" @click="emit('focus', squad.id)">
+          <div class="squad-row" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}`">
             <span>{{ squadName(squad) }}</span><span class="order" :class="{ low: squadNeedsCare(squad) }">{{ squadStatus(squad) }}</span><b>{{ squad.count }}</b>
-          </button>
+          </div>
         </li>
       </ul>
     </div>
     <div v-if="listOpen" class="squad-list">
-      <p v-if="!groups.length" class="empty">部隊がいません</p>
-      <p v-else class="battalion">大隊 · {{ groups.length }}中隊 · {{ total }}人</p>
+      <p v-if="!groups.length && !loose.length" class="empty">部隊がいません</p>
+      <p v-else class="battalion">大隊 · {{ groups.length }}中隊{{ loose.length ? ` · ${loose.length}小隊` : '' }} · {{ total }}人</p>
       <section v-for="group in groups" :key="group.company.id">
         <div class="group-head" :class="{ selected: group.company.id === selectedCompanyId }">
           <button class="caret" :aria-expanded="expanded.has(group.company.id)" :aria-label="`${companyName(group.company)}の小隊を${expanded.has(group.company.id) ? '閉じる' : '開く'}`" @click="toggle(group.company.id)">{{ expanded.has(group.company.id) ? '▾' : '▸' }}</button>
@@ -104,7 +105,18 @@ const squadStatus = (squad: SquadSummary) => {
         </div>
         <ul v-if="expanded.has(group.company.id)">
           <li v-for="squad in group.squads" :key="squad.id">
-            <button class="squad-row" :class="{ selected: squad.id === selectedId }" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}`" @click="emit('focus', squad.id)">
+            <!-- 中隊の小隊は選べないので、一覧でも状態を示すだけ。 -->
+            <div class="squad-row" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}`">
+              <span>{{ squadName(squad) }}</span><span class="order" :class="{ low: squadNeedsCare(squad) }">{{ squadStatus(squad) }}</span><b>{{ squad.count }}</b>
+            </div>
+          </li>
+        </ul>
+      </section>
+      <section v-if="loose.length">
+        <p class="loose-head">中隊に入らない小隊</p>
+        <ul>
+          <li v-for="squad in loose" :key="squad.id">
+            <button class="squad-row loose" :class="{ selected: squad.id === selectedId }" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}を選ぶ`" @click="emit('focus', squad.id)">
               <span>{{ squadName(squad) }}</span><span class="order" :class="{ low: squadNeedsCare(squad) }">{{ squadStatus(squad) }}</span><b>{{ squad.count }}</b>
             </button>
           </li>
@@ -133,16 +145,20 @@ const squadStatus = (squad: SquadSummary) => {
 .meter.tired .bar.stamina span { background: #e08b5a; }
 .bar.ammo span { background: #e2c27a; }
 .bar.build span { background: #c9a36b; }
-.squad-list { padding: 4px; overflow-y: auto; min-height: 0; }
+.squad-list { padding: 4px; overflow-y: auto; overflow-x: hidden; min-height: 0; }
 .squad-list ul { list-style: none; margin: 0 0 4px; padding: 0 0 0 10px; display: flex; flex-direction: column; gap: 1px; }
 .empty { margin: 6px 8px; font-size: 11px; color: #8f9a9b; }
 .battalion { margin: 4px 8px 6px; font-size: 10px; letter-spacing: .12em; color: #c5af83; }
 .card-types { color: #8fa3a6; font-size: 10px; }
 .card-parent { align-self: flex-start; margin: 0; padding: 0; background: none; border: 0; color: #8fa3a6; font-size: 10px; cursor: pointer; }
 .card-parent:hover { color: #fff1c2; transform: none; }
-.card-squads { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 140px; overflow-y: auto; }
+.card-squads { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 140px; overflow-y: auto; overflow-x: hidden; }
 .company-name, .caret, .squad-row { margin: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: #c6cfcd; cursor: pointer; text-align: left; }
-.squad-row { width: 100%; }
+.squad-row { cursor: default; }
+.squad-row.loose { cursor: pointer; }
+.squad-row.loose:hover { border-color: #526469; transform: none; }
+.loose-head { margin: 6px 0 2px; padding: 0 8px; font-size: 10px; color: #8fa3a6; }
+.squad-row { width: 100%; box-sizing: border-box; }
 .group-head { display: flex; align-items: center; gap: 2px; border: 1px solid transparent; border-radius: 4px; }
 .group-head.selected { border-color: #fff1c2; }
 .company-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; padding: 6px 8px 6px 2px; font-size: 12px; }
@@ -150,8 +166,11 @@ const squadStatus = (squad: SquadSummary) => {
 .company-name b { margin-left: auto; font-weight: 400; font-size: 11px; color: #9fc0f5; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .caret { width: 22px; padding: 6px 0 6px 6px; color: #c5af83; font-size: 12px; }
 .care { color: #e8b25a; }
-.squad-row { display: grid; grid-template-columns: 1fr auto 28px; gap: 6px; align-items: center; padding: 4px 8px; font-size: 10px; }
-.company-name:hover, .caret:hover, .squad-row:hover { border-color: #526469; transform: none; }
+.squad-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 28px; gap: 6px; align-items: center; padding: 4px 8px; font-size: 10px; }
+/* 長い小隊名は省略して、行が枠からはみ出して横スクロールが出ないようにする。 */
+.squad-row > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.squad-row .order { white-space: nowrap; }
+.company-name:hover, .caret:hover { border-color: #526469; transform: none; }
 .squad-row.selected { border-color: #fff1c2; color: #fff; }
 .squad-row .order { color: #8fa3a6; }
 .squad-row .order.low { color: #e8b25a; }
