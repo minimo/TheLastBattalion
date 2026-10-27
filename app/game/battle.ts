@@ -1616,6 +1616,8 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
                 moveToward(battle, s, slot.x, slot.y, dt)
                 s.heading = post.facing
             } else followPath(battle, s, post.goal, post.goalKey, dt)
+            // ゆっくり進む隊列では1回の歩みがごくわずかで、持ち場に着いたとみなされて足が止まる回がある。隊列が進む間は歩き続ける。
+            s.moving = true
             return
         }
         // 構えた兵は押し合いで少しずれても動かない（足踏みしないよう判定に幅を持たせる）。
