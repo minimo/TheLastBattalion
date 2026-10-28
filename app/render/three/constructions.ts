@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Construction, ConstructionPlan, FortCell, Point } from '../../types/game'
+import type { Army, Construction, ConstructionPlan, FortCell, Point } from '../../types/game'
 import { TILE_PX } from '../../game/constants'
 import { OUTPOST_SIZE } from '../../game/battleConfig'
 import { BRIDGE_HEIGHT } from './heightfield'
@@ -9,6 +9,8 @@ type Height = (x: number, y: number) => number
 
 interface Visual {
     site: Construction
+    /** 作ったときの持ち主（占領されたら作り直す）。 */
+    owner: Army
     group: THREE.Group
     /** 建てる順に並べた部材。進み具合に応じて見せる。 */
     pieces: THREE.Group[]
@@ -65,7 +67,7 @@ export function createConstructionRenderer(kit: ModelKit, groundAt: Height) {
     }
 
     const build = (site: Construction): Visual => {
-        const visual: Visual = { site, group: new THREE.Group(), pieces: [], plot: new THREE.Group(), geometries: [], deck: new Set(site.deck.map(c => cellKey(c.gx, c.gy))) }
+        const visual: Visual = { site, owner: site.owner, group: new THREE.Group(), pieces: [], plot: new THREE.Group(), geometries: [], deck: new Set(site.deck.map(c => cellKey(c.gx, c.gy))) }
         const human = site.owner === 'player'
         const timber = human ? kit.surfaces.wood : material(0x4c3d31)
         const darkTimber = material(human ? 0x5d4733 : 0x2f2621)
@@ -215,7 +217,7 @@ export function createConstructionRenderer(kit: ModelKit, groundAt: Height) {
                 alive.add(site.id)
                 let visual = visuals.get(site.id)
                 // 新しい戦闘では同じIDの建設物が別物になる。
-                if (visual && visual.site !== site) { remove(visual); visual = undefined }
+                if (visual && (visual.site !== site || visual.owner !== site.owner)) { remove(visual); visual = undefined }
                 if (!visual) { visual = build(site); visuals.set(site.id, visual) }
                 const shown = site.complete ? visual.pieces.length : Math.floor(site.progress * visual.pieces.length)
                 visual.pieces.forEach((p, i) => { p.visible = i < shown })

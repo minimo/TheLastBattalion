@@ -3,7 +3,7 @@ import { generateMap } from './mapGenerator'
 import { createMulberry32, hashString } from './random'
 import {
     cohesionRadius, companyLeader, companyPosition, companySquads, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderCompany, orderCompanyAttack, orderCompanyMove, orderConstruct,
-    orderDemolish, orderHold, orderMove, orderResupply,
+    canOccupy, orderDemolish, orderHold, orderMove, orderOccupy, orderResupply,
     orderRetreat, previewCompanyRoute, previewConstruction, redeployArmy, setFormation, squadPosition, staminaFactor, summarize, updateBattle,
 } from './battle'
 import { createCpuCommander } from './cpuCommander'
@@ -684,6 +684,82 @@ describe('工兵の建設物', () => {
         expect(nearest).toBeGreaterThan(FORT_REFILL_RANGE)
     }, 240000)
 
+    it('敵の工兵がいない拠点は、工兵が占領して自軍の拠点にできる', () => {
+        const battle = makeBattle('777777')
+        orderArmy(battle, 'cpu', 'hold')
+        const [first] = engineers(battle)
+        run(battle, .1)
+        leaveCompany(battle, first!)
+        const point = { x: first!.center.x + 60, y: first!.center.y + 40 }
+        expect(orderConstruct(battle, first!.id, 'outpost', point)).toBe(true)
+        const site = battle.constructions[0]!
+        // 建設は別の試験で見るので、仕上げだけを工兵にさせる
+        site.progress = .999
+        for (let t = 0; t < 60 && !site.complete; t += 1) run(battle, 1)
+        expect(site.complete).toBe(true)
+        // 魔王軍の工兵を拠点のそばへ移す。拠点に人間軍の工兵がいる間は占領できない
+        const enemy = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === 'engineer')!
+        leaveCompany(battle, enemy)
+        battle.members.get(enemy.id)!.forEach((s, i) => { s.x = site.center.x + 70 + (i % 6) * 5; s.y = site.center.y + Math.floor(i / 6) * 5 - 10 })
+        orderMove(battle, first!.id, site.center)
+        for (let t = 0; t < 30 && Math.hypot(first!.center.x - site.center.x, first!.center.y - site.center.y) > 20; t += 1) run(battle, 1)
+        expect(canOccupy(battle, 'cpu', site)).toBe(false)
+        orderOccupy(battle, enemy.id, site.id)
+        expect(enemy.order).not.toBe('occupy')
+        // 人間軍の兵がいなくなれば占領でき、終えると拠点は魔王軍のものになる
+        for (const s of battle.soldiers) if (s.owner === 'player') { s.state = 'dead'; s.deathTime = battle.time }
+        run(battle, .1)
+        expect(canOccupy(battle, 'cpu', site)).toBe(true)
+        orderOccupy(battle, enemy.id, site.id)
+        expect(enemy.order).toBe('occupy')
+        // 人間軍の援軍が来て邪魔をしないよう、来るたびに取り除く
+        const clear = () => { for (const s of battle.soldiers) if (s.owner === 'player' && s.state !== 'dead') { s.state = 'dead'; s.deathTime = battle.time } }
+        for (let t = 0; t < 15; t += 1) { clear(); run(battle, 1) }
+        expect(site.owner).toBe('player')
+        expect(site.occupation).toBeGreaterThan(0)
+        for (let t = 0; t < 120 && site.owner === 'player'; t += 1) { clear(); run(battle, 1) }
+        expect(site.owner).toBe('cpu')
+        expect(site.occupation).toBe(0)
+        // 拠点は壊さずにそのまま使う
+        expect(battle.constructionById.has(site.id)).toBe(true)
+        expect(blockedCells(battle, site.walls).every(Boolean)).toBe(true)
+        run(battle, .1)
+        expect(['hold', 'build']).toContain(enemy.order)
+    }, 240000)
+
+    it('工兵は歩兵の3倍の速さで建設物を解体する', () => {
+        const battle = makeBattle('123456')
+        orderArmy(battle, 'cpu', 'hold')
+        const [engineer] = engineers(battle)
+        run(battle, .1)
+        leaveCompany(battle, engineer!)
+        expect(orderConstruct(battle, engineer!.id, 'barricade', { x: engineer!.center.x + 80, y: engineer!.center.y })).toBe(true)
+        const site = battle.constructions[0]!
+        // 解体の速さを比べるため、壊れないほど丈夫にしておく
+        site.progress = .999
+        for (let t = 0; t < 60 && !site.complete; t += 1) run(battle, 1)
+        expect(site.complete).toBe(true)
+        for (const s of battle.soldiers) if (s.owner === 'player') { s.state = 'dead'; s.deathTime = battle.time }
+        /** 魔王軍の小隊1人あたり、1秒で壊す耐久。 */
+        const rate = (type: UnitType) => {
+            const squad = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === type && sq.order !== 'demolish')!
+            leaveCompany(battle, squad)
+            battle.members.get(squad.id)!.forEach((s, i) => { s.x = site.center.x + 30 + (i % 6) * 5; s.y = site.center.y + Math.floor(i / 6) * 5 - 10 })
+            run(battle, .1)
+            orderDemolish(battle, squad.id, site.id)
+            run(battle, 10)
+            site.maxHp = site.hp = 1e9
+            run(battle, 20)
+            const lost = 1e9 - site.hp
+            const count = squad.count
+            for (const s of battle.members.get(squad.id)!) { s.state = 'dead'; s.deathTime = battle.time }
+            return lost / 20 / count
+        }
+        const infantry = rate('infantry'), engineerRate = rate('engineer')
+        expect(engineerRate / infantry).toBeGreaterThan(2.4)
+        expect(engineerRate / infantry).toBeLessThan(3.6)
+    }, 240000)
+
     it('建設物は他の建設物や砦・川と重ねて置けない', () => {
         const battle = makeBattle('777777')
         const [engineer] = engineers(battle)
@@ -715,6 +791,28 @@ describe('工兵の建設物', () => {
         expect(reasons.has('高低差が大きすぎます')).toBe(true)
         expect(reasons.has('')).toBe(true)
     })
+
+    it('魔王軍の工兵は、近くの人間軍の工兵がいない拠点を占領しに行く', () => {
+        const battle = makeBattle('777777')
+        const [engineer] = engineers(battle)
+        run(battle, .1)
+        leaveCompany(battle, engineer!)
+        const point = { x: engineer!.center.x + 60, y: engineer!.center.y + 40 }
+        expect(orderConstruct(battle, engineer!.id, 'outpost', point)).toBe(true)
+        const site = battle.constructions[0]!
+        site.progress = .999
+        for (let t = 0; t < 60 && !site.complete; t += 1) run(battle, 1)
+        expect(site.complete).toBe(true)
+        for (const s of battle.soldiers) if (s.owner === 'player') { s.state = 'dead'; s.deathTime = battle.time }
+        const enemy = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === 'engineer')!
+        leaveCompany(battle, enemy)
+        battle.members.get(enemy.id)!.forEach((s, i) => { s.x = site.center.x + 120 + (i % 6) * 5; s.y = site.center.y + Math.floor(i / 6) * 5 - 10 })
+        run(battle, .1)
+        const commander = createCpuCommander(battle)
+        commander.update(1 / 30)
+        expect(enemy.order).toBe('occupy')
+        expect(enemy.constructionId).toBe(site.id)
+    }, 60000)
 
     it('魔王軍の工兵は拠点を築く', () => {
         const battle = makeBattle('424242')

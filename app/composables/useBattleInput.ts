@@ -1,6 +1,6 @@
 import { nextTick, ref } from 'vue'
 import type { CompanyCommand, SquadCommand, useGameStore } from '~/stores/game'
-import { constructionNear, nearestCompanySquad, previewConstruction, squadPosition, type CompanyOrder } from '~/game/battle'
+import { canOccupy, constructionNear, nearestCompanySquad, previewConstruction, squadPosition, type CompanyOrder } from '~/game/battle'
 import type { ConstructionAxis, ConstructionKind, Point, SquadOrder } from '~/types/game'
 
 type EntityPointerEvent = Pick<PointerEvent, 'clientX' | 'clientY'>
@@ -140,8 +140,10 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (nearest) return { order: 'attack', targetSquadId: nearest.id }
         const target = hoverSquadId.value !== null ? battle.squadById.get(hoverSquadId.value) : undefined
         if (target && target.owner !== 'player') return { order: 'attack', targetSquadId: target.id }
-        // 敵の建設物へ落とすと壊しに行く。工兵を自軍の建設中・傷んだ建設物へ落とすと、続きを建てる・直す。
+        // 敵の建設物へ落とすと壊しに行く。工兵を敵の工兵がいない敵の拠点へ落とすと占領する。
+        // 工兵を自軍の建設中・傷んだ建設物へ落とすと、続きを建てる・直す。
         const site = constructionNear(battle, point, CONSTRUCTION_DROP_RADIUS)
+        if (source?.type === 'engineer' && site && canOccupy(battle, 'player', site)) return { order: 'occupy', constructionId: site.id }
         if (site && site.owner !== 'player') return { order: 'demolish', constructionId: site.id }
         if (source?.type === 'engineer' && site && (!site.complete || site.hp < site.maxHp)) return { order: 'build', constructionId: site.id }
         // 工兵を川へ落とすと、そこに橋を架ける。

@@ -55,7 +55,7 @@ const BUILD_HINT: Record<ConstructionKind, string> = {
   barricade: '柵を置く場所をクリック · R で向きを変える',
   bridge: '橋を架ける川をクリック',
 }
-const DROP_NAME: Partial<Record<SquadOrder, string>> = { move: 'ここへ移動', attack: '攻撃', demolish: '建設物を破壊', support: '補給を届ける', retreat: '自陣へ退却', charge: '敵陣へ突撃' }
+const DROP_NAME: Partial<Record<SquadOrder, string>> = { move: 'ここへ移動', attack: '攻撃', demolish: '建設物を破壊', occupy: '拠点を占領', support: '補給を届ける', retreat: '自陣へ退却', charge: '敵陣へ突撃' }
 /** その場で必要な操作だけを一言で示す。 */
 const hint = computed(() => {
   if (props.deploying) return '右の編成で部隊を整えて開戦'
@@ -75,7 +75,7 @@ const hint = computed(() => {
   if (paused.value) return '一時停止中 · 停止中も指示できます'
   const squad = selected.value
   if (squad?.owner === 'player') {
-    if (squad.type === 'engineer') return '旗をドラッグして指示 · 川へドラッグで橋を架ける'
+    if (squad.type === 'engineer') return '旗をドラッグして指示 · 川へドラッグで橋を架ける · 敵の拠点へドラッグで占領'
     if (squad.type === 'supply') return '旗をドラッグして指示 · 味方の部隊へドラッグで補給を届ける'
     return '旗をドラッグして指示 · 長押しでメニュー'
   }

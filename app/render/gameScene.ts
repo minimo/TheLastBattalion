@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getNightAlpha } from '~/game/daynight'
 import type { useGameStore } from '~/stores/game'
 import type { BattleInput } from '~/composables/useBattleInput'
-import type { Company, Construction, Fort, Point, Squad, UnitType } from '~/types/game'
+import type { Army, Company, Construction, Fort, Point, Squad, UnitType } from '~/types/game'
 import { CONSTRUCTION, STAMINA } from '~/game/battleConfig'
 import { companyLeader, companyPosition, companySquads, orderDestination, previewCompanyRoute, squadPosition, squadRoute, type Battle } from '~/game/battle'
 import { createModelKit, FACTION, OCCLUDER_LAYER } from './three/models'
@@ -282,14 +282,15 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     }
     const removeCompanyLabels = () => { companyLabels.forEach(v => v.label.remove()); companyLabels.clear() }
     // 建設物の名前と、建設の進み具合・耐久ゲージ。
-    const constructionLabels = new Map<number, { site: Construction; label: HTMLSpanElement; name: HTMLSpanElement; fill: HTMLSpanElement }>()
+    const constructionLabels = new Map<number, { site: Construction; owner: Army; label: HTMLSpanElement; name: HTMLSpanElement; fill: HTMLSpanElement }>()
     const removeConstructionLabels = () => { constructionLabels.forEach(v => v.label.remove()); constructionLabels.clear() }
     const updateConstructionLabels = (sites: Construction[]) => {
         const alive = new Set<number>()
         for (const site of sites) {
             alive.add(site.id)
             let visual = constructionLabels.get(site.id)
-            if (visual && visual.site !== site) { visual.label.remove(); visual = undefined }
+            // 占領されて持ち主が変わったら、その軍の色で作り直す。
+            if (visual && (visual.site !== site || visual.owner !== site.owner)) { visual.label.remove(); visual = undefined }
             if (!visual) {
                 const label = document.createElement('span')
                 label.className = 'world-label construction-label'
@@ -299,11 +300,11 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 gauge.appendChild(fill)
                 label.append(name, gauge)
                 labels.appendChild(label)
-                visual = { site, label, name, fill }
+                visual = { site, owner: site.owner, label, name, fill }
                 constructionLabels.set(site.id, visual)
             }
             const name = CONSTRUCTION[site.kind].name
-            const text = site.complete ? name : `${name} 建設中${Math.floor(site.progress * 100)}%`
+            const text = !site.complete ? `${name} 建設中${Math.floor(site.progress * 100)}%` : site.occupation > 0 ? `${name} 占領中${Math.floor(site.occupation * 100)}%` : name
             if (visual.name.textContent !== text) visual.name.textContent = text
             const width = `${Math.max(0, Math.min(100, site.hp / site.maxHp * 100)).toFixed(1)}%`
             if (visual.fill.style.width !== width) visual.fill.style.width = width
@@ -593,10 +594,10 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 visual.label.classList.toggle('is-target', input.hoverSquadId.value === squad.id && targeting)
                 // 補給に戻っている間はその旨を、弓兵は矢の残り、補給部隊は補給の残り回数、工兵は建設の進み具合、疲れていれば「疲労」を示す。
                 const tired = squad.stamina < STAMINA.tiredBelow
-                const site = squad.order === 'build' ? battle.constructionById.get(squad.constructionId) : undefined
+                const site = squad.order === 'build' || squad.order === 'occupy' ? battle.constructionById.get(squad.constructionId) : undefined
                 const ammoText = squad.order === 'resupply' ? '補給中'
                     : [squad.maxArrows > 0 ? `矢${Math.round(squad.arrows / squad.maxArrows * 100)}%` : '', squad.maxSupplies > 0 ? `残${squad.supplies}回` : '',
-                        site ? (site.complete ? '修理中' : `建設${Math.floor(site.progress * 100)}%`) : '', tired ? '疲労' : ''].filter(Boolean).join(' ')
+                        site ? (squad.order === 'occupy' ? `占領${Math.floor(site.occupation * 100)}%` : site.complete ? '修理中' : `建設${Math.floor(site.progress * 100)}%`) : '', tired ? '疲労' : ''].filter(Boolean).join(' ')
                 if (visual.ammo.textContent !== ammoText) visual.ammo.textContent = ammoText
                 visual.label.classList.toggle('low-ammo', squad.order === 'resupply' || tired || (squad.maxArrows > 0 && squad.arrows < squad.maxArrows * .25) || (squad.maxSupplies > 0 && squad.supplies === 0))
                 visual.label.setAttribute('aria-label', `${squad.owner === 'player' ? '自軍' : '敵軍'} 第${squad.number}${TYPE_NAME[squad.type]}小隊 ${count}人${ammoText ? ` ${ammoText}` : ''}`)

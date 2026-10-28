@@ -1,4 +1,4 @@
-import { orderArmy, orderAttack, orderBuild, orderCharge, orderConstruct, orderFormation, orderRetreat, previewConstruction, setFormation, type Battle } from './battle'
+import { canOccupy, orderArmy, orderAttack, orderBuild, orderCharge, orderConstruct, orderFormation, orderOccupy, orderRetreat, previewConstruction, setFormation, type Battle } from './battle'
 import { fortVicinityOf } from './battleConfig'
 import { FORMATIONS, toWorld } from './formation'
 import type { Point, Squad } from '../types/game'
@@ -9,11 +9,13 @@ const DEFEND_RADIUS = 300
 const PURSUIT_RADIUS = 420
 /** 拠点を築くとき、自軍の砦の周り・陣から離す距離。近くに建てても前線の足場にならない。 */
 const OUTPOST_CLEARANCE = 160
+/** 工兵がこの距離内にある、人間軍の工兵がいない拠点を占領しに行く。 */
+const OCCUPY_RADIUS = 400
 
 /**
  * 魔王軍の指揮官。プレイヤーと同じく部隊単位で指示を出す。
  * 陣を組んで待ち、時機を見て全軍突撃。消耗した部隊は下げ、立て直したら再び突撃させる。
- * 工兵は自軍の砦と敵本陣の間の前線に拠点を築いて前にバリケードを並べ、傷んだ建設物を直す。
+ * 工兵は自軍の砦と敵本陣の間の前線に拠点を築いて前にバリケードを並べ、傷んだ建設物を直す。近くに人間軍の工兵がいない拠点があれば占領する。
  * 攻城戦で砦を守るときは打って出ず、陣や砦に迫った敵部隊を迎え撃つ。
  */
 export function createCpuCommander(battle: Battle) {
@@ -47,10 +49,13 @@ export function createCpuCommander(battle: Battle) {
     const directEngineers = (engineers: Squad[]) => {
         const own = battle.constructions.filter(c => c.owner === 'cpu')
         for (const squad of engineers) {
-            if (squad.order === 'build') continue
+            if (squad.order === 'build' || squad.order === 'occupy') continue
             // 建設中のもの、傷んだものから手を付ける。
             const pending = own.find(c => !c.complete || c.hp < c.maxHp * .6)
             if (pending) { orderBuild(battle, squad.id, pending.id); continue }
+            // 近くの、人間軍の工兵がいない拠点を占領する。
+            const target = battle.constructions.find(c => canOccupy(battle, 'cpu', c) && Math.hypot(c.center.x - squad.center.x, c.center.y - squad.center.y) < OCCUPY_RADIUS)
+            if (target) { orderOccupy(battle, squad.id, target.id); continue }
             const outpost = own.find(c => c.kind === 'outpost')
             const front = frontline()
             if (!outpost) {

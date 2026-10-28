@@ -5,7 +5,7 @@ import { mapTypeForMode } from '~/game/mapType'
 import { createMulberry32, hashString } from '~/game/random'
 import {
     createBattle, orderArmy, orderAttack, orderBuild, orderCharge, orderCompany, orderCompanyAttack, orderCompanyDemolish, orderCompanyMove, orderConstruct,
-    orderDemolish, orderFormation, orderHold, orderMove, orderResupply, orderRetreat, orderSupport, redeployArmy, setFormation, summarize, updateBattle,
+    orderDemolish, orderFormation, orderHold, orderMove, orderOccupy, orderResupply, orderRetreat, orderSupport, redeployArmy, setFormation, summarize, updateBattle,
     type ArmyOrder, type Battle, type CompanyOrder,
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
@@ -50,8 +50,8 @@ export interface SquadSummary {
     stamina: number
     supplies: number
     maxSupplies: number
-    /** 建てている（壊しに行く）建設物の種類と、建設の進み具合（0〜100）・耐久の割合（0〜100）。 */
-    construction: { kind: ConstructionKind; progress: number; hp: number; complete: boolean } | null
+    /** 建てている（壊しに行く・占領している）建設物の種類と、建設の進み具合（0〜100）・耐久の割合（0〜100）・占領の進み具合（0〜100）。 */
+    construction: { kind: ConstructionKind; progress: number; hp: number; complete: boolean; occupation: number } | null
 }
 
 export interface CompanySummary {
@@ -188,11 +188,11 @@ export const useGameStore = defineStore('game', {
             if (!battle) return
             this.summary = summarize(battle)
             this.squads = battle.squads.map(sq => {
-                const site = sq.order === 'build' || sq.order === 'demolish' ? battle.constructionById.get(sq.constructionId) : undefined
+                const site = sq.order === 'build' || sq.order === 'demolish' || sq.order === 'occupy' ? battle.constructionById.get(sq.constructionId) : undefined
                 return {
                     id: sq.id, owner: sq.owner, type: sq.type, number: sq.number, companyId: sq.companyId, count: sq.count, size: sq.size, order: sq.order, arrows: Math.floor(sq.arrows), maxArrows: sq.maxArrows,
                     stamina: Math.round(sq.stamina), supplies: sq.supplies, maxSupplies: sq.maxSupplies,
-                    construction: site ? { kind: site.kind, progress: Math.floor(site.progress * 100), hp: Math.round(site.hp / site.maxHp * 100), complete: site.complete } : null,
+                    construction: site ? { kind: site.kind, progress: Math.floor(site.progress * 100), hp: Math.round(site.hp / site.maxHp * 100), complete: site.complete, occupation: Math.floor(site.occupation * 100) } : null,
                 }
             })
             const squadById = new Map(this.squads.map(sq => [sq.id, sq]))
@@ -216,6 +216,7 @@ export const useGameStore = defineStore('game', {
             else if (order === 'build' && options.constructionId !== undefined) orderBuild(battle, squadId, options.constructionId)
             else if (order === 'build' && options.kind && options.point) orderConstruct(battle, squadId, options.kind, options.point, options.axis)
             else if (order === 'demolish' && options.constructionId !== undefined) orderDemolish(battle, squadId, options.constructionId)
+            else if (order === 'occupy' && options.constructionId !== undefined) orderOccupy(battle, squadId, options.constructionId)
             else if (order === 'attack' && options.targetSquadId !== undefined) orderAttack(battle, squadId, options.targetSquadId)
             else if (order === 'hold') orderHold(battle, squadId)
             else if (order === 'charge') orderCharge(battle, squadId)

@@ -6,7 +6,7 @@ export const ARMY_NAME: Record<Army, string> = { player: '人間軍', cpu: '魔�
 const TYPE_LABEL: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給兵', engineer: '工兵' }
 export const UNIT_NAME: Record<Army, Record<UnitType, string>> = { player: TYPE_LABEL, cpu: TYPE_LABEL }
 export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
-export const ORDER_NAME: Record<SquadOrder, string> = { formation: '陣形', move: '移動', hold: '待機', attack: '攻撃', charge: '突撃', retreat: '退却', resupply: '補給中', support: '補給', build: '建設', demolish: '破壊' }
+export const ORDER_NAME: Record<SquadOrder, string> = { formation: '陣形', move: '移動', hold: '待機', attack: '攻撃', charge: '突撃', retreat: '退却', resupply: '補給中', support: '補給', build: '建設', demolish: '破壊', occupy: '占領' }
 export const TIRED_BELOW = 40
 
 export const squadName = (squad: { owner: Army; type: UnitType; number: number }) => `第${squad.number}${UNIT_NAME[squad.owner][squad.type]}小隊`

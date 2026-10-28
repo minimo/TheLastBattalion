@@ -88,9 +88,9 @@ export interface Soldier {
  * formation: 全軍の陣形の持ち場につく / move: 指定地点へ移動して構える / hold: その場で構える
  * attack: 指定した敵部隊を攻撃 / charge: 各兵が自由に戦い敵本陣へ突撃 / retreat: 自陣へ退却
  * resupply: 自陣（または最寄りの拠点）へ戻って補給し、終わったら元の指示に戻る / support: 補給部隊が味方の部隊へ矢と体力を届ける
- * build: 工兵が建設物を建てる・直す / demolish: 指定した敵の建設物を壊す
+ * build: 工兵が建設物を建てる・直す / demolish: 指定した敵の建設物を壊す / occupy: 工兵が敵の拠点を占領して自軍の拠点にする
  */
-export type SquadOrder = 'formation' | 'move' | 'hold' | 'attack' | 'charge' | 'retreat' | 'resupply' | 'support' | 'build' | 'demolish'
+export type SquadOrder = 'formation' | 'move' | 'hold' | 'attack' | 'charge' | 'retreat' | 'resupply' | 'support' | 'build' | 'demolish' | 'occupy'
 
 export type FormationType = 'line' | 'crane' | 'scale' | 'circle' | 'arrow'
 
@@ -199,6 +199,10 @@ export interface Construction extends ConstructionPlan {
     interior: Point[]
     /** 今のティックで作業している工兵の数（表示用）。 */
     workers: number
+    /** 敵の工兵による占領の進み具合（0〜1）。1で拠点が敵のものになる。 */
+    occupation: number
+    /** 今のティックで占領の作業をしている敵の工兵の数。 */
+    occupiers: number
 }
 
 export interface ArmyFormation {

@@ -14,7 +14,7 @@ import {
     FORT_HP, fortVicinityOf, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
     REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, SPENT_ARROW_LIMIT, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
     FORT_REFILL_RATE, RESUPPLY_THRESHOLD, STAMINA, SUPPLY_CHARGES, SUPPLY_DURATION, SUPPORT_RANGE, SUPPORT_THRESHOLD, SHIELD, SPENT_ARROW_SECONDS, TOWER, UNIT_STATS,
-    BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_REFILL_RANGE, OUTPOST_SIZE, REPAIR_RATE,
+    BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_GUARD_RANGE, OUTPOST_OCCUPY_WORK, OUTPOST_REFILL_RANGE, OUTPOST_SIZE, REPAIR_RATE,
     SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN, DESERTION, COMPANY,
 } from './battleConfig'
 import type {
@@ -241,6 +241,8 @@ function goalFor(battle: Battle, prefix: string, point: Point, previous?: string
 
 const buildGoalKey = (site: Construction) => `build:${site.id}`
 const depotGoalKey = (site: Construction) => `depot:${site.id}`
+/** 工兵が建設物の作業地点に立って働く指示（建設・修理と、敵の拠点の占領）。 */
+const worksAtSite = (order: SquadOrder) => order === 'build' || order === 'occupy'
 
 /** 建設物のマスのうち、地点に最も近いマスの中心。all=falseなら攻撃できるマス（柵か橋の床）だけを見る。 */
 function nearestCell(site: Construction, point: Point, all = false): Point {
@@ -293,9 +295,42 @@ function damageConstruction(battle: Battle, site: Construction, amount: number) 
     if (site.hp <= 0 && battle.constructionById.has(site.id)) destroyConstruction(battle, site)
 }
 
-/** 工兵の作業で建設を進め（完成したら地形に反映）、完成後は修理する。手付かずの建設予定地は片付ける。 */
+/** 拠点の持ち主の工兵が拠点にいるか（いる間は敵に占領されない）。 */
+function outpostGuarded(battle: Battle, site: Construction) {
+    let guarded = false
+    battle.hash.forEachNear(site.center.x, site.center.y, OUTPOST_GUARD_RANGE, s => {
+        if (s.owner === site.owner && s.type === 'engineer' && s.state !== 'dead' && !s.desertion
+            && Math.hypot(s.x - site.center.x, s.y - site.center.y) <= OUTPOST_GUARD_RANGE) guarded = true
+    })
+    return guarded
+}
+
+/** 工兵が占領できる敵の拠点か（完成していて、持ち主の工兵がいない）。 */
+export function canOccupy(battle: Battle, army: Army, site: Construction) {
+    return site.kind === 'outpost' && site.complete && site.owner !== army && !outpostGuarded(battle, site)
+}
+
+/** 占領した拠点を自軍のものにする。前の持ち主の部隊は、ここで補給を受けられなくなる。 */
+function occupyOutpost(battle: Battle, site: Construction) {
+    site.owner = enemyOf(site.owner)
+    site.occupation = 0
+    for (const squad of battle.squads) {
+        if (squad.owner !== site.owner && squad.depotId === site.id) squad.depotId = nearestDepot(battle, squad.owner, squad.center)
+    }
+}
+
+/** 工兵の作業で建設を進め（完成したら地形に反映）、完成後は修理する。手付かずの建設予定地は片付ける。敵の工兵が占領を進め、終えたら拠点を奪う。 */
 function updateConstructions(battle: Battle, dt: number) {
     for (const site of [...battle.constructions]) {
+        if (site.occupiers > 0) {
+            if (!outpostGuarded(battle, site)) {
+                site.occupation = Math.min(1, site.occupation + site.occupiers * dt / OUTPOST_OCCUPY_WORK)
+                if (site.occupation >= 1 - 1e-9) occupyOutpost(battle, site)
+            }
+        } else if (site.occupation > 0 && !battle.squads.some(sq => sq.owner !== site.owner && sq.constructionId === site.id && (sq.order === 'occupy' || sq.resume?.order === 'occupy'))) {
+            // 占領に当たる工兵がいなくなったら、占領は初めからやり直し。
+            site.occupation = 0
+        }
         if (site.workers > 0) {
             if (!site.complete) {
                 const done = Math.min(1 - site.progress, site.workers * dt / site.work)
@@ -325,7 +360,7 @@ function nearestDepot(battle: Battle, owner: Army, from: Point) {
 /** 部隊が補給を受ける場所（中心と、補給を受けられる距離）。拠点が壊れていれば砦。 */
 export function depotOf(battle: Battle, squad: Squad) {
     const site = squad.depotId >= 0 ? battle.constructionById.get(squad.depotId) : undefined
-    if (site?.complete) return { x: site.center.x, y: site.center.y, range: OUTPOST_REFILL_RANGE, site }
+    if (site?.complete && site.owner === squad.owner) return { x: site.center.x, y: site.center.y, range: OUTPOST_REFILL_RANGE, site }
     const home = battle.homes[squad.owner]
     return { x: home.x, y: home.y, range: FORT_REFILL_RANGE, site: undefined }
 }
@@ -661,6 +696,16 @@ export function orderBuild(battle: Battle, squadId: number, constructionId: numb
     resetMembers(battle, squad, true)
 }
 
+/** 工兵に敵の拠点を占領させる（拠点の内側で作業する）。持ち主の工兵がいる拠点は占領できない。 */
+export function orderOccupy(battle: Battle, squadId: number, constructionId: number) {
+    const squad = battle.squadById.get(squadId), site = battle.constructionById.get(constructionId)
+    if (!squad || squad.type !== 'engineer' || !site || !canOccupy(battle, squad.owner, site)) return
+    squad.order = 'occupy'
+    squad.constructionId = site.id
+    battle.paths.addGoal(buildGoalKey(site), site.approach)
+    resetMembers(battle, squad, true)
+}
+
 /** 指定した場所に建設物を置いて、工兵に建てさせる。建てられない場所ならfalse。 */
 export function orderConstruct(battle: Battle, squadId: number, kind: ConstructionKind, point: Point, axis: ConstructionAxis = 'y') {
     const squad = battle.squadById.get(squadId)
@@ -669,7 +714,7 @@ export function orderConstruct(battle: Battle, squadId: number, kind: Constructi
     if (!plan.valid) return false
     const site: Construction = {
         ...plan, id: battle.nextConstructionId++, progress: 0, work: CONSTRUCTION[kind].work * (kind === 'bridge' ? plan.deck.length : 1),
-        hp: CONSTRUCTION[kind].hp * .1, maxHp: CONSTRUCTION[kind].hp, complete: false, workers: 0,
+        hp: CONSTRUCTION[kind].hp * .1, maxHp: CONSTRUCTION[kind].hp, complete: false, workers: 0, occupation: 0, occupiers: 0,
         ...constructionWorkSite(plan, squad.center, (x, y) => battle.paths.passable(x, y)),
     }
     battle.constructions.push(site)
@@ -725,6 +770,7 @@ function resumeOrder(battle: Battle, squad: Squad) {
     else if (resume.order === 'support') orderSupport(battle, squad.id, resume.targetSquadId)
     else if (resume.order === 'build' && battle.constructionById.has(resume.constructionId)) orderBuild(battle, squad.id, resume.constructionId)
     else if (resume.order === 'demolish' && battle.constructionById.has(resume.constructionId)) orderDemolish(battle, squad.id, resume.constructionId)
+    else if (resume.order === 'occupy' && battle.constructionById.has(resume.constructionId)) orderOccupy(battle, squad.id, resume.constructionId)
     else if (resume.order === 'move' || resume.order === 'hold') {
         // 持ち場（とその経路キー）は補給中も保っているので、そのまま戻る。
         squad.order = resume.order
@@ -740,7 +786,7 @@ export function setFormation(battle: Battle, owner: Army, type: FormationType) {
     formation.type = type
     formation.version++
     for (const squad of battle.squads) {
-        if (squad.owner !== owner || squad.order === 'resupply' || squad.order === 'support' || squad.order === 'build') continue
+        if (squad.owner !== owner || squad.order === 'resupply' || squad.order === 'support' || worksAtSite(squad.order)) continue
         orderFormation(battle, squad.id)
     }
 }
@@ -941,7 +987,7 @@ export function orderCompanyMove(battle: Battle, companyId: number, point: Point
 /** 中隊ごとの移動で、各小隊へ出す移動の指示（行き先の小隊のまん中と向き）。動かない小隊（建設中の工兵など）は含まない。 */
 function companyMoves(battle: Battle, companyId: number, point: Point) {
     const moves = new Map<Squad, { point: Point; facing: number }>()
-    const squads = companySquads(battle, companyId).filter(sq => sq.order !== 'build' && sq.order !== 'resupply' && !(sq.type === 'supply' && sq.order === 'support'))
+    const squads = companySquads(battle, companyId).filter(sq => !worksAtSite(sq.order) && sq.order !== 'resupply' && !(sq.type === 'supply' && sq.order === 'support'))
     if (!squads.length) return moves
     const target = snapToPassable(battle, point)
     let cx = 0, cy = 0
@@ -1172,7 +1218,7 @@ export function orderDestination(battle: Battle, squad: Squad): Point | undefine
         return depot.site ? depot.site.center : battle.homes[squad.owner].core
     }
     if (squad.order === 'retreat') return battle.homes[squad.owner].core
-    if (squad.order === 'build' || squad.order === 'demolish') return battle.constructionById.get(squad.constructionId)?.center
+    if (worksAtSite(squad.order) || squad.order === 'demolish') return battle.constructionById.get(squad.constructionId)?.center
     if (squad.order === 'support' && battle.squadById.has(squad.targetSquadId)) return squadPosition(battle, battle.squadById.get(squad.targetSquadId)!)
     // 持ち場の原点は前列中央なので、部隊の中心へ戻して示す。
     return toWorld(squad.anchor, squad.facing, -squadBlock(squad.type, Math.max(1, squad.count)).depth / 2, 0)
@@ -1202,7 +1248,7 @@ function routeFor(battle: Battle, squad: Squad, plan: { order: SquadOrder; ancho
     } else if (order === 'charge') points = fortRoute(battle.homes[enemyOf(squad.owner)])
     else if (order === 'attack' || order === 'demolish') points = route(anchor, goalKey)
     else if (order === 'formation') points = route(battle.formations[squad.owner].anchor, formationGoalKey(battle, squad.owner))
-    else if (order === 'build') points = site ? route(site.approach, buildGoalKey(site)) : [from]
+    else if (worksAtSite(order)) points = site ? route(site.approach, buildGoalKey(site)) : [from]
     else points = route(battle.paths.passable(anchor.x, anchor.y) ? anchor : snapToPassable(battle, anchor), goalKey)
     return joinDestination(points, destination)
 }
@@ -1235,8 +1281,8 @@ function joinDestination(points: Point[], destination: Point): Point[] {
 function slotPosition(battle: Battle, s: Soldier, squad: Squad): Point | undefined {
     const post = battle.posts.get(squad.id)
     if (!post) return undefined
-    // 工兵は建設物の周りの作業地点が持ち場。
-    if (squad.order === 'build') {
+    // 工兵は建設物の周りの作業地点（占領なら拠点の内側）が持ち場。
+    if (worksAtSite(squad.order)) {
         const site = battle.constructionById.get(squad.constructionId)
         return site ? site.workPoints[s.slot % site.workPoints.length] : undefined
     }
@@ -1259,7 +1305,7 @@ function centerSlot(type: UnitType, count: number) {
  * 隊長が持ち場に着いたら、また隊長自身・持ち場へ向かう槍兵・建設・帰り着く先の近くの退却と補給ではundefined。
  */
 function escortPoint(battle: Battle, s: Soldier, squad: Squad): Point | undefined {
-    if (s.id === squad.leaderId || squad.march || squad.order === 'build') return undefined
+    if (s.id === squad.leaderId || squad.march || worksAtSite(squad.order)) return undefined
     const leader = leaderOf(battle, squad)
     if (!leader) return undefined
     // 退却・補給は、帰り着く先の近くまで隊長に付いて行き、そこからは門や陣地の中へ散る。
@@ -1350,7 +1396,7 @@ function marchLane(battle: Battle, s: Soldier, squad: Squad) {
  * 工兵の建設と、本拠地（補給先）に着いてからの退却・補給では、兵は決まった場所に散るので見ない。
  */
 function regroup(battle: Battle, s: Soldier, squad: Squad, dt: number) {
-    const leader = s.id === squad.leaderId || squad.order === 'build' ? undefined : leaderOf(battle, squad)
+    const leader = s.id === squad.leaderId || worksAtSite(squad.order) ? undefined : leaderOf(battle, squad)
     const radius = cohesionRadius(squad)
     const depot = squad.order === 'resupply' ? depotOf(battle, squad) : squad.order === 'retreat' ? battle.homes[s.owner] : undefined
     if (!leader || (depot && Math.hypot(depot.x - s.x, depot.y - s.y) < radius)) { s.regroup = false; return false }
@@ -1397,7 +1443,7 @@ const leashOf = (s: Soldier) => s.type === 'archer' ? UNIT_STATS[s.owner].archer
 function constructionTarget(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined, sight: number) {
     if (squad.order === 'demolish') {
         const site = battle.constructionById.get(squad.constructionId)
-        if (site) {
+        if (site && site.owner !== s.owner) {
             const p = nearestCell(site, s)
             if (Math.hypot(p.x - s.x, p.y - s.y) <= sight) return site
         }
@@ -1478,7 +1524,7 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         return
     }
     // 近くに敵兵がいなければ、建設物を壊しにかかる（建設中の工兵は作業を続ける）。
-    const site = squad.order !== 'build' && (!best || bestScore > 30) ? constructionTarget(battle, s, squad, slot, sight) : undefined
+    const site = !worksAtSite(squad.order) && (!best || bestScore > 30) ? constructionTarget(battle, s, squad, slot, sight) : undefined
     if (site) best = undefined
     const previous = s.targetId, previousSite = s.constructionId
     s.targetId = best ? best.id : -1
@@ -1585,10 +1631,11 @@ function coverBlock(battle: Battle, x: number, y: number, tx: number, ty: number
     return undefined
 }
 
-/** 建設物を攻撃する（弓兵は矢を射かける）。工兵は壊すのが得意。 */
+/** 建設物を攻撃する（弓兵は矢を射かける）。工兵は解体が得意で、同じ軍の歩兵の CONSTRUCTION_DAMAGE.engineer 倍の速さで壊す。 */
 function attackConstruction(battle: Battle, s: Soldier, site: Construction, point: Point) {
     const stats = UNIT_STATS[s.owner][s.type]
-    const base = stats.attack * (.8 + battle.random() * .4) * staminaFactor(battle.squadById.get(s.squadId))
+    const roll = (.8 + battle.random() * .4) * staminaFactor(battle.squadById.get(s.squadId))
+    const base = stats.attack * roll
     spendStamina(battle, s, s.type === 'archer' ? STAMINA.shotCost : STAMINA.attackCost)
     if (s.type === 'archer') {
         if (s.arrows <= 0) return
@@ -1598,7 +1645,12 @@ function attackConstruction(battle: Battle, s: Soldier, site: Construction, poin
         return
     }
     s.swing = .45
-    damageConstruction(battle, site, base * (s.type === 'engineer' ? CONSTRUCTION_DAMAGE.engineer : CONSTRUCTION_DAMAGE.melee))
+    const infantry = UNIT_STATS[s.owner].infantry
+    // 工兵の1振りは、歩兵が工兵の攻撃の間隔のあいだに壊す量の CONSTRUCTION_DAMAGE.engineer 倍。
+    const damage = s.type === 'engineer'
+        ? infantry.attack * CONSTRUCTION_DAMAGE.melee / infantry.cooldown * stats.cooldown * CONSTRUCTION_DAMAGE.engineer * roll
+        : base * CONSTRUCTION_DAMAGE.melee
+    damageConstruction(battle, site, damage)
 }
 
 /** 放物線の頂点の高さに合わせた打ち上げ角。 */
@@ -1683,7 +1735,9 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         }
         return
     }
-    const site = s.constructionId >= 0 ? battle.constructionById.get(s.constructionId) : undefined
+    // 占領して自軍のものになった拠点は、もう壊さない。
+    const found = s.constructionId >= 0 ? battle.constructionById.get(s.constructionId) : undefined
+    const site = found?.owner !== s.owner ? found : undefined
     if (s.constructionId >= 0 && !site) { s.constructionId = -1; s.thinkTimer = Math.min(s.thinkTimer, .05) }
     if (site) {
         // 建設物の最も近いマス（柵・橋の床）へ寄って壊す。
@@ -1738,7 +1792,7 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         // 構えた兵は押し合いで少しずれても動かない（足踏みしないよう判定に幅を持たせる）。
         if (distance <= (s.state === 'hold' ? BUILD_REACH : 1.5)) {
             s.state = 'hold'; s.heading = post.facing; s.runTime = 0
-            if (squad.order === 'build') work(battle, s, squad)
+            if (worksAtSite(squad.order)) work(battle, s, squad)
             return
         }
         s.state = 'advance'
@@ -1761,13 +1815,15 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
     followPath(battle, s, enemyHome.assaultPoints[assault]!, fortGoalKey(enemyHome.owner, assault), dt, pace, marchLane(battle, s, squad))
 }
 
-/** 作業地点に着いた工兵が、槌を振るって建設・修理を進める。 */
+/** 作業地点に着いた工兵が、槌を振るって建設・修理（占領）を進める。 */
 function work(battle: Battle, s: Soldier, squad: Squad) {
     const site = battle.constructionById.get(squad.constructionId)
-    if (!site || (site.complete && site.hp >= site.maxHp)) return
+    const occupying = squad.order === 'occupy' && site?.owner !== squad.owner
+    if (!site || (!occupying && site.complete && site.hp >= site.maxHp)) return
     const p = nearestCell(site, s)
     if (Math.hypot(p.x - s.x, p.y - s.y) > 1) s.heading = Math.atan2(p.x - s.x, p.y - s.y)
-    site.workers += staminaFactor(squad)
+    if (occupying) site.occupiers += staminaFactor(squad)
+    else site.workers += staminaFactor(squad)
     if (s.attackTimer <= 0) { s.swing = .45; s.attackTimer = .9 + battle.random() * .5 }
 }
 
@@ -1892,8 +1948,9 @@ function updateSupplies(battle: Battle, dt: number) {
     for (const squad of battle.squads) {
         const members = battle.members.get(squad.id)!
         if (squad.order === 'resupply') {
-            // 向かっていた拠点が壊れたら、改めて最寄りの補給先へ。
-            if (squad.depotId >= 0 && !battle.constructionById.get(squad.depotId)?.complete) squad.depotId = nearestDepot(battle, squad.owner, squad.center)
+            // 向かっていた拠点が壊れた（敵に占領された）ら、改めて最寄りの補給先へ。
+            const site = squad.depotId >= 0 ? battle.constructionById.get(squad.depotId) : undefined
+            if (squad.depotId >= 0 && (!site?.complete || site.owner !== squad.owner)) squad.depotId = nearestDepot(battle, squad.owner, squad.center)
             const depot = depotOf(battle, squad)
             if (Math.hypot(depot.x - squad.center.x, depot.y - squad.center.y) > depot.range + 40) continue
             // 砦の陣地（拠点）に戻った兵から矢を受け取り、部隊の体力も回復する。補給部隊は補給回数を積み直す。
@@ -2063,7 +2120,14 @@ function updateSquads(battle: Battle, dt: number) {
             const site = battle.constructionById.get(squad.constructionId)
             if (!site || (site.complete && site.hp >= site.maxHp)) orderHold(battle, squad.id)
         }
-        if (squad.order === 'demolish' && !battle.constructionById.has(squad.constructionId)) orderHold(battle, squad.id)
+        // 占領を終えた工兵は、拠点が傷んでいれば続けて直す。拠点が壊れた・占領できなくなったら構える。
+        if (squad.order === 'occupy') {
+            const site = battle.constructionById.get(squad.constructionId)
+            if (site?.owner === squad.owner && site.hp < site.maxHp) orderBuild(battle, squad.id, site.id)
+            else if (!site || !site.complete || site.owner === squad.owner) orderHold(battle, squad.id)
+        }
+        // 壊す相手がなくなった（占領して自軍のものになった）部隊も構える。
+        if (squad.order === 'demolish' && battle.constructionById.get(squad.constructionId)?.owner !== enemyOf(squad.owner)) orderHold(battle, squad.id)
         if (squad.order === 'retreat') {
             // 自陣に戻ったら正門の内側（野営地）で構える。
             const home = battle.homes[squad.owner]
@@ -2085,7 +2149,7 @@ function updateSquads(battle: Battle, dt: number) {
                 if (!post) continue
                 squad.anchor = post.anchor; squad.facing = post.facing
                 battle.posts.set(squad.id, { anchor: post.anchor, facing: post.facing, goal, goalKey })
-            } else if (squad.order === 'build') {
+            } else if (worksAtSite(squad.order)) {
                 const site = battle.constructionById.get(squad.constructionId)
                 if (site) battle.posts.set(squad.id, { anchor: site.center, facing: squad.facing, goal: site.approach, goalKey: buildGoalKey(site) })
             } else if (squad.order === 'move' || squad.order === 'hold' || squad.order === 'support') {
@@ -2102,7 +2166,7 @@ function updateSquads(battle: Battle, dt: number) {
     for (const squad of battle.squads) {
         if (squad.type !== 'pikeman') continue
         const post = battle.posts.get(squad.id)
-        if (!post || squad.order === 'build') { squad.march = null; continue }
+        if (!post || worksAtSite(squad.order)) { squad.march = null; continue }
         battle.posts.set(squad.id, advanceMarch(battle, squad, post, dt))
     }
 }
@@ -2226,7 +2290,7 @@ export function updateBattle(battle: Battle, dt: number) {
     battle.dayTime = (battle.dayTime + dt * DAY_MINUTES_PER_SECOND) % 1440
     battle.hash.rebuild(battle.soldiers)
     battle.paths.process(PATH_BUDGET_PER_TICK)
-    for (const site of battle.constructions) site.workers = 0
+    for (const site of battle.constructions) { site.workers = 0; site.occupiers = 0 }
     updateSquads(battle, dt)
     const alive = { player: 0, cpu: 0 }
     for (const army of ARMIES) battle.intruders[army].length = 0

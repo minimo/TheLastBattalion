@@ -155,12 +155,18 @@ export const BRIDGE_MAX_LENGTH = 9
 /** 工兵が作業地点からこの距離内にいれば作業する。修理は1人1秒あたりこの耐久を戻す。 */
 export const BUILD_REACH = 5
 export const REPAIR_RATE = 1.5
-/** 建設物への攻撃の倍率（木の柵は斬っても崩れにくい）。工兵は壊すのが得意。 */
+/**
+ * 建設物への攻撃の倍率（木の柵は斬っても崩れにくい）。
+ * engineer: 工兵は解体が得意で、同じ軍の歩兵の何倍の速さで壊すか（1振りの重さではなく、時間あたりの速さで比べる）。
+ */
 export const CONSTRUCTION_DAMAGE = { melee: .5, arrow: .2, engineer: 3 }
 /** 柵に阻まれた兵が、この距離内の敵の柵を自分から壊しにかかる。 */
 export const CONSTRUCTION_AUTO_ATTACK = 26
 /** 拠点で補給を受けられる、拠点の中心からの距離。 */
 export const OUTPOST_REFILL_RANGE = 58
+/** 敵の拠点の占領に要る作業量（工兵1人が1秒で1）。拠点の中心からこの距離内に拠点の持ち主の工兵がいる間は占領できない。 */
+export const OUTPOST_OCCUPY_WORK = 600
+export const OUTPOST_GUARD_RANGE = 60
 
 export const FORT_HP = 6000
 /** 陣の周り: この内側に入った敵兵を侵入者として迎え撃ち、敵はここに建設できない。城は城壁の外まで含む。 */

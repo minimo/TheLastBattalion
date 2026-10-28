@@ -34,13 +34,21 @@ const constructionStatus = (squad: SquadSummary) => {
   if (!site) return ''
   const name = CONSTRUCTION[site.kind].name
   if (squad.order === 'demolish') return `${name}を破壊中`
+  if (squad.order === 'occupy') return `${name}を占領中`
   return site.complete ? `${name}を修理中` : `${name}を建設中`
+}
+/** 建設物の欄のゲージ: 占領は占領の進み具合、破壊と完成後（修理）は耐久、建設中は進み具合。 */
+const constructionMeter = (squad: SquadSummary) => {
+  const site = squad.construction!
+  if (squad.order === 'occupy') return site.occupation
+  return site.complete || squad.order === 'demolish' ? site.hp : site.progress
 }
 /** 一覧の状態欄（指示・建設・矢・補給回数・体力）。 */
 const squadStatus = (squad: SquadSummary) => {
   if (squad.order === 'resupply') return ORDER_NAME.resupply
   const parts = [ORDER_NAME[squad.order]]
   if (squad.construction && squad.order === 'build') parts.push(squad.construction.complete ? '修理' : `${squad.construction.progress}%`)
+  if (squad.construction && squad.order === 'occupy') parts.push(`${squad.construction.occupation}%`)
   if (squad.maxArrows > 0) parts.push(`矢${Math.round(squad.arrows / squad.maxArrows * 100)}%`)
   if (squad.maxSupplies > 0) parts.push(`残${squad.supplies}回`)
   if (squad.stamina < TIRED_BELOW) parts.push('疲労')
@@ -70,8 +78,8 @@ const squadStatus = (squad: SquadSummary) => {
       </div>
       <div v-if="selected.construction" class="meter">
         <span>{{ constructionStatus(selected) }}</span>
-        <div class="bar build"><span :style="{ width: `${selected.construction.complete || selected.order === 'demolish' ? selected.construction.hp : selected.construction.progress}%` }"></span></div>
-        <b>{{ selected.construction.complete || selected.order === 'demolish' ? selected.construction.hp : selected.construction.progress }}%</b>
+        <div class="bar build"><span :style="{ width: `${constructionMeter(selected)}%` }"></span></div>
+        <b>{{ constructionMeter(selected) }}%</b>
       </div>
     </div>
     <div v-else-if="selectedCompany" class="squad-card" role="status">
