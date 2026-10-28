@@ -1,7 +1,7 @@
-import { TILE, TILE_PX } from './constants'
-import { BARRICADE_LENGTH, BRIDGE_MAX_LENGTH, OUTPOST_SIZE, fortVicinityOf } from './battleConfig'
+import { TILE, TILE_PX, TILE_VARIANT } from './constants'
+import { BARRICADE_LENGTH, BRIDGE_MAX_LENGTH, OUTPOST_MAX_RISE, OUTPOST_SIZE, fortVicinityOf } from './battleConfig'
 import { fortTileAt } from './fortLayout'
-import { getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
+import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import { getTileCost } from './terrain'
 import type { Army, Construction, ConstructionAxis, ConstructionKind, ConstructionPlan, Fort, FortCell, Point } from '../types/game'
 
@@ -14,7 +14,7 @@ const insideGrid = (gx: number, gy: number) => gx > PLAYABLE_GRID_MIN && gx < PL
 
 /**
  * 工兵が建てる建設物の敷地を決め、建てられるかを調べる（建設の指示と、置く前の下見の両方で使う）。
- * - 拠点: 地点を中心とする7×7マス。外周は柵で、四方の真ん中が門。陸の上にしか建たない
+ * - 拠点: 地点を中心とする5×5マス。外周は柵で、四方の真ん中が門。山でない、高低差の小さい陸の上にしか建たない
  * - バリケード: 地点を中心に、axis の向きに5マス並ぶ柵。陸か橋の上に建つ
  * - 橋: 地点の近くの川を、最も短く渡れる向きに架ける幅2マスの橋
  */
@@ -26,6 +26,10 @@ export function planConstruction(site: Site, owner: Army, kind: ConstructionKind
     const water = (gx: number, gy: number) => getPlayableTile(site.grid, gx, gy) === TILE.WATER
     /** 建物を建てられる陸地（川・柵でない）。 */
     const walkable = (gx: number, gy: number) => Number.isFinite(getTileCost(site.grid, gx, gy)) && !water(gx, gy)
+    const mountain = (gx: number, gy: number) => {
+        const tile = getPlayableTile(site.grid, gx, gy)
+        return tile === TILE.MOUNTAIN || tile >= TILE_VARIANT.LOW_MOUNTAIN_MIN && tile <= TILE_VARIANT.HIGH_MOUNTAIN_MAX
+    }
     const cx = Math.round(point.x / TILE_PX), cy = Math.round(point.y / TILE_PX)
     const plan: ConstructionPlan = { kind, owner, axis, walls: [], deck: [], area: [], center: { x: cx * TILE_PX, y: cy * TILE_PX }, ends: [], valid: false, reason: '' }
     const fail = (reason: string) => { plan.valid = false; plan.reason = reason; return plan }
@@ -40,6 +44,9 @@ export function planConstruction(site: Site, owner: Army, kind: ConstructionKind
         }
         if (plan.area.some(c => !free(c.gx, c.gy))) return fail('他の建設物や砦と重なっています')
         if (plan.area.some(c => !walkable(c.gx, c.gy) || getPlayableTile(site.grid, c.gx, c.gy) === TILE.BRIDGE)) return fail('川や橋の上には建てられません')
+        if (plan.area.some(c => mountain(c.gx, c.gy))) return fail('山には建てられません')
+        const heights = plan.area.map(c => getCellHeight(site.grid, c.gx, c.gy))
+        if (Math.max(...heights) - Math.min(...heights) > OUTPOST_MAX_RISE) return fail('高低差が大きすぎます')
         const enemy = site.forts.find(f => f.owner !== owner)
         if (enemy && Math.hypot(enemy.x - plan.center.x, enemy.y - plan.center.y) < fortVicinityOf(enemy.kind) + 60) return fail('敵陣に近すぎます')
         // 門の外へ出られること（四方のどこか1つでよい）。

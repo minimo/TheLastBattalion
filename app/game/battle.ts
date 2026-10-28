@@ -14,7 +14,7 @@ import {
     FORT_HP, fortVicinityOf, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
     REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, SPENT_ARROW_LIMIT, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
     FORT_REFILL_RATE, RESUPPLY_THRESHOLD, STAMINA, SUPPLY_CHARGES, SUPPLY_DURATION, SUPPORT_RANGE, SUPPORT_THRESHOLD, SHIELD, SPENT_ARROW_SECONDS, TOWER, UNIT_STATS,
-    BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_REFILL_RANGE, REPAIR_RATE,
+    BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_REFILL_RANGE, OUTPOST_SIZE, REPAIR_RATE,
     SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN, DESERTION, COMPANY,
 } from './battleConfig'
 import type {
@@ -1640,7 +1640,8 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
             // 拠点では門から入って、内側に散らばって待つ。
             const site = depot.site
             const spot = site.interior[s.id % site.interior.length]!
-            if (Math.hypot(site.center.x - s.x, site.center.y - s.y) < OUTPOST_REFILL_RANGE - 10) {
+            const inside = (OUTPOST_SIZE - 1) / 2 * TILE_PX
+            if (Math.abs(site.center.x - s.x) < inside && Math.abs(site.center.y - s.y) < inside) {
                 if (Math.hypot(spot.x - s.x, spot.y - s.y) > 3) moveToward(battle, s, spot.x, spot.y, dt, .8)
             } else followPath(battle, s, site.center, depotGoalKey(site), dt, 1, 0)
             return

@@ -139,14 +139,16 @@ export const FORT_REFILL_RANGE = 170
 // ---- 工兵の建設物 ----
 /**
  * work: 完成までの作業量（工兵1人が1秒で1。橋は床1マスあたり）。hp: 完成時の耐久。
- * 拠点は砦（12×16マス）より小さい7×7マスの柵の陣地で、四方に門がある。
+ * 拠点は砦（12×16マス）より小さい5×5マスの柵の陣地で、四方に門がある。
  */
 export const CONSTRUCTION: Record<ConstructionKind, { name: string; work: number; hp: number }> = {
-    outpost: { name: '拠点', work: 3600, hp: 5000 },
+    outpost: { name: '拠点', work: 2500, hp: 2500 },
     barricade: { name: 'バリケード', work: 300, hp: 1500 },
     bridge: { name: '橋', work: 180, hp: 2500 },
 }
-export const OUTPOST_SIZE = 7
+export const OUTPOST_SIZE = 5
+/** 拠点の敷地の中で許す高低差（最も高いマスと低いマスの差）。平地の5×5マスの高低差は中央値が約12、上位1割で約24。 */
+export const OUTPOST_MAX_RISE = 20
 export const BARRICADE_LENGTH = 5
 /** 架けられる橋の長さ（水のマス数）の上限。橋の幅は2マス。 */
 export const BRIDGE_MAX_LENGTH = 9

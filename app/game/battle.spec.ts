@@ -11,10 +11,10 @@ import { axes, COMPANY_MAX_SQUADS, joinsCompany, slotOffset, squadBlock, SQUAD_S
 import { FORT_DEPTH, FORT_WIDTH, isBlockedLocal, localToGrid } from './fortLayout'
 import { CASTLE_ASSAULT_CELLS, CASTLE_DEPTH, CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
 import { findPath } from './pathfinding'
-import { TILE_PX } from './constants'
-import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, fortVicinityOf, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
+import { TILE_PX, TILE_VARIANT } from './constants'
+import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, OUTPOST_MAX_RISE, fortVicinityOf, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
-import { getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
+import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
 import { armyPool, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, type DeploymentPlan } from './deployment'
@@ -646,7 +646,8 @@ describe('工兵の建設物', () => {
         const [first, second] = engineers(battle)
         run(battle, .1)
         for (const squad of [first!, second!]) leaveCompany(battle, squad)
-        const point = { x: first!.center.x + 60, y: first!.center.y }
+        // 工兵のすぐ前は山のふもとなので、少し南の平地に建てる
+        const point = { x: first!.center.x + 60, y: first!.center.y + 40 }
         const plan = previewConstruction(battle, 'player', 'outpost', point)
         expect(plan.valid).toBe(true)
         // 拠点は5×5マス（砦の12×16マスより小さい）。外周の柵に四方の門がある
@@ -690,9 +691,29 @@ describe('工兵の建設物', () => {
         expect(previewConstruction(battle, 'player', 'outpost', home).valid).toBe(false)
         expect(previewConstruction(battle, 'player', 'outpost', { x: 96, y: 592 }).valid).toBe(false)
         expect(previewConstruction(battle, 'player', 'bridge', { x: engineer!.center.x, y: engineer!.center.y }).valid).toBe(false)
-        const point = { x: engineer!.center.x + 60, y: engineer!.center.y }
+        const point = { x: engineer!.center.x + 60, y: engineer!.center.y + 40 }
         expect(orderConstruct(battle, engineer!.id, 'outpost', point)).toBe(true)
         expect(previewConstruction(battle, 'player', 'barricade', point).valid).toBe(false)
+    })
+
+    it('拠点は山や、敷地の高低差が大きい場所には建てられない', () => {
+        const battle = makeBattle('777777')
+        const reasons = new Set<string>()
+        for (let gy = PLAYABLE_GRID_MIN + 3; gy < PLAYABLE_GRID_MAX - 3; gy++) for (let gx = PLAYABLE_GRID_MIN + 3; gx < PLAYABLE_GRID_MAX - 3; gx++) {
+            const plan = previewConstruction(battle, 'player', 'outpost', { x: gx * TILE_PX, y: gy * TILE_PX })
+            reasons.add(plan.reason)
+            if (!plan.valid) continue
+            // 建てられる敷地は山を含まず、高低差も小さい
+            expect(plan.area.every(c => {
+                const tile = getPlayableTile(battle.grid, c.gx, c.gy)
+                return tile !== TILE.MOUNTAIN && (tile < TILE_VARIANT.LOW_MOUNTAIN_MIN || tile > TILE_VARIANT.HIGH_MOUNTAIN_MAX)
+            })).toBe(true)
+            const heights = plan.area.map(c => getCellHeight(battle.grid, c.gx, c.gy))
+            expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(OUTPOST_MAX_RISE)
+        }
+        expect(reasons.has('山には建てられません')).toBe(true)
+        expect(reasons.has('高低差が大きすぎます')).toBe(true)
+        expect(reasons.has('')).toBe(true)
     })
 
     it('魔王軍の工兵は拠点を築く', () => {
