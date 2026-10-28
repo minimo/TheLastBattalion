@@ -146,7 +146,8 @@ export function createCastle(fort: Fort, kit: ModelKit) {
             part(g, stoneBox(length, 2, 1.8), granite, 0, top, -5, 1, 1, 1)
             if (human) crenellate(g, length, top + 1, -5, granite)
             else brokenBattlement(g, length, top + 1, -5, granite)
-            part(g, stoneBox(length, .8, 5), graniteDark, 0, top - .4, 1.5, 1, 1, 1)
+            // 歩廊は壁体の上面より少し高くし、同じ高さの面が重なってちらつかないようにする。
+            part(g, stoneBox(length, .8, 5), graniteDark, 0, top - .2, 1.5, 1, 1, 1)
         })
     }
 
@@ -335,10 +336,10 @@ export function createCastle(fort: Fort, kit: ModelKit) {
         }
         // 中央の塔（物見の階と手すり、四隅の小尖塔）
         const TOWER_TOP = S + 66
-        part(statics, stoneBox(22, TOWER_TOP - NAVE_TOP + 8, 22), graniteWarm, 4, (TOWER_TOP + NAVE_TOP - 8) / 2, 0, 1, 1, 1)
+        part(statics, stoneBox(22, TOWER_TOP - NAVE_TOP + 8, 22), graniteWarm, AX + 4, (TOWER_TOP + NAVE_TOP - 8) / 2, 0, 1, 1, 1)
+        // 各面に縦長の窓が三つ。中央の窓には夜に明かりが灯る。
         for (const [dx, dz] of [[-11.2, 0], [11.2, 0], [0, -11.2], [0, 11.2]] as const) {
-            for (const t of [-4.5, 0, 4.5]) part(statics, box, voidMaterial, AX + 4 + dx + (dz ? t : 0), TOWER_TOP - 12, dz + (dx ? t : 0), dx ? .3 : 2.4, 14, dz ? .3 : 2.4)
-            part(statics, box, glass, AX + 4 + dx, NAVE_TOP + 14, dz, dx ? .3 : 3, 6, dz ? .3 : 3)
+            for (const t of [-4.5, 0, 4.5]) part(statics, box, t ? voidMaterial : glass, AX + 4 + dx + (dz ? t : 0), TOWER_TOP - 12, dz + (dx ? t : 0), dx ? .3 : 2.4, 14, dz ? .3 : 2.4)
         }
         part(statics, stoneBox(24, 2, 24), graniteDark, AX + 4, TOWER_TOP, 0, 1, 1, 1)
         for (const [dx, dz] of [[-11, -11], [11, -11], [-11, 11], [11, 11]] as const) {

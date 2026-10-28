@@ -67,7 +67,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     scene.environmentIntensity = .45
     environmentScene.dispose()
     pmrem.dispose()
-    const camera = new THREE.PerspectiveCamera(42, 16 / 9, 1, 12000)
+    // 手前の描画距離を詰めすぎると遠くの深度の精度が落ち、壁と窓のように近接した面がちらつく。
+    const camera = new THREE.PerspectiveCamera(42, 16 / 9, 8, 12000)
     const controls = new OrbitControls(camera, canvasEl)
     controls.enableDamping = true
     controls.enablePan = true
