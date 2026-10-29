@@ -16,6 +16,8 @@ import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind,
 const BASE_TIME_SCALE = .5
 /** シミュレーション1ステップの最大時間（秒）。高速時はこれ以下に分割して計算する。 */
 const MAX_STEP = .1
+/** シミュレーション1ステップの最小時間（秒）。描画の間隔がこれより短いときは、時間をためて次の描画でまとめて進める。 */
+const MIN_STEP = .002
 export const GAME_SPEEDS = [.5, 1, 2, 3] as const
 export type GameSpeed = typeof GAME_SPEEDS[number]
 
@@ -104,6 +106,8 @@ export const useGameStore = defineStore('game', {
         companies: [] as CompanySummary[],
         formation: 'line' as FormationType,
         summaryTimer: 0,
+        /** まだ進めていないゲーム内時間（MIN_STEP に満たない分）。 */
+        pendingTime: 0,
         gameSpeed: 1 as GameSpeed,
         /** 人間軍の開戦時の編成（戦場の種類ごと）。 */
         plans: loadPlans(),
@@ -131,6 +135,7 @@ export const useGameStore = defineStore('game', {
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))
             this.dayTime = battle.dayTime
+            this.pendingTime = 0
             this.isGameOver = false
             this.winner = null
             this.refresh()
@@ -270,12 +275,14 @@ export const useGameStore = defineStore('game', {
 
         /** 実時間の経過を受け取り、現在の速度に応じてゲームを進める。 */
         update(realDeltaSeconds: number): void {
-            let remaining = realDeltaSeconds * this.timeScale
-            while (remaining > 0 && this.status === 'playing') {
+            // 極端に短い刻みでは兵の速度の見積もりが乱れるので、MIN_STEP に満たない時間は次の描画へ持ち越す。
+            let remaining = this.pendingTime + realDeltaSeconds * this.timeScale
+            while (remaining >= MIN_STEP && this.status === 'playing') {
                 const step = Math.min(remaining, MAX_STEP)
                 remaining -= step
                 this.step(step)
             }
+            this.pendingTime = this.status === 'playing' ? remaining : 0
             // 画面の集計は速度に関係なく実時間で一定間隔に更新する。
             this.summaryTimer -= realDeltaSeconds
             if (this.status === 'playing' && this.summaryTimer <= 0) {

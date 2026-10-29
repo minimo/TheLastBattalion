@@ -193,6 +193,11 @@ export const ARROW_SPEED = 150
  * 近い敵にはまず当たり、射程の端（約±7px）では外れやすい。狙った兵を外れた矢は、着弾点から strayRadius px 以内の別の敵に strayDamage の割合で当たる。
  */
 export const ARROW_AIM = { spread: .12, strayRadius: 2, strayDamage: .5 }
+/**
+ * 矢が狙いの予測に使う相手の速さの上限（兵種の速さに対する倍率）。押し合いで押し出された兵は短い時間の刻みでは
+ * 大きな速度に見えるので、ここで頭打ちにする（狙いが遠くへ外れ、矢が射程の何倍も飛ばないように）。
+ */
+export const VELOCITY_CAP = 1.2
 /** 歩兵と槍兵の盾: 向いている方向から左右 arc ラジアン以内で飛んできた矢のダメージを damageTaken 倍にする。側面・背面は守れない。 */
 export const SHIELD = { damageTaken: .6, arc: 1.2 }
 /** 放物線の頂点の高さ = 基本 + 距離 × 係数（係数0.25で約45度の打ち上げ）。 */

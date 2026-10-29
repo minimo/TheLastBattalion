@@ -12,7 +12,7 @@ import { armyPool, defaultDeployment, defenderOf, deployedCount, normalizeDeploy
 import {
     ARMY_CAP, ARROW_AIM, ARROW_ARC, COHESION, FOLLOW, ARROW_COVER, ARROW_SPEED, CHARGE_MULTIPLIER, CHARGE_RUN_TIME, CORPSE_SECONDS, DAY_MINUTES_PER_SECOND, FORT_ASSAULT_RANGE,
     FORT_HP, fortVicinityOf, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
-    REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, SPENT_ARROW_LIMIT, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
+    REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, SPENT_ARROW_LIMIT, VELOCITY_CAP, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
     FORT_REFILL_RATE, RESUPPLY_THRESHOLD, STAMINA, SUPPLY_CHARGES, SUPPLY_DURATION, SUPPORT_RANGE, SUPPORT_THRESHOLD, SHIELD, SPENT_ARROW_SECONDS, TOWER, UNIT_STATS,
     BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_GUARD_RANGE, OUTPOST_OCCUPY_WORK, OUTPOST_REFILL_RANGE, OUTPOST_SIZE, REPAIR_RATE,
     SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN, DESERTION, COMPANY,
@@ -1593,11 +1593,14 @@ function attack(battle: Battle, s: Soldier, target: Soldier) {
 }
 
 /** 放物線の矢を放つ。着弾までの時間から相手の位置を予測し、そこへ届くように撃つ。建設物を狙うときは constructionId を渡す。 */
-function launchArrow(battle: Battle, owner: Army, x: number, y: number, z: number, target: Pick<Soldier, 'id' | 'x' | 'y' | 'vx' | 'vy'>, damage: number, spreadRate: number, constructionId = -1) {
+function launchArrow(battle: Battle, owner: Army, x: number, y: number, z: number, target: Soldier | Pick<Soldier, 'id' | 'x' | 'y' | 'vx' | 'vy'>, damage: number, spreadRate: number, constructionId = -1) {
+    // 押し合いで押し出された兵は速く動いて見えるので、予測に使う速さは兵種の速さで頭打ちにする。
+    const speed = Math.hypot(target.vx, target.vy), cap = 'type' in target ? UNIT_STATS[target.owner][target.type].speed * VELOCITY_CAP : Infinity
+    const lead = speed > cap ? cap / speed : 1
     let tx = target.x, ty = target.y, flight = 0
     for (let i = 0; i < 2; i++) {
         flight = .15 + Math.hypot(tx - x, ty - y) / ARROW_SPEED
-        tx = target.x + target.vx * flight; ty = target.y + target.vy * flight
+        tx = target.x + target.vx * lead * flight; ty = target.y + target.vy * lead * flight
     }
     const distance = Math.hypot(tx - x, ty - y)
     const spread = distance * spreadRate
