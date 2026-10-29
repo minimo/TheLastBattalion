@@ -21,6 +21,36 @@ body {
   overflow: hidden;
 }
 
+/* Scrollbars matched to the panel palette (Firefox / Chromium use scrollbar-color, Safari the pseudo-elements) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #5d6466 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #5d6466;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #a48d5f;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .app-container {
   display: flex;
   flex-direction: column;
