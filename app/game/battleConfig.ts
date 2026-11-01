@@ -210,5 +210,5 @@ export const ARROW_COVER = { sparse: .3, dense: .5, depth: 32 }
 /** 外れた矢が地面に残る秒数と、残す本数の上限。 */
 export const SPENT_ARROW_SECONDS = 2.5
 export const SPENT_ARROW_LIMIT = 800
-/** 実時間1秒 = ゲーム内30分（no-life-kingと同じ）。 */
-export const DAY_MINUTES_PER_SECOND = 30
+/** ゲーム内の1秒で進む時刻（分）。1倍速では実時間1秒 = 3分で、1日が約8分になる。 */
+export const DAY_MINUTES_PER_SECOND = 6
