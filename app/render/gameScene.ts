@@ -93,18 +93,44 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     }
     canvasEl.addEventListener('wheel', trackpadRotate, { capture: true, passive: false })
     // 寄るときはカーソル（ピンチでは2本の指の中点）へ向かい、引くときは寄る前の注視点へ戻りながら離れる。
+    // OrbitControls は注視点を中心に寄り引きし、ホイールやピンチのイベントの中ですぐカメラを動かす。
+    // そこで OrbitControls より先（capture）に寄り引きの前の状態を控え、後（window へ伝わってから）に視点をずらす。
     /** 寄り始める前の注視点と距離。引いてこの距離まで戻ると注視点も元に戻る。パンや部隊へのカメラ移動で忘れる。 */
     let zoomOrigin: { target: THREE.Vector3; distance: number } | null = null
-    let zoomed = false
-    const markZoom = (zoomIn: boolean) => {
+    /** 寄り引きの前の注視点と距離、寄るときはそのときカーソルの下にあった地面の点。 */
+    let zoomStart: { target: THREE.Vector3; distance: number; anchor: THREE.Vector3 | undefined } | null = null
+    const beginZoom = (zoomIn: boolean, x: number, y: number) => {
         if (!controls.enabled) return
-        zoomed = true
-        controls.zoomToCursor = zoomIn
-        if (zoomIn && !zoomOrigin) zoomOrigin = { target: controls.target.clone(), distance: camera.position.distanceTo(controls.target) }
+        const distance = camera.position.distanceTo(controls.target)
+        if (zoomIn && !zoomOrigin) zoomOrigin = { target: controls.target.clone(), distance }
+        zoomStart = { target: controls.target.clone(), distance, anchor: zoomIn ? groundUnder(x, y) : undefined }
     }
-    const zoomByWheel = (event: WheelEvent) => { if (event.deltaY) markZoom(event.deltaY < 0) }
+    /**
+     * 寄ったときは anchor を中心に縮めたのと同じ位置へ視点ごとずらし（カーソルの下の地面が画面上で動かない）、
+     * 引いたときは引いた分の割合だけ寄る前の注視点へ視点ごと戻す。
+     */
+    const endZoom = () => {
+        if (!zoomStart) return
+        const { target: targetBefore, distance: distanceBefore, anchor } = zoomStart
+        zoomStart = null
+        const distance = camera.position.distanceTo(controls.target)
+        if (distance < distanceBefore) {
+            if (!anchor) return
+            const shift = anchor.sub(targetBefore).multiplyScalar(1 - distance / distanceBefore)
+            controls.target.add(shift)
+            camera.position.add(shift)
+            return
+        }
+        if (!zoomOrigin || distance === distanceBefore) return
+        const t = Math.min(1, (distance - distanceBefore) / Math.max(1e-6, zoomOrigin.distance - distanceBefore))
+        const shift = zoomOrigin.target.clone().sub(controls.target).multiplyScalar(t)
+        controls.target.add(shift)
+        camera.position.add(shift)
+        if (t >= 1) zoomOrigin = null
+    }
+    const zoomByWheel = (event: WheelEvent) => { if (event.deltaY) beginZoom(event.deltaY < 0, event.clientX, event.clientY) }
     canvasEl.addEventListener('wheel', zoomByWheel, { capture: true, passive: true })
-    // OrbitControls より先に指の間隔の変化を見て、広がれば寄る向きとする。
+    // 指の間隔が広がれば寄る向きとする。
     const touches = new Map<number, { x: number; y: number }>()
     const touchSpan = () => {
         const [a, b] = [...touches.values()]
@@ -113,14 +139,17 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     let pinchSpan = 0
     const pinchDown = (event: PointerEvent) => {
         if (event.pointerType !== 'touch') return
-        touches.set(event.pointerId, { x: event.pageX, y: event.pageY })
+        touches.set(event.pointerId, { x: event.clientX, y: event.clientY })
         pinchSpan = touchSpan()
     }
     const pinchMove = (event: PointerEvent) => {
         if (!touches.has(event.pointerId)) return
-        touches.set(event.pointerId, { x: event.pageX, y: event.pageY })
+        touches.set(event.pointerId, { x: event.clientX, y: event.clientY })
         const span = touchSpan()
-        if (touches.size === 2 && pinchSpan && span !== pinchSpan) markZoom(span > pinchSpan)
+        if (touches.size === 2 && pinchSpan && span !== pinchSpan) {
+            const [a, b] = [...touches.values()]
+            beginZoom(span > pinchSpan, (a!.x + b!.x) / 2, (a!.y + b!.y) / 2)
+        }
         pinchSpan = span
     }
     const pinchUp = (event: PointerEvent) => {
@@ -131,21 +160,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     canvasEl.addEventListener('pointermove', pinchMove, { capture: true, passive: true })
     canvasEl.addEventListener('pointerup', pinchUp, { capture: true, passive: true })
     canvasEl.addEventListener('pointercancel', pinchUp, { capture: true, passive: true })
-    /** controls.update() の後に呼ぶ。引いた分の割合だけ、寄る前の注視点へ視点ごと戻す。 */
-    const settleZoom = (targetBefore: THREE.Vector3, distanceBefore: number) => {
-        if (!zoomed) {
-            if (controls.target.distanceToSquared(targetBefore) > 1e-4) zoomOrigin = null
-            return
-        }
-        zoomed = false
-        const distance = camera.position.distanceTo(controls.target)
-        if (!zoomOrigin || distance <= distanceBefore) return
-        const t = Math.min(1, (distance - distanceBefore) / Math.max(1e-6, zoomOrigin.distance - distanceBefore))
-        const shift = zoomOrigin.target.clone().sub(controls.target).multiplyScalar(t)
-        controls.target.add(shift)
-        camera.position.add(shift)
-        if (t >= 1) zoomOrigin = null
-    }
+    window.addEventListener('wheel', endZoom, { passive: true })
+    window.addEventListener('pointermove', endZoom, { passive: true })
     /** 部隊へのカメラ移動。動いている部隊を追うため、毎フレーム現在の重心へ向けて補間する。 */
     let focus: { at: () => Point | undefined; elapsed: number; target: THREE.Vector3; offset: THREE.Vector3; endOffset: THREE.Vector3 } | null = null
     const FOCUS_DURATION = .9, FOCUS_MAX_DISTANCE = 420
@@ -435,12 +451,16 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         setBackgroundGesture(false)
         renderer.domElement.style.cursor = 'default'
     }
-    const groundPoint = (event: PointerEvent) => {
+    /** 画面上の点（clientX/Y）の下にある地面の点。 */
+    const groundUnder = (x: number, y: number) => {
         const rect = renderer.domElement.getBoundingClientRect()
         camera.updateMatrixWorld()
-        raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1), camera)
-        const ground = raycaster.intersectObjects(world.pickables, true)[0]
-        return ground ? { x: ground.point.x, y: ground.point.z } : { x: -10000, y: -10000 }
+        raycaster.setFromCamera(new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1), camera)
+        return raycaster.intersectObjects(world.pickables, true)[0]?.point
+    }
+    const groundPoint = (event: PointerEvent) => {
+        const ground = groundUnder(event.clientX, event.clientY)
+        return ground ? { x: ground.x, y: ground.z } : { x: -10000, y: -10000 }
     }
     const pointer = (event: PointerEvent) => {
         // Pointer capture targets the wrapper; resolve the banner under the cursor.
@@ -593,9 +613,10 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         }
         controls.enabled = gameStore.status !== 'title'
         updateFocus(delta)
-        const targetBefore = controls.target.clone(), distanceBefore = camera.position.distanceTo(controls.target)
+        const targetBefore = controls.target.clone()
         controls.update()
-        settleZoom(targetBefore, distanceBefore)
+        // パンで注視点が動いたら、引いたときに戻る先を忘れる。
+        if (controls.target.distanceToSquared(targetBefore) > 1e-4) zoomOrigin = null
         // Keep the camera above hills when orbiting close to the terrain.
         const groundBelowCamera = world.field.heightAt(camera.position.x, camera.position.z)
         if (camera.position.y < groundBelowCamera + 12) {
@@ -727,6 +748,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         canvasEl.removeEventListener('pointermove', pinchMove, true)
         canvasEl.removeEventListener('pointerup', pinchUp, true)
         canvasEl.removeEventListener('pointercancel', pinchUp, true)
+        window.removeEventListener('wheel', endZoom)
+        window.removeEventListener('pointermove', endZoom)
         canvasEl.removeEventListener('wheel', cancelFocus, true)
         controls.dispose()
         camps.forEach(c => { c.camp.destroy(); c.label.remove() })
