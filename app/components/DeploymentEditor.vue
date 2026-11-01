@@ -74,14 +74,14 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
       <div class="deploy-group">
         <span class="deploy-label">プリセット</span>
         <div class="deploy-buttons">
-          <button v-for="preset in DEPLOYMENT_PRESETS" :key="preset.key" :title="preset.description" @click="applyPreset(preset.key)">{{ preset.name }}<small>{{ preset.description }}</small></button>
+          <button class="wood-control" v-for="preset in DEPLOYMENT_PRESETS" :key="preset.key" :title="preset.description" @click="applyPreset(preset.key)">{{ preset.name }}<small>{{ preset.description }}</small></button>
         </div>
       </div>
 
       <div class="deploy-group">
         <span class="deploy-label">開戦時の陣</span>
         <div class="deploy-buttons formations" role="radiogroup" aria-label="開戦時の陣">
-          <button v-for="f in FORMATIONS" :key="f.type" role="radio" :aria-checked="draft.formation === f.type" :class="{ active: draft.formation === f.type }" :title="f.description" @click="draft.formation = f.type">{{ f.name }}</button>
+          <button class="wood-control" v-for="f in FORMATIONS" :key="f.type" role="radio" :aria-checked="draft.formation === f.type" :class="{ active: draft.formation === f.type }" :title="f.description" @click="draft.formation = f.type"><span class="control-check" aria-hidden="true">✓</span>{{ f.name }}</button>
         </div>
         <p class="deploy-note">{{ FORMATIONS.find(f => f.type === draft.formation)!.description }}</p>
       </div>
@@ -89,7 +89,7 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
       <div class="deploy-group">
         <span class="deploy-label">中隊を組む（兵種を混ぜてよい · 1中隊{{ COMPANY_MAX_SQUADS }}小隊まで）</span>
         <div class="deploy-buttons templates">
-          <button v-for="t in COMPANY_TEMPLATES" :key="t.key" :title="t.description" :disabled="room < SQUAD_SIZE_MIN || companies.length >= PLANNED_COMPANIES_MAX" @click="addCompany(t.types)">
+          <button class="wood-control" v-for="t in COMPANY_TEMPLATES" :key="t.key" :title="t.description" :disabled="room < SQUAD_SIZE_MIN || companies.length >= PLANNED_COMPANIES_MAX" @click="addCompany(t.types)">
             ＋ {{ t.name }}<small>{{ t.types.map(type => TYPE_MARK[type]).join('・') }}</small>
           </button>
         </div>
@@ -99,20 +99,20 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
               <span>第{{ n + 1 }}中隊</span>
               <small>{{ c.squads.map(sq => TYPE_MARK[sq.type]).join('・') }} · {{ companyTotal(c.squads) }}人</small>
               <span class="company-actions">
-                <button class="add" :aria-label="`第${n + 1}中隊を外す`" @click="removeCompany(c.company)">×</button>
+                <button class="wood-control add" :aria-label="`第${n + 1}中隊を外す`" @click="removeCompany(c.company)">×</button>
               </span>
             </div>
             <div class="squads">
               <div v-for="sq in c.squads" :key="sq.index" class="squad-chip">
                 <span class="squad-no">{{ unitNames[sq.type] }}</span>
-                <button :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${SQUAD_SIZE_STEP}人減らす`" :disabled="sq.size <= SQUAD_SIZE_MIN" @click="step(sq.index, -SQUAD_SIZE_STEP)">−</button>
-                <input type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(sq.type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}の人数`"
+                <button class="wood-control" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${SQUAD_SIZE_STEP}人減らす`" :disabled="sq.size <= SQUAD_SIZE_MIN" @click="step(sq.index, -SQUAD_SIZE_STEP)">−</button>
+                <input class="metal-input" type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(sq.type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}の人数`"
                   @change="setSize(sq.index, Number(($event.target as HTMLInputElement).value)); ($event.target as HTMLInputElement).value = String(draft.squads[sq.index]!.size)">
-                <button :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(sq.type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
-                <button class="remove" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を外す`" @click="removeSquad(sq.index)">×</button>
+                <button class="wood-control" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(sq.type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
+                <button class="wood-control remove" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を外す`" @click="removeSquad(sq.index)">×</button>
               </div>
               <span class="add-types">
-                <button v-for="type in UNIT_TYPES.filter(joinsCompany)" :key="type" :disabled="!canAddTo(c.company, type)" :title="`${unitNames[type]}の小隊を加える`" :aria-label="`第${n + 1}中隊に${unitNames[type]}の小隊を加える`" @click="addSquad(type, c.company)">＋{{ TYPE_MARK[type] }}</button>
+                <button class="wood-control" v-for="type in UNIT_TYPES.filter(joinsCompany)" :key="type" :disabled="!canAddTo(c.company, type)" :title="`${unitNames[type]}の小隊を加える`" :aria-label="`第${n + 1}中隊に${unitNames[type]}の小隊を加える`" @click="addSquad(type, c.company)">＋{{ TYPE_MARK[type] }}</button>
               </span>
             </div>
           </li>
@@ -127,16 +127,16 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
             <div class="type-head">
               <span>{{ unitNames[type] }}</span>
               <small>{{ autoSquadsOf(type).length }}小隊 · {{ typeTotal(type) }}人</small>
-              <button class="add" :disabled="!canAdd(type)" :aria-label="`${unitNames[type]}の小隊を加える`" @click="addSquad(type)">＋ 小隊</button>
+              <button class="wood-control add" :disabled="!canAdd(type)" :aria-label="`${unitNames[type]}の小隊を加える`" @click="addSquad(type)">＋ 小隊</button>
             </div>
             <div class="squads">
               <div v-for="(sq, n) in autoSquadsOf(type)" :key="sq.index" class="squad-chip">
                 <span class="squad-no">第{{ n + 1 }}</span>
-                <button :aria-label="`第${n + 1}${unitNames[type]}小隊を${SQUAD_SIZE_STEP}人減らす`" :disabled="sq.size <= SQUAD_SIZE_MIN" @click="step(sq.index, -SQUAD_SIZE_STEP)">−</button>
-                <input type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}${unitNames[type]}小隊の人数`"
+                <button class="wood-control" :aria-label="`第${n + 1}${unitNames[type]}小隊を${SQUAD_SIZE_STEP}人減らす`" :disabled="sq.size <= SQUAD_SIZE_MIN" @click="step(sq.index, -SQUAD_SIZE_STEP)">−</button>
+                <input class="metal-input" type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}${unitNames[type]}小隊の人数`"
                   @change="setSize(sq.index, Number(($event.target as HTMLInputElement).value)); ($event.target as HTMLInputElement).value = String(draft.squads[sq.index]!.size)">
-                <button :aria-label="`第${n + 1}${unitNames[type]}小隊を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
-                <button class="remove" :aria-label="`第${n + 1}${unitNames[type]}小隊を外す`" @click="removeSquad(sq.index)">×</button>
+                <button class="wood-control" :aria-label="`第${n + 1}${unitNames[type]}小隊を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
+                <button class="wood-control remove" :aria-label="`第${n + 1}${unitNames[type]}小隊を外す`" @click="removeSquad(sq.index)">×</button>
               </div>
             </div>
           </li>
@@ -152,8 +152,8 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
           <template v-else><dt>増援</dt><dd class="warn">なし<small v-if="pool > deployed">（残り{{ pool - deployed }}人は戦場に出ません）</small></dd></template>
         </dl>
         <div class="deploy-actions">
-          <button class="secondary" @click="emit('close')">戻る</button>
-          <button :disabled="!draft.squads.length" @click="save">開戦する →</button>
+          <button class="wood-control secondary" @click="emit('close')">戻る</button>
+          <button class="wood-control wood-primary" :disabled="!draft.squads.length" @click="save">開戦する →</button>
         </div>
       </footer>
     </section>
@@ -169,14 +169,11 @@ h2 { margin: 0; font: 400 22px Georgia, serif; letter-spacing: .1em; color: #352
 .deploy-group { margin-bottom: 16px; }
 .deploy-label { display: block; margin-bottom: 6px; font-size: 11px; letter-spacing: .14em; color: #70502d; }
 .deploy-note { margin: 6px 0 0; font-size: 11px; color: #6c5741; }
-button { margin: 0; padding: 6px 12px; font-size: 12px; background: #dec49a; border: 1px solid #a27b49; border-radius: 3px; color: #39291d; cursor: pointer; }
-button:hover:not(:disabled) { border-color: #815a30; }
-button:disabled { opacity: .4; cursor: default; }
-button.active { border-color: #815a30; background: #c5a16a; color: #352315; }
+button { margin: 0; padding: 6px 12px; font-size: 12px; cursor: pointer; }
 .deploy-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .deploy-buttons button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.deploy-buttons small { font-size: 10px; color: #6c5741; }
-.deploy-buttons.formations button { min-width: 56px; align-items: center; }
+.deploy-buttons small { font-size: 10px; }
+.deploy-buttons.formations button { min-width: 64px; flex-direction: row; align-items: center; justify-content: center; gap: 5px; }
 .deploy-types { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .deploy-types li { padding: 8px 10px; background: #ead2a5; border: 1px solid #af8b5659; border-radius: 4px; }
 .type-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
@@ -192,9 +189,10 @@ button.active { border-color: #815a30; background: #c5a16a; color: #352315; }
 .squads:empty { display: none; }
 .squad-chip { display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #e0c394; border: 1px solid #a27b4970; border-radius: 3px; font-size: 11px; }
 .squad-no { margin: 0 4px 0 2px; color: #6c5741; }
-.squad-chip button { padding: 1px 6px; font-size: 12px; line-height: 1.2; }
-.squad-chip .remove { margin-left: 2px; background: transparent; border-color: transparent; color: #6c5741; }
-.squad-chip input { width: 42px; padding: 2px; background: #ead2a5; color: #352315; border: 1px solid #a27b4970; border-radius: 2px; text-align: center; font: 12px system-ui; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.squad-chip button { min-width: 24px; min-height: 24px; padding: 1px 5px; font-size: 12px; line-height: 1.2; }
+.squad-chip button::after, .add-types button::after { display: none; }
+.squad-chip .remove { margin-left: 2px; }
+.squad-chip input { width: 42px; min-height: 24px; padding: 2px; text-align: center; font: 12px system-ui; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
 .squad-chip input::-webkit-inner-spin-button, .squad-chip input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 footer { position: sticky; bottom: -8px; margin: 0 -12px -8px; padding: 12px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; background: #eed8af; border-top: 1px solid #af8b5659; }
 .deploy-totals { display: grid; grid-template-columns: auto auto; gap: 3px 14px; margin: 0; font-size: 12px; }
@@ -204,7 +202,5 @@ footer { position: sticky; bottom: -8px; margin: 0 -12px -8px; padding: 12px; di
 .deploy-totals .warn { color: #955016; }
 .deploy-actions { display: flex; gap: 8px; }
 .deploy-actions button { padding: 9px 22px; font-size: 13px; letter-spacing: .1em; }
-.deploy-actions button:not(.secondary) { border-color: #815a30; color: #352315; }
-.deploy-actions .secondary { background: transparent; }
 @media (max-width: 550px) { .deploy-dock { top: 84px; right: 16px; bottom: 16px; } .deploy-panel { padding: 8px; } footer { bottom: -8px; margin: 0 -8px -8px; padding: 10px 8px; } .deploy-buttons small { display: none; } }
 </style>

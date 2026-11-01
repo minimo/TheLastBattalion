@@ -103,10 +103,10 @@ const squadStatus = (squad: SquadSummary) => {
       <p v-if="!groups.length && !loose.length" class="empty">部隊がいません</p>
       <p v-else class="battalion">大隊 · {{ groups.length }}中隊{{ loose.length ? ` · ${loose.length}小隊` : '' }} · {{ total }}人</p>
       <section v-for="group in groups" :key="group.company.id">
-        <div class="group-head" :class="{ selected: group.company.id === selectedCompanyId }">
+        <div class="group-head wood-control" :class="{ selected: group.company.id === selectedCompanyId }">
           <button class="caret" :aria-expanded="expanded.has(group.company.id)" :aria-label="`${companyName(group.company)}の小隊を${expanded.has(group.company.id) ? '閉じる' : '開く'}`" @click="toggle(group.company.id)">{{ expanded.has(group.company.id) ? '▾' : '▸' }}</button>
-          <button class="company-name" :aria-label="`${companyName(group.company)}（${companyTypes(group.company)}） ${group.company.count}人を選ぶ`" @click="emit('focusCompany', group.company.id)">
-            <span>{{ companyName(group.company) }}</span><small>{{ companyTypes(group.company) }}</small>
+          <button class="company-name" :aria-pressed="group.company.id === selectedCompanyId" :aria-label="`${companyName(group.company)}（${companyTypes(group.company)}） ${group.company.count}人を選ぶ`" @click="emit('focusCompany', group.company.id)">
+            <span><span class="control-check" aria-hidden="true">✓</span> {{ companyName(group.company) }}</span><small>{{ companyTypes(group.company) }}</small>
             <span v-if="group.squads.some(squadNeedsCare)" class="care" title="矢・体力・補給が心もとない小隊がいます">⚠</span>
             <b>{{ group.squads.length }}小隊 · {{ group.company.count }}</b>
           </button>
@@ -124,8 +124,8 @@ const squadStatus = (squad: SquadSummary) => {
         <p class="loose-head">中隊に入らない小隊</p>
         <ul>
           <li v-for="squad in loose" :key="squad.id">
-            <button class="squad-row loose" :class="{ selected: squad.id === selectedId }" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}を選ぶ`" @click="emit('focus', squad.id)">
-              <span>{{ squadName(squad) }}</span><span class="order" :class="{ low: squadNeedsCare(squad) }">{{ squadStatus(squad) }}</span><b>{{ squad.count }}</b>
+            <button class="squad-row loose wood-control" :class="{ selected: squad.id === selectedId }" :aria-pressed="squad.id === selectedId" :aria-label="`${squadName(squad)} ${squad.count}人 ${ORDER_NAME[squad.order]}を選ぶ`" @click="emit('focus', squad.id)">
+              <span><span class="control-check" aria-hidden="true">✓</span> {{ squadName(squad) }}</span><span class="order" :class="{ low: squadNeedsCare(squad) }">{{ squadStatus(squad) }}</span><b>{{ squad.count }}</b>
             </button>
           </li>
         </ul>
@@ -163,14 +163,13 @@ const squadStatus = (squad: SquadSummary) => {
 .card-parent { align-self: flex-start; margin: 0; padding: 0; background: none; border: 0; color: #705940; font-size: 10px; cursor: pointer; }
 .card-parent:hover { color: #805522; transform: none; }
 .card-squads { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 140px; overflow-y: auto; overflow-x: hidden; }
-.company-name, .caret, .squad-row { margin: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: #4e3b29; cursor: pointer; text-align: left; }
+.company-name, .caret, .squad-row { margin: 0; cursor: pointer; text-align: left; }
+.company-name, .caret, .squad-row:not(.wood-control) { background: transparent; border: 1px solid transparent; border-radius: 4px; color: #4e3b29; }
 .squad-row { cursor: default; }
 .squad-row.loose { cursor: pointer; }
-.squad-row.loose:hover { border-color: #936b3b; transform: none; }
 .loose-head { margin: 6px 0 2px; padding: 0 8px; font-size: 10px; color: #705940; }
 .squad-row { width: 100%; box-sizing: border-box; }
-.group-head { display: flex; align-items: center; gap: 2px; border: 1px solid transparent; border-radius: 4px; }
-.group-head.selected { border-color: #805522; }
+.group-head { display: flex; align-items: center; gap: 2px; margin-bottom: 4px; }
 .company-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; padding: 6px 8px 6px 2px; font-size: 12px; }
 .company-name small { font-size: 10px; color: #705940; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .company-name b { margin-left: auto; font-weight: 400; font-size: 11px; color: #274d7b; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -181,10 +180,19 @@ const squadStatus = (squad: SquadSummary) => {
 .squad-row > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .squad-row .order { white-space: nowrap; }
 .company-name:hover, .caret:hover { border-color: #936b3b; transform: none; }
-.squad-row.selected { border-color: #805522; color: #352315; }
 .squad-row .order { color: #705940; }
 .squad-row .order.low { color: #955016; }
 .squad-row b { text-align: right; color: #274d7b; font-weight: 500; font-variant-numeric: tabular-nums; }
+/* Only interactive rows are wooden; subordinate status text stays on the paper. */
+.group-head .company-name, .group-head .caret { color: #f2e0ba; text-shadow: 0 1px 2px #000; }
+.group-head .company-name { gap: 3px; padding-block: 8px; }
+.group-head .company-name > span:first-child { white-space: nowrap; }
+.group-head .company-name small { color: #d6bf98; }
+.group-head .company-name b, .squad-row.wood-control b { color: #b4d5ff; }
+.group-head .care, .squad-row.wood-control .order.low { color: #ffd073; }
+.squad-row.wood-control .order { color: #dbc49e; }
+.squad-row.wood-control { padding-block: 7px; }
+.group-head .caret { flex: none; width: 18px; padding-left: 3px; }
 @media (max-width: 900px) { .squad-panel { top: 100px; left: 10px; width: 200px; } }
 @media (max-width: 550px) { .squad-panel { width: calc(100% - 20px); max-width: 260px; bottom: 170px; } }
 </style>

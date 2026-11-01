@@ -19,13 +19,13 @@ const copySeed = async () => {
   <section class="battle-menu parchment-window parchment-scroll" role="dialog" aria-label="メニュー">
     <header>
       <h2>THE LAST BATTALION</h2>
-      <button class="close" aria-label="メニューを閉じる" @click="emit('close')">×</button>
+      <button class="close wood-control" aria-label="メニューを閉じる" @click="emit('close')">×</button>
     </header>
 
     <div class="menu-group">
       <span class="menu-label">戦場</span>
       <p>{{ modeName }} · {{ mapName }}</p>
-      <p class="seed">SEED <code>{{ gameStore.seed }}</code><button class="small" @click="copySeed">{{ copied ? 'コピーしました' : 'コピー' }}</button></p>
+      <p class="seed">SEED <code>{{ gameStore.seed }}</code><button class="small wood-control" @click="copySeed">{{ copied ? 'コピーしました' : 'コピー' }}</button></p>
     </div>
 
     <div class="menu-group">
@@ -62,7 +62,7 @@ const copySeed = async () => {
       </dl>
     </div>
 
-    <button class="title" @click="emit('title')">タイトルへ戻る</button>
+    <button class="title wood-control" @click="emit('title')">タイトルへ戻る</button>
   </section>
 </template>
 
@@ -71,14 +71,13 @@ const copySeed = async () => {
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 h2 { margin: 0; font: 400 15px Georgia, serif; letter-spacing: .14em; color: #352315; }
 button { margin: 0; cursor: pointer; font: inherit; }
-.close { padding: 0 6px; font-size: 18px; background: none; border: 0; color: #6c5741; }
+.close { flex: none; min-width: 30px; min-height: 30px; padding: 0 6px; font-size: 18px; }
 .menu-group { padding: 10px 0; border-top: 1px solid #af8b5659; }
 .menu-label { display: block; margin-bottom: 6px; font-size: 10px; letter-spacing: .16em; color: #70502d; }
 p { margin: 0 0 4px; color: #4e3b29; }
-.seed { display: flex; align-items: center; gap: 8px; }
-code { font: 12px monospace; color: #352315; letter-spacing: .06em; }
-.small { margin-left: auto; padding: 3px 10px; font-size: 11px; background: #dec49a; border: 1px solid #a27b49; border-radius: 3px; color: #39291d; }
-.small:hover { border-color: #815a30; }
+.seed { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+code { overflow-wrap: anywhere; min-width: 0; font: 12px monospace; color: #352315; letter-spacing: .06em; }
+.small { margin-left: auto; padding: 3px 10px; font-size: 11px; white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: 2px 4px; font-weight: 400; text-align: right; }
 th:first-child { text-align: left; color: #6c5741; }
@@ -90,7 +89,6 @@ thead th.cpu { color: #943c2b; }
 .help { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 11px; }
 .help dt { color: #684521; white-space: nowrap; }
 .help dd { margin: 0; color: #59432e; }
-.title { width: 100%; margin-top: 6px; padding: 9px; background: transparent; border: 1px solid #a27b49; border-radius: 4px; color: #432d1a; letter-spacing: .12em; }
-.title:hover { border-color: #815a30; }
+.title { width: 100%; margin-top: 6px; padding: 9px; letter-spacing: .12em; }
 @media (max-width: 550px) { .battle-menu { right: 8px; left: 8px; width: auto; bottom: 110px; max-height: calc(100% - 200px); } .help { grid-template-columns: 1fr; } }
 </style>

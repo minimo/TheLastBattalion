@@ -1,3 +1,12 @@
+/* Shared grain and lighting for every wooden UI surface. */
+:root {
+  --ui-wood-grain: url('/images/ui/command-walnut.png');
+  --ui-wood-light: linear-gradient(#f7bd6e18, transparent 45%, #26110518);
+  --ui-wood-size: 640px auto;
+  --ui-wood-base: #593417;
+  --ui-wood-surface: var(--ui-wood-light), var(--ui-wood-grain) center / var(--ui-wood-size);
+}
+
 /* Slice the artwork so edges retain their thickness as window content changes. */
 .parchment-window {
   border: solid transparent;
@@ -22,6 +31,57 @@
 }
 .parchment-window::-webkit-scrollbar-thumb { background: #9a7748; }
 .parchment-window::-webkit-scrollbar-track { background: #ead4ac; }
+
+/* Walnut plaques on paper: stable dimensions, beveled metal, and corner pins. */
+.parchment-window .wood-control {
+  position: relative;
+  box-sizing: border-box;
+  border: 2px solid #9c835d;
+  border-top-color: #d6c29a;
+  border-bottom-color: #675033;
+  border-radius: 4px;
+  /* Larger grain and a warm screen blend keep the wood visible on small buttons. */
+  background: var(--ui-wood-surface);
+  background-color: var(--ui-wood-base);
+  background-blend-mode: normal, screen;
+  box-shadow: inset 0 0 0 1px #382312, inset 0 0 0 2px #d8ad6e55, inset 0 3px 5px #f6c57c22, inset 0 -3px 5px #24100655, 0 2px 3px #50331b40;
+  color: #f2e0ba;
+  text-shadow: 0 1px 2px #160a03, 0 0 3px #160a0366;
+}
+.parchment-window .wood-control::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  background: radial-gradient(circle at 2px 2px, #ecd8a4 0 1px, #74562b 1.5px 2px, transparent 2.5px) top left,
+    radial-gradient(circle at 2px 2px, #ecd8a4 0 1px, #74562b 1.5px 2px, transparent 2.5px) top right,
+    radial-gradient(circle at 2px 2px, #ecd8a4 0 1px, #74562b 1.5px 2px, transparent 2.5px) bottom left,
+    radial-gradient(circle at 2px 2px, #ecd8a4 0 1px, #74562b 1.5px 2px, transparent 2.5px) bottom right;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+.parchment-window .wood-control small { color: #f0d9b2; text-shadow: 0 1px 2px #160a03; }
+.parchment-window button.wood-control:hover:not(:disabled) { filter: brightness(1.13); transform: none; }
+.parchment-window .wood-control:is(.active, .selected, .wood-primary) {
+  border-color: #d1a34f;
+  border-top-color: #ffe3a0;
+  border-bottom-color: #8a5b27;
+  box-shadow: inset 0 0 0 1px #4a2c11, inset 0 0 0 3px #c99a49, inset 0 0 0 4px #efd08b66, 0 2px 4px #50331b66;
+  color: #fff0c8;
+}
+.parchment-window .wood-control:disabled { opacity: .45; filter: saturate(.35); cursor: not-allowed; text-shadow: none; }
+.parchment-window .control-check { visibility: hidden; flex: none; color: #ffe19a; font-weight: 700; }
+.parchment-window :is(.active, .selected) .control-check { visibility: visible; }
+.parchment-window .metal-input {
+  box-sizing: border-box;
+  border: 2px solid #b38a49;
+  border-top-color: #8d682f;
+  border-bottom-color: #dfbf7a;
+  border-radius: 3px;
+  background: linear-gradient(#fff4d744, #d5ad6833), url('/images/ui/parchment-window-small.png') center / 320px auto;
+  color: #352315;
+  box-shadow: inset 0 1px 3px #704d2355, 0 1px 0 #fff3d999;
+}
 
 .modal.parchment-window button {
   background: #75502d;

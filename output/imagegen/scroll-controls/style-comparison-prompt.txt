@@ -1,0 +1,23 @@
+Generator: built-in image_gen
+Output: output/imagegen/scroll-controls/style-comparison.png
+Purpose: design preview only; not applied to the game.
+Reference: public/images/ui/scroll-window-handrolled.png (paper material and rolled ends)
+
+Use case: ui-mockup.
+Asset type: one high-fidelity comparison board showing THREE alternative UI button designs on parchment for a Japanese medieval fantasy tactical game. This is a design preview, not an asset spritesheet.
+Reference image role: parchment material and hand-rolled top/bottom paper edges only. Match its warm ivory parchment and weathered edges, no wooden scroll rods. Do not copy the reference background.
+Composition: large landscape 3:2 canvas, three equally wide front-facing vertical parchment panels side by side on a plain very dark warm charcoal background. Generous clear spacing. All three panels have identical size, identical control positions, identical typography size. Large and legible Japanese labels. No perspective. Refined game UI art, restrained ornament, realistic painted materials, clear hierarchy.
+Above the panels, crisp headers respectively:
+"① 革札＋真鍮留め"
+"② 木札＋金属枠"
+"③ 墨の囲み＋朱印"
+Within EACH panel, identical content from top to bottom:
+- heading "部隊編成" near the top, with a small dark ink close cross in the upper right.
+- small caption "通常" and a full-width button reading "横陣".
+- small caption "選択中" and a full-width button reading "鶴翼" with a clear checkmark indicating the selected state.
+- small caption "人数" and a compact control row: "歩兵" then a minus button, numeric field "70", plus button. The control row must have only one number.
+- near the bottom, small secondary button "戻る" beside a wider primary button "開戦する".
+Panel 1 leather theme: rich dark brown leather plaques with fine restrained stitching and small brass studs at both ends, ivory button lettering. SELECTED button has a thick raised brass molding around all four edges and the checkmark, clearly stronger than the normal button. Small numeric controls are pale parchment recessed wells with brown ink and fine brass edges. Primary button is a substantial leather plaque with brass frame.
+Panel 2 wood theme: dark walnut wood plaques with horizontal grain, thin antique metal borders, pale warm lettering. SELECTED button has noticeably thick sculpted golden brass molding, bevel highlights and corner rivets. Small numeric controls use compact wooden keys and a light parchment number well. Primary button is dark walnut and raised brass.
+Panel 3 ink theme: flat controls drawn directly onto the paper with neat thin dark brown ink frames, dark readable lettering. SELECTED button uses a double vermilion-red ink frame plus a small rectangular red seal containing a simple checkmark (no elaborate illegible seal writing), not an underline. Number controls use simple fine ink boxes. Primary button uses a stronger vermilion outline and dark red text, still flat on paper.
+Important: visually distinguish leather vs wood vs flat ink. Keep the whole parchment bright enough for text. Readable clean Japanese type, never decorative pseudo-writing. Natural subdued materials, no glowing magic, no gems, no weapons, no characters, no extra labels, no extra buttons, no device chrome, no watermark. All scrolls fully inside the image. Equal visual scale across all options.
