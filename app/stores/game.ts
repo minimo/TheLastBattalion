@@ -9,9 +9,10 @@ import {
     type ArmyOrder, type Battle, type CompanyOrder,
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
+import { createGuidelineDirector, markCommanded, setGuideline, type GuidelineDirector } from '~/game/squadGuidelines'
 import { defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
 import { START_TIME_MINUTES } from '~/game/daynight'
-import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, FormationType, GameStatus, MapType, Point, SquadOrder, StartTime, UnitType } from '~/types/game'
+import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, Directive, FormationType, GameStatus, Guideline, MapType, Point, SquadOrder, StartTime, UnitType } from '~/types/game'
 
 /** 1倍速のときの実時間に対するゲーム内時間の倍率。 */
 const BASE_TIME_SCALE = .5
@@ -55,6 +56,9 @@ export interface SquadSummary {
     maxSupplies: number
     /** 建てている（壊しに行く・占領している）建設物の種類と、建設の進み具合（0〜100）・耐久の割合（0〜100）・占領の進み具合（0〜100）。 */
     construction: { kind: ConstructionKind; progress: number; hp: number; complete: boolean; occupation: number } | null
+    /** 行動と、命令で動いているか（中隊に入らない小隊だけが使う。中隊の小隊は中隊の行動に従う）。 */
+    guideline: Guideline
+    directive: Directive
 }
 
 export interface CompanySummary {
@@ -66,6 +70,8 @@ export interface CompanySummary {
     types: UnitType[]
     count: number
     size: number
+    guideline: Guideline
+    directive: Directive
 }
 
 /** 中隊への指示（地点・敵の小隊・敵の中隊・建設物と、まとめて出す指示）。 */
@@ -91,6 +97,8 @@ export const useGameStore = defineStore('game', {
         mapGrid: markRaw([]) as number[][],
         battle: null as Battle | null,
         commander: null as CpuCommander | null,
+        /** 人間軍の部隊を行動に沿って動かす。 */
+        director: null as GuidelineDirector | null,
         dayTime: 360,
         status: 'title' as GameStatus,
         seed: '',
@@ -138,6 +146,7 @@ export const useGameStore = defineStore('game', {
             battle.dayTime = START_TIME_MINUTES[this.startTime]
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))
+            this.director = markRaw(createGuidelineDirector(battle, 'player'))
             this.dayTime = battle.dayTime
             this.pendingTime = 0
             this.isGameOver = false
@@ -203,6 +212,7 @@ export const useGameStore = defineStore('game', {
                     id: sq.id, owner: sq.owner, type: sq.type, number: sq.number, companyId: sq.companyId, count: sq.count, size: sq.size, order: sq.order, arrows: Math.floor(sq.arrows), maxArrows: sq.maxArrows,
                     stamina: Math.round(sq.stamina), supplies: sq.supplies, maxSupplies: sq.maxSupplies,
                     construction: site ? { kind: site.kind, progress: Math.floor(site.progress * 100), hp: Math.round(site.hp / site.maxHp * 100), complete: site.complete, occupation: Math.floor(site.occupation * 100) } : null,
+                    guideline: sq.guidance.guideline, directive: sq.guidance.directive,
                 }
             })
             const squadById = new Map(this.squads.map(sq => [sq.id, sq]))
@@ -212,6 +222,7 @@ export const useGameStore = defineStore('game', {
                 return {
                     id: c.id, owner: c.owner, number: c.number, squadIds: squads.map(sq => sq.id), types: UNIT_TYPES.filter(t => types.has(t)),
                     count: squads.reduce((sum, sq) => sum + sq.count, 0), size: squads.reduce((sum, sq) => sum + sq.size, 0),
+                    guideline: c.guidance.guideline, directive: c.guidance.directive,
                 }
             })
             this.formation = battle.formations.player.type
@@ -234,6 +245,7 @@ export const useGameStore = defineStore('game', {
             else if (order === 'formation') orderFormation(battle, squadId)
             else if (order === 'resupply') orderResupply(battle, squadId)
             else if (order === 'support') orderSupport(battle, squadId, options.targetSquadId)
+            markCommanded(battle, { squadId }, order === 'hold' ? 'wait' : 'order')
             // 小隊に個別の指示を出したら、中隊は足並みをそろえるのをやめる（小隊は中隊の範囲の中で動く）。
             const company = battle.companyById.get(battle.squadById.get(squadId)!.companyId)
             if (company) company.together = false
@@ -249,6 +261,7 @@ export const useGameStore = defineStore('game', {
             else if (order === 'attack') orderCompanyAttack(battle, companyId, { squadId: command.targetSquadId, companyId: command.targetCompanyId })
             else if (order === 'demolish') { if (command.constructionId !== undefined) orderCompanyDemolish(battle, companyId, command.constructionId) }
             else orderCompany(battle, companyId, order)
+            markCommanded(battle, { companyId }, order === 'hold' ? 'wait' : 'order')
             this.refresh()
         },
 
@@ -258,6 +271,7 @@ export const useGameStore = defineStore('game', {
             const squad = battle?.squadById.get(squadId)
             if (!battle || squad?.owner !== 'player' || battle.companyById.has(squad.companyId) || this.isGameOver) return false
             const placed = orderConstruct(battle, squadId, kind, point, axis)
+            if (placed) markCommanded(battle, { squadId }, 'order')
             this.refresh()
             return placed
         },
@@ -265,12 +279,25 @@ export const useGameStore = defineStore('game', {
         setFormation(type: FormationType): void {
             if (!this.battle || this.isGameOver) return
             setFormation(this.battle, 'player', type)
+            markCommanded(this.battle, { army: 'player' }, 'order')
             this.refresh()
         },
 
         orderArmy(order: ArmyOrder): void {
             if (!this.battle || this.isGameOver) return
             orderArmy(this.battle, 'player', order)
+            markCommanded(this.battle, { army: 'player' }, order === 'hold' ? 'wait' : 'order')
+            this.refresh()
+        },
+
+        /** 自軍の中隊（companyId）か、中隊に入らない小隊（squadId）の行動を変える。 */
+        setGuideline(target: { companyId: number } | { squadId: number }, guideline: Guideline): void {
+            const battle = this.battle
+            if (!battle || this.isGameOver) return
+            const guidance = 'companyId' in target ? battle.companyById.get(target.companyId)?.guidance : battle.squadById.get(target.squadId)?.guidance
+            const owner = 'companyId' in target ? battle.companyById.get(target.companyId)?.owner : battle.squadById.get(target.squadId)?.owner
+            if (!guidance || owner !== 'player') return
+            setGuideline(guidance, guideline)
             this.refresh()
         },
 
@@ -301,6 +328,7 @@ export const useGameStore = defineStore('game', {
             if (this.status !== 'playing' || !battle) return
             updateBattle(battle, deltaSeconds)
             this.commander?.update(deltaSeconds)
+            this.director?.update(deltaSeconds)
             this.dayTime = battle.dayTime
             if (battle.winner) {
                 this.refresh()

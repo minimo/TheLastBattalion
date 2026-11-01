@@ -8,7 +8,8 @@ import { CASTLE_CORE_RADIUS } from './castleLayout'
 import { createSpatialHash } from './spatialHash'
 import { createPathService } from './pathService'
 import { axes, COMPANY_MAX_SQUADS, groupCompanies, joinsCompany, layoutCompany, layoutFormationWithCompanies, slotOffset, squadBlock, SQUAD_SIZE, toWorld, type FormationMember } from './formation'
-import { armyPool, defaultDeployment, defenderOf, deployedCount, normalizeDeployment, plannedCompanies, type DeploymentPlan } from './deployment'
+import { armyPool, defaultDeployment, defenderOf, deployedCount, normalizeDeployment, plannedCompanies, plannedGuideline, type DeploymentPlan } from './deployment'
+import { createGuidance, defaultGuideline } from './guidelines'
 import {
     ARMY_CAP, ARROW_AIM, ARROW_ARC, COHESION, FOLLOW, ARROW_COVER, ARROW_SPEED, CHARGE_MULTIPLIER, CHARGE_RUN_TIME, CORPSE_SECONDS, DAY_MINUTES_PER_SECOND, FORT_ASSAULT_RANGE,
     FORT_HP, fortVicinityOf, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
@@ -392,7 +393,7 @@ function createSquad(battle: Battle, owner: Army, type: UnitType, size: number, 
         anchor: { ...formation.anchor }, facing: formation.facing, goalKey: '', targetSquadId: -1,
         center: { ...formation.anchor }, count: 0, size, leaderId: -1, arrows: 0, maxArrows: 0, resume: null,
         stamina: STAMINA.max, supplies: type === 'supply' ? SUPPLY_CHARGES : 0, maxSupplies: type === 'supply' ? SUPPLY_CHARGES : 0, servingId: -1,
-        constructionId: -1, depotId: -1, march: null, arriving: false,
+        constructionId: -1, depotId: -1, march: null, arriving: false, guidance: createGuidance(defaultGuideline([{ type, size }])),
     }
     battle.squads.push(squad)
     battle.squadById.set(squad.id, squad)
@@ -405,7 +406,8 @@ function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
     battle.formations[owner].type = plan.formation
     const created = plan.squads.map(({ type, size }) => createSquad(battle, owner, type, size, 'formation'))
     // 編成で組んだ中隊を作り、残りの小隊は陣で隣り合う同じ兵種の小隊と中隊にまとめる（工兵と補給兵は中隊に入れない）。
-    for (const { indices } of plannedCompanies(plan)) createCompany(battle, owner, indices.map(i => created[i]!), true)
+    for (const { indices } of plannedCompanies(plan)) createCompany(battle, owner, indices.map(i => created[i]!), true).guidance.guideline = plannedGuideline(plan, indices)
+    created.forEach((squad, i) => { squad.guidance.guideline = plannedGuideline(plan, [i]) })
     const rest = created.filter(sq => sq.companyId < 0 && joinsCompany(sq.type))
     const layout = layoutWithCompanies(battle, battle.formations[owner].type, created, true)
     for (const ids of groupCompanies(rest.map(memberOf), layout)) createCompany(battle, owner, ids.map(id => battle.squadById.get(id)!))
@@ -456,7 +458,10 @@ function layoutWithCompanies(battle: Battle, type: FormationType, squads: Squad[
 }
 
 function createCompany(battle: Battle, owner: Army, squads: Squad[], planned = false): Company {
-    const company: Company = { id: battle.nextCompanyId++, owner, number: ++battle.companyNumbers[owner], squadIds: squads.map(sq => sq.id), planned, together: false, leaderSquadId: -1, layout: {} }
+    const company: Company = {
+        id: battle.nextCompanyId++, owner, number: ++battle.companyNumbers[owner], squadIds: squads.map(sq => sq.id), planned, together: false, leaderSquadId: -1, layout: {},
+        guidance: createGuidance(defaultGuideline(squads)),
+    }
     for (const squad of squads) squad.companyId = company.id
     layoutCompanyOf(battle, company)
     battle.companies.push(company)
@@ -974,18 +979,18 @@ export function nearestCompanySquad(battle: Battle, companyId: number, from: Poi
 }
 
 /**
- * 中隊ごと指定地点へ移動して構える。小隊は中隊の隊形（横陣の並べ方）を組み、地点を中隊長の小隊のまん中にする。向きは進む方向。
+ * 中隊ごと指定地点へ移動して構える。小隊は中隊の隊形（横陣の並べ方）を組み、地点を中隊長の小隊のまん中にする。向きは facing（省略したら進む方向）。
  * 建設中の工兵と補給に当たっている補給部隊・補給中の小隊は今の仕事を続ける。
  */
-export function orderCompanyMove(battle: Battle, companyId: number, point: Point) {
-    const moves = companyMoves(battle, companyId, point)
+export function orderCompanyMove(battle: Battle, companyId: number, point: Point, facing?: number) {
+    const moves = companyMoves(battle, companyId, point, facing)
     if (!moves.size) return
     battle.companyById.get(companyId)!.together = true
     for (const [squad, { point, facing }] of moves) orderMove(battle, squad.id, point, facing)
 }
 
 /** 中隊ごとの移動で、各小隊へ出す移動の指示（行き先の小隊のまん中と向き）。動かない小隊（建設中の工兵など）は含まない。 */
-function companyMoves(battle: Battle, companyId: number, point: Point) {
+function companyMoves(battle: Battle, companyId: number, point: Point, facingOverride?: number) {
     const moves = new Map<Squad, { point: Point; facing: number }>()
     const squads = companySquads(battle, companyId).filter(sq => !worksAtSite(sq.order) && sq.order !== 'resupply' && !(sq.type === 'supply' && sq.order === 'support'))
     if (!squads.length) return moves
@@ -993,7 +998,7 @@ function companyMoves(battle: Battle, companyId: number, point: Point) {
     let cx = 0, cy = 0
     for (const squad of squads) { cx += squad.center.x; cy += squad.center.y }
     cx /= squads.length; cy /= squads.length
-    const facing = Math.hypot(target.x - cx, target.y - cy) > 1 ? Math.atan2(target.x - cx, target.y - cy) : squads[0]!.facing
+    const facing = facingOverride ?? (Math.hypot(target.x - cx, target.y - cy) > 1 ? Math.atan2(target.x - cx, target.y - cy) : squads[0]!.facing)
     const slots = layoutCompany(squads.map(sq => ({ id: sq.id, type: sq.type, size: Math.max(1, sq.count) })))
     // 持ち場は小隊の前列中央なので、小隊のまん中へ直す。
     const middle = (squad: Squad) => {

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useGameStore } from '~/stores/game'
 import { CONSTRUCTION } from '~/game/battleConfig'
+import { GUIDELINES } from '~/game/guidelines'
 import type { CompanySummary, SquadSummary } from '~/stores/game'
 import { ARMY_NAME, ORDER_NAME, TIRED_BELOW, companyName, companyTypes, squadName, squadNeedsCare } from './battleUi'
 
@@ -27,6 +28,8 @@ const toggle = (id: number) => {
 }
 /** 中隊の小隊の指示（全員同じならその指示、ばらばらなら「各自」）。 */
 const companyOrder = (squads: SquadSummary[]) => new Set(squads.map(sq => sq.order)).size === 1 ? ORDER_NAME[squads[0]!.order] : '各自'
+/** 部隊の行動（「待機」で止めていれば、そう添える）。 */
+const guidelineLabel = (unit: { guideline: CompanySummary['guideline']; directive: CompanySummary['directive'] }) => `行動 · ${GUIDELINES[unit.guideline].name}${unit.directive === 'wait' ? '（待機中）' : ''}`
 const percent = (value: number, max: number) => `${Math.max(0, Math.min(100, value / max * 100))}%`
 
 const constructionStatus = (squad: SquadSummary) => {
@@ -63,6 +66,7 @@ const squadStatus = (squad: SquadSummary) => {
         <span class="unit-name" :class="selected.owner">{{ ARMY_NAME[selected.owner] }} · {{ squadName(selected) }}</span>
         <span class="card-order">{{ ORDER_NAME[selected.order] }}</span>
       </div>
+      <span v-if="selected.owner === 'player' && !parentCompany" class="card-types">{{ guidelineLabel(selected) }}</span>
       <button v-if="parentCompany" class="card-parent" :aria-label="`${companyName(parentCompany)}を選ぶ`" @click="emit('focusCompany', parentCompany.id)">{{ companyName(parentCompany) }} · {{ companyTypes(parentCompany) }} ›</button>
       <div class="meter">
         <span>人数</span><div class="bar"><span :style="{ width: percent(selected.count, selected.size) }"></span></div><b>{{ selected.count }}/{{ selected.size }}</b>
@@ -88,6 +92,7 @@ const squadStatus = (squad: SquadSummary) => {
         <span class="card-order">{{ companyOrder(squadsOf(selectedCompany)) }}</span>
       </div>
       <span class="card-types">{{ companyTypes(selectedCompany) }} · {{ selectedCompany.squadIds.length }}小隊</span>
+      <span v-if="selectedCompany.owner === 'player'" class="card-types">{{ guidelineLabel(selectedCompany) }}</span>
       <div class="meter">
         <span>人数</span><div class="bar"><span :style="{ width: percent(selectedCompany.count, selectedCompany.size) }"></span></div><b>{{ selectedCompany.count }}/{{ selectedCompany.size }}</b>
       </div>
@@ -106,7 +111,7 @@ const squadStatus = (squad: SquadSummary) => {
         <div class="group-head wood-control" :class="{ selected: group.company.id === selectedCompanyId }">
           <button class="caret" :aria-expanded="expanded.has(group.company.id)" :aria-label="`${companyName(group.company)}の小隊を${expanded.has(group.company.id) ? '閉じる' : '開く'}`" @click="toggle(group.company.id)">{{ expanded.has(group.company.id) ? '▾' : '▸' }}</button>
           <button class="company-name" :aria-pressed="group.company.id === selectedCompanyId" :aria-label="`${companyName(group.company)}（${companyTypes(group.company)}） ${group.company.count}人を選ぶ`" @click="emit('focusCompany', group.company.id)">
-            <span><span class="control-check" aria-hidden="true">✓</span> {{ companyName(group.company) }}</span><small>{{ companyTypes(group.company) }}</small>
+            <span><span class="control-check" aria-hidden="true">✓</span> {{ companyName(group.company) }}</span><small>{{ companyTypes(group.company) }} · {{ GUIDELINES[group.company.guideline].name }}</small>
             <span v-if="group.squads.some(squadNeedsCare)" class="care" title="矢・体力・補給が心もとない小隊がいます">⚠</span>
             <b>{{ group.squads.length }}小隊 · {{ group.company.count }}</b>
           </button>

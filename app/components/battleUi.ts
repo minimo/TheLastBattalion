@@ -20,7 +20,7 @@ export const squadNeedsCare = (squad: { stamina: number; arrows: number; maxArro
 
 /** public/icons/command/ のアイコン名。 */
 export type CommandIcon = 'army' | 'squads' | 'pause' | 'play' | 'speed' | 'view' | 'menu' | 'charge' | 'hold' | 'formation' | 'retreat'
-  | 'resupply' | 'support' | 'outpost' | 'barricade' | 'bridge' | 'rotate' | 'close'
+  | 'resupply' | 'support' | 'outpost' | 'barricade' | 'bridge' | 'rotate' | 'close' | 'guideline'
 
 export type SquadAction = { key: string; label: string; icon: CommandIcon; order?: SquadOrder; build?: ConstructionKind }
 const BUILD_ACTIONS: SquadAction[] = [

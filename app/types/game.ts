@@ -94,6 +94,24 @@ export type SquadOrder = 'formation' | 'move' | 'hold' | 'attack' | 'charge' | '
 
 export type FormationType = 'line' | 'crane' | 'scale' | 'circle' | 'arrow'
 
+/**
+ * 部隊の行動（人間軍）。命令のないとき、部隊はこれに沿って動く。中隊は中隊ごと、中隊に入らない工兵・補給兵は小隊ごとに持つ。
+ * assault: 攻勢 / guard: 守備 / escort: 援護 / skirmish: 遊撃 / homeGuard: 本陣守備 / fortify: 前線の築城 / repair: 修理 / supply: 自動補給
+ */
+export type Guideline = 'assault' | 'guard' | 'escort' | 'skirmish' | 'homeGuard' | 'fortify' | 'repair' | 'supply'
+
+/** 部隊がプレイヤーの命令で動いているか。none: 行動に沿って動く / order: 命令をやり終えるまで行動の判断は手を出さない / wait: 「待機」で、次の命令まで行動を止める。 */
+export type Directive = 'none' | 'order' | 'wait'
+
+/** 行動に沿って動く部隊（中隊、または中隊に入らない小隊）が持つもの。 */
+export interface Guidance {
+    guideline: Guideline
+    directive: Directive
+    /** 守備で守る地点と向き（最初は陣形の持ち場、移動の命令のあとは着いた地点。まだ決まっていなければnull）。 */
+    guardPoint: Point | null
+    guardFacing: number
+}
+
 /** 小隊（兵種ごとの部隊）。いくつかの小隊で中隊を組む。 */
 export interface Squad {
     id: number
@@ -138,6 +156,8 @@ export interface Squad {
     march: { x: number; y: number; facing: number; moving: boolean } | null
     /** 砦から出た増援が、加わる中隊にまだ着いていないか（着くまでは中隊の小隊どうしの距離の決まりに入らない）。 */
     arriving: boolean
+    /** 行動（中隊に入らない小隊だけが使う。中隊の小隊は中隊の行動に従う）。 */
+    guidance: Guidance
     /** 補給に戻る前の指示（補給が終わったら戻す）。 */
     resume: { order: SquadOrder; anchor: Point; facing: number; targetSquadId: number; constructionId: number } | null
 }
@@ -158,6 +178,8 @@ export interface Company {
     leaderSquadId: number
     /** 中隊の隊形での小隊の持ち場（小隊ID → 前方・右手の位置）。小隊どうしが離れてよい距離の元になる。組んだとき・加わったときに決める。 */
     layout: Record<number, { forward: number; lateral: number }>
+    /** 行動。 */
+    guidance: Guidance
 }
 
 /** 工兵が建てる建設物。outpost: 拠点（補給できる小さな陣地） / barricade: バリケード / bridge: 橋 */

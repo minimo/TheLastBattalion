@@ -2,10 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import { COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, SQUAD_SIZE } from '~/game/formation'
 import {
-  armyPool, COMPANY_TEMPLATES, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, plannedCompanies, PLANNED_COMPANIES_MAX, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP,
+  armyPool, COMPANY_TEMPLATES, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, plannedCompanies, plannedGuideline, PLANNED_COMPANIES_MAX, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP,
   squadSizeMax, SQUADS_PER_TYPE_MAX, UNIT_TYPES, type DeploymentPlan,
 } from '~/game/deployment'
-import type { BattleMode, UnitType } from '~/types/game'
+import { GUIDELINES, guidelineOptions } from '~/game/guidelines'
+import type { BattleMode, Guideline, UnitType } from '~/types/game'
 
 const props = defineProps<{ mode: BattleMode; modeName: string; plan: DeploymentPlan; unitNames: Record<UnitType, string> }>()
 const emit = defineEmits<{ change: [plan: DeploymentPlan]; save: [plan: DeploymentPlan]; close: [] }>()
@@ -40,6 +41,15 @@ const addCompany = (types: UnitType[]) => {
 }
 const removeCompany = (company: number) => { draft.value.squads = draft.value.squads.filter(sq => sq.company !== company) }
 const companyTotal = (squads: { size: number }[]) => squads.reduce((sum, sq) => sum + sq.size, 0)
+/** 中隊（小隊の位置）か、中隊に入らない小隊の行動（選んでいなければ既定の行動）。 */
+const guidelineOf = (indices: number[]) => plannedGuideline(draft.value, indices)
+/** 行動を選ぶ。中隊はその小隊がみな同じ行動を持つ。 */
+const setGuideline = (indices: number[], guideline: Guideline) => { for (const i of indices) draft.value.squads[i]!.guideline = guideline }
+/** 中隊に入らない小隊の行動を、選べる行動の次のものへ替える（工兵は築城と修理）。 */
+const cycleGuideline = (index: number) => {
+  const options = guidelineOptions([draft.value.squads[index]!.type])
+  setGuideline([index], options[(options.indexOf(guidelineOf([index])) + 1) % options.length]!)
+}
 
 const applyPreset = (key: string) => { draft.value = presetDeployment(key, props.mode, 'player') }
 /** 部隊の人数を変える。布陣できる上限を超える分は増やさない。 */
@@ -102,6 +112,13 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
                 <button class="wood-control add" :aria-label="`第${n + 1}中隊を外す`" @click="removeCompany(c.company)">×</button>
               </span>
             </div>
+            <div class="guidelines" role="radiogroup" :aria-label="`第${n + 1}中隊の行動`">
+              <span class="guidelines-label">行動</span>
+              <button v-for="g in guidelineOptions(c.squads.map(sq => sq.type))" :key="g" class="wood-control" role="radio" :aria-checked="guidelineOf(c.squads.map(sq => sq.index)) === g"
+                :class="{ active: guidelineOf(c.squads.map(sq => sq.index)) === g }" :title="GUIDELINES[g].description" @click="setGuideline(c.squads.map(sq => sq.index), g)">
+                <span class="control-check" aria-hidden="true">✓</span>{{ GUIDELINES[g].name }}
+              </button>
+            </div>
             <div class="squads">
               <div v-for="sq in c.squads" :key="sq.index" class="squad-chip">
                 <span class="squad-no">{{ unitNames[sq.type] }}</span>
@@ -118,6 +135,7 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
           </li>
         </ul>
         <p class="deploy-note">組んだ中隊は陣でひとかたまりに並び（槍兵が前、弓兵が後ろ、騎兵が両翼）、中隊で動くときは一番遅い小隊に足並みをそろえます。弓兵に敵が迫ると、同じ中隊の近接の小隊が迎え撃ちます。</p>
+        <p class="deploy-note">行動は命令のないときの動きです（既定は人数が一番多い兵種の行動）。開戦後は陣で構え、敵が近づくか命令をやり終えると行動に沿って動きます。</p>
       </div>
 
       <div class="deploy-group">
@@ -136,6 +154,8 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
                 <input class="metal-input" type="number" :value="sq.size" :min="SQUAD_SIZE_MIN" :max="squadSizeMax(type)" :step="SQUAD_SIZE_STEP" :aria-label="`第${n + 1}${unitNames[type]}小隊の人数`"
                   @change="setSize(sq.index, Number(($event.target as HTMLInputElement).value)); ($event.target as HTMLInputElement).value = String(draft.squads[sq.index]!.size)">
                 <button class="wood-control" :aria-label="`第${n + 1}${unitNames[type]}小隊を${SQUAD_SIZE_STEP}人増やす`" :disabled="sq.size >= squadSizeMax(type) || room <= 0" @click="step(sq.index, SQUAD_SIZE_STEP)">＋</button>
+                <button v-if="guidelineOptions([type]).length > 1" class="wood-control guideline-toggle" :title="`行動: ${GUIDELINES[guidelineOf([sq.index])].description}（押すと切り替え）`"
+                  :aria-label="`第${n + 1}${unitNames[type]}小隊の行動 ${GUIDELINES[guidelineOf([sq.index])].name}（押すと切り替え）`" @click="cycleGuideline(sq.index)">{{ GUIDELINES[guidelineOf([sq.index])].name }}</button>
                 <button class="wood-control remove" :aria-label="`第${n + 1}${unitNames[type]}小隊を外す`" @click="removeSquad(sq.index)">×</button>
               </div>
             </div>
@@ -186,6 +206,10 @@ button { margin: 0; padding: 6px 12px; font-size: 12px; cursor: pointer; }
 .add-types { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
 .add-types button { padding: 2px 6px; font-size: 11px; }
 .squads { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.guidelines { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin-top: 6px; }
+.guidelines-label { margin-right: 4px; font-size: 11px; color: #6c5741; }
+.guidelines button { display: flex; align-items: center; gap: 3px; padding: 2px 7px; font-size: 11px; }
+.squad-chip .guideline-toggle { margin-left: 4px; padding: 1px 6px; font-size: 11px; }
 .squads:empty { display: none; }
 .squad-chip { display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #e0c394; border: 1px solid #a27b4970; border-radius: 3px; font-size: 11px; }
 .squad-no { margin: 0 4px 0 2px; color: #6c5741; }

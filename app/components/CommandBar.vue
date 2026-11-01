@@ -4,8 +4,10 @@ import { GAME_SPEEDS, useGameStore } from '~/stores/game'
 import { FORMATIONS } from '~/game/formation'
 import type { BattleInput } from '~/composables/useBattleInput'
 import type { CompanyOrder } from '~/game/battle'
-import type { ConstructionKind, SquadOrder } from '~/types/game'
+import type { ConstructionKind, Guideline, SquadOrder } from '~/types/game'
 import ArmyMenu from './ArmyMenu.vue'
+import GuidelineMenu from './GuidelineMenu.vue'
+import { GUIDELINES, guidelineOptions } from '~/game/guidelines'
 import CommandIcon from './CommandIcon.vue'
 import { companyActions, companyName, squadActions, squadName, type SquadAction } from './battleUi'
 
@@ -15,6 +17,7 @@ const emit = defineEmits<{ toggleMenu: []; toggleSquads: []; resetView: [] }>()
 const gameStore = useGameStore()
 const root = ref<HTMLElement | null>(null)
 const armyOpen = ref(false)
+const guidelineOpen = ref(false)
 
 const selected = computed(() => gameStore.squads.find(sq => sq.id === props.input.selectedSquadId.value))
 const selectedCompany = computed(() => gameStore.companies.find(c => c.id === props.input.selectedCompanyId.value))
@@ -26,6 +29,18 @@ const isCompanyActive = (action: SquadAction) => {
 const runCompanyAction = (action: SquadAction) => {
   const company = selectedCompany.value
   if (company && action.order) gameStore.orderCompany(company.id, { order: action.order as CompanyOrder })
+}
+/** 行動を選べる自軍の部隊（中隊、または中隊に入らない小隊）と、その行動・選べる行動。選べる行動が1つなら出さない。 */
+const guided = computed(() => {
+  const company = selectedCompany.value, squad = selected.value
+  const unit = company?.owner === 'player' ? { target: { companyId: company.id }, guideline: company.guideline, directive: company.directive, options: guidelineOptions(company.types) }
+    : squad?.owner === 'player' ? { target: { squadId: squad.id }, guideline: squad.guideline, directive: squad.directive, options: guidelineOptions([squad.type]) }
+    : undefined
+  return unit && unit.options.length > 1 ? unit : undefined
+})
+const selectGuideline = (guideline: Guideline) => {
+  if (guided.value) gameStore.setGuideline(guided.value.target, guideline)
+  guidelineOpen.value = false
 }
 const buildMode = computed(() => props.input.buildMode.value)
 const paused = computed(() => gameStore.status === 'paused')
@@ -42,7 +57,7 @@ const runAction = (action: SquadAction) => {
     else props.input.startBuild(squad.id, action.build)
   } else if (action.order) gameStore.orderSquad(squad.id, action.order)
 }
-const deselect = () => { props.input.cancelBuild(); props.input.selectSquad(null); props.input.selectCompany(null) }
+const deselect = () => { props.input.cancelBuild(); props.input.selectSquad(null); props.input.selectCompany(null); guidelineOpen.value = false }
 const nextSpeed = () => {
   const index = GAME_SPEEDS.indexOf(gameStore.gameSpeed)
   gameStore.setGameSpeed(GAME_SPEEDS[(index + 1) % GAME_SPEEDS.length]!)
@@ -84,11 +99,11 @@ const hint = computed(() => {
 })
 
 const closeOnOutside = (event: PointerEvent) => {
-  if (armyOpen.value && !root.value?.contains(event.target as Node)) armyOpen.value = false
+  if (!root.value?.contains(event.target as Node)) { armyOpen.value = false; guidelineOpen.value = false }
 }
 onMounted(() => window.addEventListener('pointerdown', closeOnOutside))
 onUnmounted(() => window.removeEventListener('pointerdown', closeOnOutside))
-defineExpose({ closePopups: () => { armyOpen.value = false } })
+defineExpose({ closePopups: () => { armyOpen.value = false; guidelineOpen.value = false } })
 </script>
 
 <template>
@@ -100,6 +115,9 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
     <div class="command-bar-wrap">
     <div v-if="armyOpen && !deploying" class="command-popup parchment-window">
       <ArmyMenu :formation="gameStore.formation" @formation="setFormation" @order="orderArmy" />
+    </div>
+    <div v-if="guidelineOpen && guided && !deploying" class="command-popup parchment-window">
+      <GuidelineMenu :guideline="guided.guideline" :options="guided.options" @select="selectGuideline" />
     </div>
     <nav class="command-bar" aria-label="操作">
       <template v-if="!deploying">
@@ -115,6 +133,9 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
               <button v-if="buildMode?.kind === 'barricade'" class="command" @click="input.rotateBuild()">
                 <CommandIcon name="rotate" /><span class="label">向き · {{ buildMode.axis === 'y' ? '南北' : '東西' }}</span>
               </button>
+              <button v-if="guided" class="command" :class="{ active: guidelineOpen }" :aria-expanded="guidelineOpen" :title="GUIDELINES[guided.guideline].description" @click="guidelineOpen = !guidelineOpen">
+                <CommandIcon name="guideline" /><span class="label">行動 · {{ GUIDELINES[guided.guideline].name }}{{ guided.directive === 'wait' ? '（待機中）' : '' }} ▴</span>
+              </button>
             </template>
           </template>
           <template v-else-if="selectedCompany">
@@ -124,6 +145,9 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
             <template v-if="selectedCompany.owner === 'player'">
               <button v-for="action in companyActions(selectedCompany.types)" :key="action.key" class="command" :class="{ active: isCompanyActive(action) }" :aria-pressed="isCompanyActive(action)" :title="action.label" @click="runCompanyAction(action)">
                 <CommandIcon :name="action.icon" /><span class="label">{{ action.label }}</span>
+              </button>
+              <button v-if="guided" class="command" :class="{ active: guidelineOpen }" :aria-expanded="guidelineOpen" :title="GUIDELINES[guided.guideline].description" @click="guidelineOpen = !guidelineOpen">
+                <CommandIcon name="guideline" /><span class="label">行動 · {{ GUIDELINES[guided.guideline].name }}{{ guided.directive === 'wait' ? '（待機中）' : '' }} ▴</span>
               </button>
             </template>
           </template>

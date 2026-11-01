@@ -1,13 +1,15 @@
 import { ARMY_CAP, INITIAL_SQUADS, RESERVES, SIEGE_ATTACKER_POOL, SIEGE_ATTACKER_SQUADS, SIEGE_DEFENDER_RESERVES } from './battleConfig'
 import { COMPANY_MAX_SQUADS, joinsCompany, SQUAD_SIZE } from './formation'
-import type { Army, BattleMode, FormationType, UnitType } from '../types/game'
+import { defaultGuideline, guidelineOptions } from './guidelines'
+import type { Army, BattleMode, FormationType, Guideline, UnitType } from '../types/game'
 
 /**
  * 開戦時の編成: 全軍の陣形と、布陣する小隊（兵種と人数）。人数は軍の兵（予備兵）から割り当て、残りが増援になる。
  * company は編成で組んだ中隊の番号（1から）。同じ番号の小隊が1つの中隊になり（兵種を混ぜてよい）、陣でもひとかたまりに並ぶ。
  * 歩兵・槍兵・弓兵・騎兵の小隊は必ず中隊に入る（編成を整えるときに、中隊のない小隊は同じ兵種ごとに中隊へまとめる）。工兵と補給兵は中隊に入らない。
+ * guideline は選んだ行動（中隊はその小隊がみな同じ行動を持つ）。なければ既定の行動。
  */
-export interface PlannedSquad { type: UnitType; size: number; company?: number }
+export interface PlannedSquad { type: UnitType; size: number; company?: number; guideline?: Guideline }
 export interface DeploymentPlan {
     formation: FormationType
     squads: PlannedSquad[]
@@ -72,6 +74,13 @@ export function plannedCompanies(plan: DeploymentPlan) {
     return [...companies].sort((a, b) => a[0] - b[0]).map(([company, indices]) => ({ company, indices }))
 }
 
+/** 編成の中隊（小隊の位置）または中隊に入らない小隊（1つの位置）の行動。選んでいなければ既定の行動。 */
+export function plannedGuideline(plan: DeploymentPlan, indices: number[]): Guideline {
+    const squads = indices.map(i => plan.squads[i]!)
+    const chosen = squads.find(sq => sq.guideline)?.guideline
+    return chosen && guidelineOptions(squads.map(sq => sq.type)).includes(chosen) ? chosen : defaultGuideline(squads)
+}
+
 /** 編成のプリセット。兵種の割合で、既定の編成と同じ人数の部隊を組む（標準は既定の編成そのもの）。 */
 export const DEPLOYMENT_PRESETS: { key: string; name: string; description: string; formation: FormationType; mix?: Record<UnitType, number>; companies?: UnitType[][] }[] = [
     { key: 'default', name: '標準', description: '既定の編成（横陣）', formation: 'line' },
@@ -132,6 +141,7 @@ export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owne
         const size = Math.max(SQUAD_SIZE_MIN, Math.min(squadSizeMax(sq.type), Math.round(sq.size)))
         if (total + size > limit) continue
         const squad: PlannedSquad = { type: sq.type, size }
+        if (sq.guideline) squad.guideline = sq.guideline
         if (accepted.has(sq)) {
             squad.company = sq.company
             members.set(sq.company!, (members.get(sq.company!) ?? 0) + 1)
@@ -154,5 +164,10 @@ export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owne
     // 残った中隊の番号を、元の順のまま1から詰める。
     const numbers = new Map([...members.keys()].sort((a, b) => a - b).map((key, i) => [key, i + 1]))
     for (const squad of squads) if (squad.company !== undefined) squad.company = numbers.get(squad.company)
+    // 中隊の行動は中隊の小隊でそろえる（加えたばかりの小隊にも、中隊で選んだ行動を持たせる）。
+    for (const { indices } of plannedCompanies({ formation: plan.formation, squads })) {
+        const chosen = indices.map(i => squads[i]!.guideline).find(g => g)
+        for (const i of indices) { if (chosen) squads[i]!.guideline = chosen; else delete squads[i]!.guideline }
+    }
     return { formation: plan.formation, squads }
 }
