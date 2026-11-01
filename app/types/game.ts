@@ -286,6 +286,9 @@ export type BattleMode = 'field' | 'siege' | 'defense'
 /** 地形の種類。standard: 標準 / meadow: 草原 / desert: 砂漠 / wasteland: 荒野 / demonland: 魔王城付近。 */
 export type MapType = 'standard' | 'meadow' | 'desert' | 'wasteland' | 'demonland'
 
+/** 開戦の時刻。dawn: 夜明け / noon: 昼 / dusk: 日没 / midnight: 深夜。 */
+export type StartTime = 'dawn' | 'noon' | 'dusk' | 'midnight'
+
 /** 軍の本拠地（退却・補給に戻る先）。砦を持つ軍は砦、砦を持たない攻め手は後方の野営地。 */
 export type Home = Pick<Fort, 'owner' | 'front' | 'x' | 'y' | 'core' | 'assaultPoints'>
 

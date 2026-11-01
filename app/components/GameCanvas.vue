@@ -9,11 +9,13 @@ import BattleMenu from './BattleMenu.vue'
 import CommandBar from './CommandBar.vue'
 import CommandIcon from './CommandIcon.vue'
 import TerrainIcon from './TerrainIcon.vue'
+import TimeIcon from './TimeIcon.vue'
 import SquadPanel from './SquadPanel.vue'
 import { ARMY_NAME, UNIT_NAME, companyActions, companyName, squadActions, squadName } from './battleUi'
 import type { GameScene } from '~/render/gameScene'
 import { MAP_TYPE_DESCRIPTION, MAP_TYPE_NAME, MAP_TYPES, mapTypeForMode } from '~/game/mapType'
-import type { Army, BattleMode, MapType } from '~/types/game'
+import { START_TIME_DESCRIPTION, START_TIME_NAME, START_TIMES } from '~/game/daynight'
+import type { Army, BattleMode, MapType, StartTime } from '~/types/game'
 
 const gameStore = useGameStore()
 const titleLogo = ref('/images/title-logo.png')
@@ -42,6 +44,17 @@ const LOGO_CANDIDATES: Record<string, string> = {
   b2: 'b2-war-chronicle.png',
   b3: 'b3-blood-moon.png',
 }
+/** 起動直後はロゴと案内だけを見せ、クリックかキー入力でメニューへ切り替える（戦場から戻ったときはメニューのまま）。 */
+const titlePhase = ref<'splash' | 'menu'>('splash')
+const titleFlash = ref(false)
+const operationSheet = ref<HTMLFormElement | null>(null)
+const dismissSplash = () => {
+  if (titlePhase.value !== 'splash') return
+  titlePhase.value = 'menu'
+  titleFlash.value = true
+}
+/** メニューが現れたら選択中の戦場の種類へフォーカスを移し、キーボードでもそのまま選べるようにする。 */
+const focusOperationSheet = () => operationSheet.value?.querySelector<HTMLInputElement>('input[name="battle-mode"]:checked')?.focus({ preventScroll: true })
 const canvasRef = ref<HTMLElement | null>(null)
 const input = useBattleInput(gameStore)
 const { contextMenuRef, contextMenu, handleContextMenuAction } = input
@@ -69,10 +82,33 @@ const MODE_NAME = Object.fromEntries(MODES.map(m => [m.mode, m.name])) as Record
 const FIXED_MODES = MODES.filter(m => m.mode !== 'field')
 const selectedMode = ref<BattleMode>(gameStore.mode)
 const selectedMap = ref<MapType>(gameStore.mapChoice)
+const selectedTime = ref<StartTime>(gameStore.startTime)
 /** 地形を選べるのは攻防戦だけ。攻城戦・防衛戦は地形が決まっている。 */
 const mapSelectable = computed(() => selectedMode.value === 'field')
 /** 戦場に入る。deploy なら戦場で部隊編成をしてから開戦し、そうでなければ前回の編成ですぐ開戦する（Restart）。 */
-const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy) }
+const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy, selectedTime.value) }
+/** 画面全体を暗くしてから戦場に入り、戦場が描かれてから明るくする（CSS の .screen-curtain と同じ長さ）。 */
+const CURTAIN_MS = 500
+const curtainClosed = ref(false)
+const curtainActive = ref(false)
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
+const startWithFade = async (seed?: string) => {
+  if (curtainActive.value) return
+  curtainActive.value = true
+  // 透明なまま一度描かせてから暗くしないと、トランジションがかからず一瞬で黒くなる。
+  await nextTick()
+  await nextFrame()
+  curtainClosed.value = true
+  await wait(CURTAIN_MS)
+  start(seed)
+  await nextTick()
+  await nextFrame()
+  await nextFrame()
+  curtainClosed.value = false
+  await wait(CURTAIN_MS)
+  curtainActive.value = false
+}
 const resetView = () => scene?.resetCamera()
 const focusSquad = (squadId: number) => { input.selectSquad(squadId); scene?.focusSquad(squadId) }
 const focusCompany = (companyId: number) => { input.selectCompany(companyId); scene?.focusCompany(companyId) }
@@ -92,7 +128,14 @@ const defeatReason = computed(() => {
 })
 
 const onKey = (event: KeyboardEvent) => {
-  if (gameStore.status === 'title' || deploying.value || event.target instanceof HTMLInputElement) return
+  if (ready.value && gameStore.status === 'title' && titlePhase.value === 'splash') {
+    // ブラウザーのショートカット（Cmd+R など）や押しっぱなしでは進めない。
+    if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+    event.preventDefault()
+    dismissSplash()
+    return
+  }
+  if (gameStore.status === 'title' ||deploying.value || event.target instanceof HTMLInputElement) return
   if (event.code === 'Space') {
     event.preventDefault()
     gameStore.togglePause()
@@ -140,65 +183,90 @@ onUnmounted(() => {
     <div v-if="loadError" class="loading-panel" role="alert">{{ loadError }}</div>
     <div v-else-if="!ready" class="loading-panel" role="status">戦場を準備しています…</div>
     <div v-else-if="gameStore.status === 'title'" ref="titleViewport" class="title-screen">
-      <div ref="titleContent" class="title-content">
-        <h1 class="title-heading">
-          <img class="title-logo" :src="titleLogo" alt="THE LAST BATTALION" width="1942" height="809" fetchpriority="high" draggable="false">
-        </h1>
-        <form class="operation-sheet" aria-labelledby="operation-title" @submit.prevent="start(seedEntry ? customSeed.trim() || undefined : undefined)">
-          <span class="board-corner top-left" aria-hidden="true"></span>
-          <span class="board-corner top-right" aria-hidden="true"></span>
-          <span class="board-corner bottom-right" aria-hidden="true"></span>
-          <span class="board-corner bottom-left" aria-hidden="true"></span>
-          <h2 id="operation-title" class="title-sr-only">作戦準備</h2>
-          <fieldset class="operation-section" aria-describedby="mode-description">
-            <legend class="title-sr-only">戦場の種類</legend>
-            <div class="mode-select">
-              <label v-for="m in MODES" :key="m.mode" class="mode-option">
-                <input v-model="selectedMode" type="radio" name="battle-mode" :value="m.mode">
-                <span class="mode-tile">
-                  <span class="selection-mark" aria-hidden="true">◆</span>
-                  <CommandIcon :name="m.mode === 'field' ? 'army' : m.mode === 'siege' ? 'charge' : 'hold'" />
-                  <span>{{ m.name }}</span>
-                </span>
-              </label>
-            </div>
-            <p id="mode-description" class="mode-description stable-description">
-              <span v-for="m in MODES" :key="m.mode" :class="{ 'is-reserved': selectedMode !== m.mode }" :aria-hidden="selectedMode !== m.mode">{{ m.description }}</span>
-            </p>
-          </fieldset>
-          <div class="terrain-slot terrain-section">
-            <fieldset class="operation-section" :class="{ 'is-reserved': !mapSelectable }" :disabled="!mapSelectable" :inert="!mapSelectable" :aria-hidden="!mapSelectable" aria-describedby="map-description">
-              <legend class="title-sr-only">地形</legend>
-              <div class="map-select">
-                <label v-for="type in MAP_TYPES" :key="type" class="map-option">
-                  <input v-model="selectedMap" type="radio" name="battle-terrain" :value="type">
-                  <span class="map-tile">
+      <Transition name="title-splash">
+        <div v-if="titlePhase === 'splash'" class="title-splash" @click="dismissSplash">
+          <h1 class="title-heading">
+            <img class="title-logo" :src="titleLogo" alt="THE LAST BATTALION" width="1942" height="809" fetchpriority="high" draggable="false">
+          </h1>
+          <p class="title-prompt">CLICK OR PRESS ANY KEY</p>
+        </div>
+      </Transition>
+      <Transition name="title-menu" @after-enter="focusOperationSheet">
+        <div v-if="titlePhase === 'menu'" ref="titleContent" class="title-content">
+          <h1 class="title-sr-only">THE LAST BATTALION</h1>
+          <form ref="operationSheet" class="operation-sheet" aria-labelledby="operation-title" @submit.prevent="startWithFade(seedEntry ? customSeed.trim() || undefined : undefined)">
+            <span class="board-corner top-left" aria-hidden="true"></span>
+            <span class="board-corner top-right" aria-hidden="true"></span>
+            <span class="board-corner bottom-right" aria-hidden="true"></span>
+            <span class="board-corner bottom-left" aria-hidden="true"></span>
+            <h2 id="operation-title" class="title-sr-only">作戦準備</h2>
+            <fieldset class="operation-section" aria-describedby="mode-description">
+              <legend class="title-sr-only">戦場の種類</legend>
+              <div class="mode-select">
+                <label v-for="m in MODES" :key="m.mode" class="mode-option">
+                  <input v-model="selectedMode" type="radio" name="battle-mode" :value="m.mode">
+                  <span class="mode-tile">
                     <span class="selection-mark" aria-hidden="true">◆</span>
-                    <TerrainIcon :type="type" />
-                    <span>{{ MAP_TYPE_NAME[type] }}</span>
+                    <CommandIcon :name="m.mode === 'field' ? 'army' : m.mode === 'siege' ? 'charge' : 'hold'" />
+                    <span>{{ m.name }}</span>
                   </span>
                 </label>
               </div>
-              <p id="map-description" class="mode-description stable-description">
-                <span v-for="type in MAP_TYPES" :key="type" :class="{ 'is-reserved': selectedMap !== type }" :aria-hidden="selectedMap !== type">{{ MAP_TYPE_DESCRIPTION[type] }}</span>
+              <p id="mode-description" class="mode-description stable-description">
+                <span v-for="m in MODES" :key="m.mode" :class="{ 'is-reserved': selectedMode !== m.mode }" :aria-hidden="selectedMode !== m.mode">{{ m.description }}</span>
               </p>
             </fieldset>
-            <div v-for="m in FIXED_MODES" :key="m.mode" class="fixed-terrain" :class="{ 'is-reserved': selectedMode !== m.mode }" :inert="selectedMode !== m.mode" :aria-hidden="selectedMode !== m.mode">
-              <TerrainIcon :type="mapTypeForMode(m.mode, selectedMap)" />
-              <div><span class="fixed-terrain-label">指定地形 · {{ MAP_TYPE_NAME[mapTypeForMode(m.mode, selectedMap)] }}</span><p class="mode-description">{{ MAP_TYPE_DESCRIPTION[mapTypeForMode(m.mode, selectedMap)] }}</p></div>
+            <div class="terrain-slot terrain-section">
+              <fieldset class="operation-section" :class="{ 'is-reserved': !mapSelectable }" :disabled="!mapSelectable" :inert="!mapSelectable" :aria-hidden="!mapSelectable" aria-describedby="map-description">
+                <legend class="title-sr-only">地形</legend>
+                <div class="map-select">
+                  <label v-for="type in MAP_TYPES" :key="type" class="map-option">
+                    <input v-model="selectedMap" type="radio" name="battle-terrain" :value="type">
+                    <span class="map-tile">
+                      <span class="selection-mark" aria-hidden="true">◆</span>
+                      <TerrainIcon :type="type" />
+                      <span>{{ MAP_TYPE_NAME[type] }}</span>
+                    </span>
+                  </label>
+                </div>
+                <p id="map-description" class="mode-description stable-description">
+                  <span v-for="type in MAP_TYPES" :key="type" :class="{ 'is-reserved': selectedMap !== type }" :aria-hidden="selectedMap !== type">{{ MAP_TYPE_DESCRIPTION[type] }}</span>
+                </p>
+              </fieldset>
+              <div v-for="m in FIXED_MODES" :key="m.mode" class="fixed-terrain" :class="{ 'is-reserved': selectedMode !== m.mode }" :inert="selectedMode !== m.mode" :aria-hidden="selectedMode !== m.mode">
+                <TerrainIcon :type="mapTypeForMode(m.mode, selectedMap)" />
+                <div><span class="fixed-terrain-label">指定地形 · {{ MAP_TYPE_NAME[mapTypeForMode(m.mode, selectedMap)] }}</span><p class="mode-description">{{ MAP_TYPE_DESCRIPTION[mapTypeForMode(m.mode, selectedMap)] }}</p></div>
+              </div>
             </div>
-          </div>
-          <button type="submit" class="start-button">部隊編成へ <span aria-hidden="true">→</span></button>
-          <div class="seed-options">
-            <button type="button" class="seed-button" :aria-expanded="seedEntry" aria-controls="seed-entry" @click="toggleSeedEntry"><span aria-hidden="true">{{ seedEntry ? '−' : '+' }}</span> 特定の戦場を指定（SEED）</button>
-            <div v-if="seedEntry" id="seed-entry" class="seed-entry">
-              <label for="battle-seed" class="title-sr-only">戦場のSEED</label>
-              <input id="battle-seed" ref="seedInput" v-model="customSeed" placeholder="空欄ならランダム" maxlength="32" autocomplete="off" autocapitalize="off" :spellcheck="false" aria-describedby="seed-help">
-              <p id="seed-help" class="title-sr-only">入力後「部隊編成へ」で進みます。</p>
+            <fieldset class="operation-section time-section" aria-describedby="time-description">
+              <legend class="title-sr-only">開始時刻</legend>
+              <div class="time-select">
+                <label v-for="time in START_TIMES" :key="time" class="map-option">
+                  <input v-model="selectedTime" type="radio" name="battle-time" :value="time">
+                  <span class="map-tile">
+                    <span class="selection-mark" aria-hidden="true">◆</span>
+                    <TimeIcon :time="time" />
+                    <span>{{ START_TIME_NAME[time] }}</span>
+                  </span>
+                </label>
+              </div>
+              <p id="time-description" class="mode-description stable-description">
+                <span v-for="time in START_TIMES" :key="time" :class="{ 'is-reserved': selectedTime !== time }" :aria-hidden="selectedTime !== time">{{ START_TIME_DESCRIPTION[time] }}</span>
+              </p>
+            </fieldset>
+            <button type="submit" class="start-button">部隊編成へ <span aria-hidden="true">→</span></button>
+            <div class="seed-options">
+              <button type="button" class="seed-button" :aria-expanded="seedEntry" aria-controls="seed-entry" @click="toggleSeedEntry"><span aria-hidden="true">{{ seedEntry ? '−' : '+' }}</span> 特定の戦場を指定（SEED）</button>
+              <div v-if="seedEntry" id="seed-entry" class="seed-entry">
+                <label for="battle-seed" class="title-sr-only">戦場のSEED</label>
+                <input id="battle-seed" ref="seedInput" v-model="customSeed" placeholder="空欄ならランダム" maxlength="32" autocomplete="off" autocapitalize="off" :spellcheck="false" aria-describedby="seed-help">
+                <p id="seed-help" class="title-sr-only">入力後「部隊編成へ」で進みます。</p>
+              </div>
             </div>
-          </div>
-        </form>
-      </div>
+          </form>
+        </div>
+      </Transition>
+      <div v-if="titleFlash" class="title-flash" aria-hidden="true" @animationend="titleFlash = false"></div>
     </div>
     <template v-if="ready && gameStore.status !== 'title'">
       <header class="battle-header">
@@ -225,6 +293,8 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <div v-if="curtainActive" class="screen-curtain" :class="{ 'is-closed': curtainClosed }" aria-hidden="true"></div>
 
     <!-- 長押しメニュー（no-life-kingと同じく表示中は一時停止） -->
     <div v-if="contextMenu.visible" ref="contextMenuRef" class="context-menu parchment-window" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
@@ -255,12 +325,34 @@ button { margin-top: 1rem; padding: 0.5rem 2rem; font-size: 1.2rem; background: 
 button.secondary { background: #7f8c8d; }
 button:hover { transform: scale(1.05); }
 
+/* Full-screen fade to black while entering the battlefield; it also blocks input until it lifts. */
+.screen-curtain { position: absolute; inset: 0; z-index: 2000; background: #000; opacity: 0; transition: opacity .5s ease-in-out; }
+.screen-curtain.is-closed { opacity: 1; }
 .loading-panel { z-index: 10; max-width: 480px; padding: 32px; text-align: center; color: #ded5c0; }
 /* Preserve the original single-column title layout without a scrolling surface. */
-.title-screen { position: absolute; inset: 0; max-height: 100dvh; display: flex; align-items: center; justify-content: center; overflow: hidden; background: linear-gradient(0deg, #130e0ae8, #0b111b33 75%), url('/images/title_bg.png') center / cover; z-index: 20; }
+.title-screen { position: absolute; inset: 0; max-height: 100dvh; display: grid; place-items: center; overflow: hidden; background: linear-gradient(0deg, #130e0ae8, #0b111b33 75%), url('/images/title_bg.png') center / cover; z-index: 20; }
 .title-content { box-sizing: border-box; flex: none; width: 100%; max-width: 1120px; display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 2vh, 20px); padding: clamp(10px, 2vh, 24px) clamp(10px, 3vw, 32px); text-align: center; transform: scale(var(--title-fit, 1)); transform-origin: center; }
 .title-heading { width: 100%; margin: 0; line-height: 0; }
-.title-logo { display: block; width: 100%; max-width: 1040px; height: auto; max-height: 36dvh; object-fit: contain; margin: 0 auto; filter: drop-shadow(0 4px 10px #000c) drop-shadow(0 0 24px #0008); }
+.title-screen > * { grid-area: 1 / 1; }
+/* Splash: logo and prompt only; dismissing it flashes and cross-fades into the menu. */
+.title-splash { box-sizing: border-box; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(16px, 5vh, 48px); padding: clamp(10px, 2vh, 24px) clamp(10px, 3vw, 32px) clamp(10px, 14vh, 140px); cursor: pointer; user-select: none; }
+.title-prompt { margin: 0; color: #f0dfbd; font: 600 clamp(13px, 1.8vw, 18px) Georgia, serif; letter-spacing: .32em; text-indent: .32em; text-shadow: 0 1px 2px #000, 0 0 12px #000c; animation: title-prompt-pulse 2.4s ease-in-out infinite; }
+@keyframes title-prompt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.title-splash-leave-active { pointer-events: none; transition: opacity .9s ease, scale .9s ease; }
+.title-splash-leave-to { opacity: 0; scale: 1.04; }
+.title-menu-enter-active { transition: opacity .8s ease .3s, translate .8s ease .3s; }
+.title-menu-enter-from { opacity: 0; translate: 0 16px; }
+.title-flash { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(circle, #fffaf0, #ffe7b5 70%, #f0c57e); opacity: 0; animation: title-flash 1s forwards; }
+/* Brighten gradually over 0.5s, then fade out smoothly over 0.5s. */
+@keyframes title-flash { 0% { opacity: 0; animation-timing-function: cubic-bezier(.4, 0, .6, 1); } 50% { opacity: .7; animation-timing-function: cubic-bezier(.45, 0, .25, 1); } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .title-prompt { animation: none; }
+  .title-flash { animation-name: title-flash-soft; }
+  @keyframes title-flash-soft { 0% { opacity: 0; animation-timing-function: cubic-bezier(.4, 0, .6, 1); } 50% { opacity: .23; animation-timing-function: cubic-bezier(.45, 0, .25, 1); } 100% { opacity: 0; } }
+  .title-splash-leave-to { scale: 1; }
+  .title-menu-enter-from { translate: none; }
+}
+.title-logo { display: block; width: 100%; max-width: 1040px; height: auto; max-height: 50dvh; object-fit: contain; margin: 0 auto; filter: drop-shadow(0 4px 10px #000c) drop-shadow(0 0 24px #0008); }
 .operation-sheet { position: relative; isolation: isolate; box-sizing: border-box; width: 100%; max-width: 680px; margin: 0; padding: 12px 24px 8px; border: 10px solid transparent; border-radius: 4px; background: var(--ui-wood-light) padding-box, var(--ui-wood-grain) center / var(--ui-wood-size) padding-box, linear-gradient(var(--ui-wood-base), var(--ui-wood-base)) padding-box, linear-gradient(135deg, #e5ba7133, #48281322 35%, #20100744 70%, #c58d4622) border-box, var(--ui-wood-grain) center / var(--ui-wood-size) border-box; background-color: var(--ui-wood-base); background-blend-mode: normal, screen, normal, normal, screen; box-shadow: inset 0 0 0 1px #d6aa654d, inset 0 3px 6px #0005, 0 2px 0 #30190d, 0 5px 0 #170c07, 0 9px 18px #0009; color: #f0dfbd; text-shadow: 0 1px 2px #160a03; }
 /* Beveled wooden edges and small brass corner brackets replace the paper outline. */
 .operation-sheet::before { content: ''; position: absolute; inset: -7px; border: 1px solid #9f733e70; border-top-color: #d5a96c99; border-bottom-color: #1a0d08cc; border-radius: 2px; pointer-events: none; }
@@ -283,14 +375,15 @@ button:hover { transform: scale(1.05); }
 .mode-option:hover .mode-tile { filter: brightness(1.15); }
 .mode-option input:focus-visible + .mode-tile, .map-option input:focus-visible + .map-tile { outline: 2px solid #f1d193; outline-offset: 3px; }
 .mode-description { margin: 6px 0 0; color: #d4bfa0; font-size: 12px; line-height: 1.5; text-wrap: pretty; }
-.terrain-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #c49b5959; }
+.terrain-section, .time-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #c49b5959; }
 /* All alternatives share one grid cell so wrapping reserves the largest height. */
 .terrain-slot, .stable-description { display: grid; }
 .terrain-slot > *, .stable-description > * { grid-area: 1 / 1; min-width: 0; }
 .is-reserved { visibility: hidden; pointer-events: none; }
 .map-select { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
 .map-tile { box-sizing: border-box; height: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 3px; border: 1px solid #99713d55; border-radius: 2px; background: #130c0740; color: #dfc590; font-size: 12px; line-height: 1.3; }
-.map-tile :deep(.terrain-icon) { width: 22px; height: 22px; }
+.time-select { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.map-tile :deep(:is(.terrain-icon, .time-icon)) { width: 22px; height: 22px; }
 .map-tile .selection-mark { font-size: 7px; }
 .map-option:hover .map-tile { background: #b48a4540; }
 .map-option input:checked + .map-tile { border-color: #d2ad69; background: #986a3159; color: #fff0cb; box-shadow: inset 0 -2px #d2ad69; }
@@ -314,25 +407,26 @@ button:hover { transform: scale(1.05); }
   .mode-tile :deep(.command-icon) { width: 16px; height: 16px; }
   .map-tile { position: relative; flex-direction: column; gap: 3px; padding: 5px 2px 10px; font-size: 10px; }
   .map-tile .selection-mark { position: absolute; bottom: 1px; font-size: 6px; }
-  .map-select { gap: 2px; }
+  .map-select, .time-select { gap: 2px; }
   .mode-description { font-size: 11px; }
   .start-button { width: 100%; font-size: 14px; }
 }
 /* Compress spacing first; the measured fit only scales unusually short viewports. */
 @media (max-height: 650px) {
   .title-content { gap: 6px; padding-block: 8px; }
-  .title-logo { max-height: 27dvh; }
+  .title-logo { max-height: 42dvh; }
   .operation-sheet { padding-top: 6px; padding-bottom: 2px; }
-  .terrain-section { margin-top: 6px; padding-top: 5px; }
+  .terrain-section, .time-section { margin-top: 6px; padding-top: 5px; }
   .mode-description { margin-top: 4px; font-size: 11px; }
   .start-button { min-height: 40px; margin-top: 8px; padding-block: 6px; }
   .seed-button { min-height: 26px; }
 }
 @media (max-height: 420px) {
-  .title-logo { max-height: 20dvh; }
+  .title-logo { max-height: 56dvh; }
+  .title-splash { gap: 12px; }
   .mode-tile { min-height: 32px; padding-block: 4px; }
   .map-tile { min-height: 30px; padding-block: 3px; flex-direction: row; }
-  .map-tile :deep(.terrain-icon) { display: none; }
+  .map-tile :deep(:is(.terrain-icon, .time-icon)) { display: none; }
   .map-tile .selection-mark { position: static; }
   .start-button { min-height: 34px; margin-block: 6px 2px; }
 }

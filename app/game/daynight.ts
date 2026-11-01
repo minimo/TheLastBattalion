@@ -1,4 +1,19 @@
-import type { Owner } from '../types/game'
+import type { Owner, StartTime } from '../types/game'
+
+export const START_TIMES: StartTime[] = ['dawn', 'noon', 'dusk', 'midnight']
+export const START_TIME_NAME: Record<StartTime, string> = {
+    dawn: '夜明け', noon: '昼', dusk: '日没', midnight: '深夜',
+}
+/** 開戦の時刻（0:00からの分）。夜明けと日没は、明るさの移り変わりの始まりに合わせる。 */
+export const START_TIME_MINUTES: Record<StartTime, number> = {
+    dawn: 300, noon: 720, dusk: 1020, midnight: 0,
+}
+export const START_TIME_DESCRIPTION: Record<StartTime, string> = {
+    dawn: '05:00 夜明け前。まもなく日が昇り、人間軍が動きやすくなる',
+    noon: '12:00 日の高い昼。日が沈むまで人間軍に有利',
+    dusk: '17:00 日の沈む前。まもなく夜になり、魔王軍に有利になる',
+    midnight: '00:00 真夜中。夜が明けるまで魔王軍に有利',
+}
 
 /** dayTimeが昼間(6:00-18:00 = 360-1080分)かどうかを返す */
 export function isDaytime(dayTime: number): boolean {

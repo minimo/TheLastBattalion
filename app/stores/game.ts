@@ -10,7 +10,8 @@ import {
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
 import { defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
-import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, FormationType, GameStatus, MapType, Point, SquadOrder, UnitType } from '~/types/game'
+import { START_TIME_MINUTES } from '~/game/daynight'
+import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, FormationType, GameStatus, MapType, Point, SquadOrder, StartTime, UnitType } from '~/types/game'
 
 /** 1倍速のときの実時間に対するゲーム内時間の倍率。 */
 const BASE_TIME_SCALE = .5
@@ -99,6 +100,8 @@ export const useGameStore = defineStore('game', {
         mapChoice: 'standard' as MapType,
         /** 今の戦場の地形の種類（攻城戦は魔王城付近、防衛戦は標準）。 */
         mapType: 'standard' as MapType,
+        /** 開戦の時刻。 */
+        startTime: 'dawn' as StartTime,
         winner: null as Army | null,
         isGameOver: false,
         summary: { player: emptySummary(), cpu: emptySummary() } as Record<Army, ArmySummary>,
@@ -132,6 +135,7 @@ export const useGameStore = defineStore('game', {
             const { mapGrid } = generateMap(rnd, this.mapType)
             this.mapGrid = markRaw(mapGrid)
             const battle = createBattle(mapGrid, rnd, this.mode, { player: this.plans[this.mode] })
+            battle.dayTime = START_TIME_MINUTES[this.startTime]
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))
             this.dayTime = battle.dayTime
@@ -142,9 +146,10 @@ export const useGameStore = defineStore('game', {
         },
 
         /** 戦場に入る。deploy なら部隊編成から始め（開戦前）、そうでなければ前回の編成ですぐ開戦する。 */
-        startGame(seed?: string, mode?: BattleMode, mapChoice?: MapType, deploy = true): void {
+        startGame(seed?: string, mode?: BattleMode, mapChoice?: MapType, deploy = true, startTime?: StartTime): void {
             if (mode) this.mode = mode
             if (mapChoice) this.mapChoice = mapChoice
+            if (startTime) this.startTime = startTime
             this.status = deploy ? 'deploying' : 'playing'
             this.initGame(seed)
         },
