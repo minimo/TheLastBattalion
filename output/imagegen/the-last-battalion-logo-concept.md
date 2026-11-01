@@ -1,0 +1,9 @@
+# THE LAST BATTALION — タイトルロゴ案
+
+コンセプト：「最後まで倒れない軍旗」。深紅の軍旗、盾と槍の隊列、傷のある鋼の文字で、最後の大隊の結束と粘り強さを表す。
+
+生成方法：組み込み image_gen。背景透過PNG。原案として保存し、`public/images/title-logo.png` にコピーしてタイトル画面に組み込み済み。
+
+## 生成プロンプト
+
+Use case: logo-brand. Create one polished original title logo concept for a dark medieval fantasy tactical RTS named exactly "THE LAST BATTALION". Game context: human army versus demon army, massed infantry and spear formations, finite reinforcements, the final battalion. Concept: the last banner still standing. A compact upright battle standard with a torn deep crimson pennant and a restrained angular shield-shaped base forms the crest above the lettering; silhouettes of a few tightly ranked spear tips subtly support the emblem. Strong distinctive typography is the hero: small widely spaced "THE LAST" centered above very large "BATTALION". Exact spelling B A T T A L I O N. Custom monumental Roman serif capitals, sturdy broad strokes, sharp chiseled wedge serifs, disciplined military geometry, very readable at reduced size. Aged pale steel faces, restrained warm antique-gold edge accents, dark iron bevels, sparing battle scars, crafted premium PC strategy game identity. Controlled dimensional metal treatment, not photorealistic object mockup. Overall wide horizontal lockup, about 2.4:1, crest integrated tightly without making the logo excessively tall. Clear silhouette and generous transparent margins, all parts fully in frame. The logo needs to stand out over an existing dark red moon and black castle title screen. Transparent background with actual alpha, no scene, no background rectangle, no checkerboard drawn in image. No extra text, no tagline, no presentation board, no watermarks, no skulls, no dragons, no modern weapons, no excessive flourishes or particle effects. Deliver a single cohesive finished logo.

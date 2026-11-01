@@ -21,12 +21,12 @@ const emit = defineEmits<{ formation: [type: FormationType]; order: [order: 'cha
 
 <style scoped>
 .army-menu { display: flex; flex-direction: column; min-width: 220px; }
-.army-menu-title { padding: 8px 16px 3px; font-size: 10px; letter-spacing: .14em; color: #c5af83; }
-.army-menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin: 0; padding: 6px 16px; background: none; border: 0; border-radius: 0; color: #e4e2da; font-size: 13px; text-align: left; cursor: pointer; }
-.army-menu-item small { font-size: 10px; color: #8f9a9b; }
-.army-menu-item:hover { background: #22303a; color: #fff; transform: none; }
-.army-menu-item.active { color: #f2e8cf; background: #3a3121; }
+.army-menu-title { padding: 8px 16px 3px; font-size: 10px; letter-spacing: .14em; color: #70502d; }
+.army-menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin: 0; padding: 6px 16px; background: none; border: 0; border-radius: 0; color: #493522; font-size: 13px; text-align: left; cursor: pointer; }
+.army-menu-item small { font-size: 10px; color: #725b43; }
+.army-menu-item:hover { background: #b58c4d33; color: #352315; transform: none; }
+.army-menu-item.active { color: #352315; background: #c5a16a; }
 .army-menu-orders { display: flex; padding: 2px 8px 4px; gap: 4px; }
-.army-menu-orders .army-menu-item { align-items: center; padding: 7px 4px; border: 1px solid #44545a; border-radius: 3px; }
-.army-menu-orders .army-menu-item:hover { border-color: #c2a875; }
+.army-menu-orders .army-menu-item { align-items: center; padding: 7px 4px; border: 1px solid #997445; border-radius: 3px; }
+.army-menu-orders .army-menu-item:hover { border-color: #815a30; }
 </style>

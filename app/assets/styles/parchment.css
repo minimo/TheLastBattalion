@@ -1,0 +1,42 @@
+/* Slice the artwork so edges retain their thickness as window content changes. */
+.parchment-window {
+  border: solid transparent;
+  border-width: 14px 9px 12px;
+  border-image: url('/images/ui/parchment-window-small.png') 160 100 130 fill / 14px 9px 12px / 0 stretch;
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  color: #39291d;
+  scrollbar-color: #9a7748 #ead4ac;
+}
+
+.parchment-scroll {
+  border-width: 58px 24px 60px;
+  border-image: url('/images/ui/scroll-window-handrolled.png') 230 110 250 fill / 58px 24px 60px / 0 stretch;
+}
+
+.parchment-window ::selection { background: #b9945866; }
+.parchment-window :is(button, input):focus-visible {
+  outline: 2px solid #70491f;
+  outline-offset: 2px;
+}
+.parchment-window::-webkit-scrollbar-thumb { background: #9a7748; }
+.parchment-window::-webkit-scrollbar-track { background: #ead4ac; }
+
+.modal.parchment-window button {
+  background: #75502d;
+  border: 1px solid #644120;
+  border-radius: 3px;
+  color: #fff2d9;
+  font-size: 14px;
+  padding: 10px 16px;
+}
+.modal.parchment-window button.secondary { background: #ddc295; color: #432d1a; }
+.modal.parchment-window .modal-actions { flex-wrap: wrap; }
+
+@media (max-width: 550px) {
+  .parchment-scroll {
+    border-width: 42px 16px 44px;
+    border-image-width: 42px 16px 44px;
+  }
+}

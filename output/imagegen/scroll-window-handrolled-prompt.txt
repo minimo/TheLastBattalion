@@ -1,0 +1,8 @@
+Generator: built-in image_gen
+Asset: public/images/ui/scroll-window-handrolled.png
+
+Use case: precise-object-edit.
+Edit target: the supplied parchment scroll game UI background.
+Change the top and bottom to hand-rolled PAPER ONLY curls. Completely remove all wooden rods, spindles, handles, metal caps, rings and ornament. The sheet itself curls loosely at its upper and lower edges with natural slight irregularity; at the ends of these curls show thin layers of parchment and an empty paper spiral, with absolutely no solid core or separate cylinder. No protruding handles on either side.
+Preserve the portrait 2:3 canvas, front-facing orientation, warm pale ivory parchment, gently weathered edges, subtly textured large blank central area for readable UI text, and refined painted medieval fantasy style. Keep central content area broad and flat. No writing, buttons, symbols or props.
+Preserve actual transparent alpha outside the paper silhouette. Paper itself opaque. No background, no brown backdrop, no glow or drop shadow outside the object. Entire scroll visible with transparent margins.

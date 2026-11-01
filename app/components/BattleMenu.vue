@@ -16,7 +16,7 @@ const copySeed = async () => {
 </script>
 
 <template>
-  <section class="battle-menu" role="dialog" aria-label="メニュー">
+  <section class="battle-menu parchment-window parchment-scroll" role="dialog" aria-label="メニュー">
     <header>
       <h2>THE LAST BATTALION</h2>
       <button class="close" aria-label="メニューを閉じる" @click="emit('close')">×</button>
@@ -67,30 +67,30 @@ const copySeed = async () => {
 </template>
 
 <style scoped>
-.battle-menu { position: absolute; z-index: 31; right: 16px; bottom: 120px; width: min(380px, calc(100% - 32px)); max-height: calc(100% - 240px); overflow-y: auto; box-sizing: border-box; padding: 16px 20px; background: #121b22f4; border: 1px solid #a48d5f; border-radius: 8px; color: #dfe3df; font-size: 12px; box-shadow: 0 8px 24px #000a; }
+.battle-menu { position: absolute; z-index: 31; right: 16px; bottom: 120px; width: min(380px, calc(100% - 32px)); max-height: calc(100% - 240px); overflow-y: auto; box-sizing: border-box; padding: 8px 12px; color: #39291d; font-size: 12px; }
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-h2 { margin: 0; font: 400 15px Georgia, serif; letter-spacing: .14em; color: #f2e8cf; }
+h2 { margin: 0; font: 400 15px Georgia, serif; letter-spacing: .14em; color: #352315; }
 button { margin: 0; cursor: pointer; font: inherit; }
-.close { padding: 0 6px; font-size: 18px; background: none; border: 0; color: #9aa7a8; }
-.menu-group { padding: 10px 0; border-top: 1px solid #2c383d; }
-.menu-label { display: block; margin-bottom: 6px; font-size: 10px; letter-spacing: .16em; color: #c5af83; }
-p { margin: 0 0 4px; color: #c6cfcd; }
+.close { padding: 0 6px; font-size: 18px; background: none; border: 0; color: #6c5741; }
+.menu-group { padding: 10px 0; border-top: 1px solid #af8b5659; }
+.menu-label { display: block; margin-bottom: 6px; font-size: 10px; letter-spacing: .16em; color: #70502d; }
+p { margin: 0 0 4px; color: #4e3b29; }
 .seed { display: flex; align-items: center; gap: 8px; }
-code { font: 12px monospace; color: #f2e8cf; letter-spacing: .06em; }
-.small { margin-left: auto; padding: 3px 10px; font-size: 11px; background: #1d242b; border: 1px solid #5d6466; border-radius: 3px; color: #dfe3df; }
-.small:hover { border-color: #c2a875; }
+code { font: 12px monospace; color: #352315; letter-spacing: .06em; }
+.small { margin-left: auto; padding: 3px 10px; font-size: 11px; background: #dec49a; border: 1px solid #a27b49; border-radius: 3px; color: #39291d; }
+.small:hover { border-color: #815a30; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: 2px 4px; font-weight: 400; text-align: right; }
-th:first-child { text-align: left; color: #97a3a4; }
-thead th.player { color: #9fc0f5; }
-thead th.cpu { color: #f1907f; }
+th:first-child { text-align: left; color: #6c5741; }
+thead th.player { color: #274d7b; }
+thead th.cpu { color: #943c2b; }
 .dot { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; vertical-align: middle; }
-.dot.player { background: #6f9be8; }
-.dot.cpu { background: #e0614f; }
+.dot.player { background: #3d6796; }
+.dot.cpu { background: #a34a36; }
 .help { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 11px; }
-.help dt { color: #e2cf9f; white-space: nowrap; }
-.help dd { margin: 0; color: #b8c4c5; }
-.title { width: 100%; margin-top: 6px; padding: 9px; background: transparent; border: 1px solid #5d6466; border-radius: 4px; color: #e9dab9; letter-spacing: .12em; }
-.title:hover { border-color: #c2a875; }
+.help dt { color: #684521; white-space: nowrap; }
+.help dd { margin: 0; color: #59432e; }
+.title { width: 100%; margin-top: 6px; padding: 9px; background: transparent; border: 1px solid #a27b49; border-radius: 4px; color: #432d1a; letter-spacing: .12em; }
+.title:hover { border-color: #815a30; }
 @media (max-width: 550px) { .battle-menu { right: 8px; left: 8px; width: auto; bottom: 110px; max-height: calc(100% - 200px); } .help { grid-template-columns: 1fr; } }
 </style>

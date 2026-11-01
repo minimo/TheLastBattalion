@@ -1,0 +1,7 @@
+# B2｜最後の戦記
+
+生成方法：組み込み image_gen。背景透過。新しい方向性として生成。
+
+## 生成プロンプト
+
+Use case: logo-brand. Create a single original finished title logo for a medieval dark fantasy tactical RTS where human armies battle demon armies with limited reinforcements. Exact title text only: "THE LAST BATTALION". Spell B A T T A L I O N correctly. Small "THE LAST" above large "BATTALION". Strong typography and excellent legibility at game menu size. Wide horizontal lockup around 2.4:1, generous safe transparent margins on all sides, no clipped ornaments. Actual transparent background alpha; no drawn checkerboard, no backdrop, no scene, no mockup or presentation board. No extra words, numbers, captions, watermarks, modern guns or vehicles. One logo only. A radically different medieval chronicle / woodcut title identity, hand-crafted printed ink and aged parchment-toned lettering. Large warm ivory custom calligraphic Roman capitals, subtly irregular carved shapes and moderate serifs, unmistakably readable; blackletter influence only in a few terminals, not dense gothic illegibility. Above the title a small hand-carved woodcut vignette of a broken fortress gate with one remaining upright standard, drawn entirely with bold ivory relief-print strokes and minimal crimson ink accents. The title feels like the heading of a grim old war chronicle. Fine restrained woodcut hatching inside shapes and slight print wear, no parchment background, no page rectangle, no metal, no 3D, no gold. Quiet tragic dignity, graphic handcrafted silhouette, refined compact composition.

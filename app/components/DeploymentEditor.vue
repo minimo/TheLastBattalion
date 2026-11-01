@@ -65,7 +65,7 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
 
 <template>
   <div class="deploy-dock">
-    <section class="deploy-panel" role="dialog" aria-modal="true" aria-labelledby="deploy-title">
+    <section class="deploy-panel parchment-window parchment-scroll" role="dialog" aria-modal="true" aria-labelledby="deploy-title">
       <header>
         <h2 id="deploy-title">部隊編成</h2>
         <span class="deploy-mode">{{ modeName }} · 人間軍</span>
@@ -162,25 +162,25 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
 
 <style scoped>
 .deploy-dock { position: absolute; z-index: 30; top: 96px; right: 20px; bottom: 20px; width: min(540px, calc(100% - 32px)); display: flex; align-items: flex-start; pointer-events: none; }
-.deploy-panel { pointer-events: auto; width: 100%; max-height: 100%; overflow-y: auto; box-sizing: border-box; padding: 20px 24px; background: #121b22f2; border: 1px solid #a48d5f; border-radius: 6px; color: #dfe3df; text-align: left; }
-header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
-h2 { margin: 0; font: 400 22px Georgia, serif; letter-spacing: .1em; color: #f2e8cf; }
-.deploy-mode { font-size: 12px; color: #a6b0b0; letter-spacing: .08em; }
+.deploy-panel { pointer-events: auto; width: 100%; max-height: 100%; overflow-y: auto; box-sizing: border-box; padding: 8px 12px; color: #39291d; text-align: left; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+h2 { margin: 0; font: 400 22px Georgia, serif; letter-spacing: .1em; color: #352315; }
+.deploy-mode { font-size: 12px; color: #69533d; letter-spacing: .08em; }
 .deploy-group { margin-bottom: 16px; }
-.deploy-label { display: block; margin-bottom: 6px; font-size: 11px; letter-spacing: .14em; color: #c5af83; }
-.deploy-note { margin: 6px 0 0; font-size: 11px; color: #97a3a4; }
-button { margin: 0; padding: 6px 12px; font-size: 12px; background: #1d242b; border: 1px solid #5d6466; border-radius: 3px; color: #dfe3df; cursor: pointer; }
-button:hover:not(:disabled) { border-color: #c2a875; }
+.deploy-label { display: block; margin-bottom: 6px; font-size: 11px; letter-spacing: .14em; color: #70502d; }
+.deploy-note { margin: 6px 0 0; font-size: 11px; color: #6c5741; }
+button { margin: 0; padding: 6px 12px; font-size: 12px; background: #dec49a; border: 1px solid #a27b49; border-radius: 3px; color: #39291d; cursor: pointer; }
+button:hover:not(:disabled) { border-color: #815a30; }
 button:disabled { opacity: .4; cursor: default; }
-button.active { border-color: #c2a875; background: #3a3121; color: #f2e8cf; }
+button.active { border-color: #815a30; background: #c5a16a; color: #352315; }
 .deploy-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .deploy-buttons button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.deploy-buttons small { font-size: 10px; color: #97a3a4; }
+.deploy-buttons small { font-size: 10px; color: #6c5741; }
 .deploy-buttons.formations button { min-width: 56px; align-items: center; }
 .deploy-types { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.deploy-types li { padding: 8px 10px; background: #0b1318; border: 1px solid #2c383d; border-radius: 4px; }
-.type-head { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.type-head small { color: #97a3a4; font-size: 11px; font-variant-numeric: tabular-nums; }
+.deploy-types li { padding: 8px 10px; background: #ead2a5; border: 1px solid #af8b5659; border-radius: 4px; }
+.type-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
+.type-head small { color: #6c5741; font-size: 11px; font-variant-numeric: tabular-nums; }
 .type-head .add { margin-left: auto; padding: 3px 10px; font-size: 11px; }
 .templates button { min-width: 64px; }
 .companies { margin-top: 8px; }
@@ -190,21 +190,21 @@ button.active { border-color: #c2a875; background: #3a3121; color: #f2e8cf; }
 .add-types button { padding: 2px 6px; font-size: 11px; }
 .squads { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .squads:empty { display: none; }
-.squad-chip { display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #17222a; border: 1px solid #3a474d; border-radius: 3px; font-size: 11px; }
-.squad-no { margin: 0 4px 0 2px; color: #97a3a4; }
+.squad-chip { display: flex; align-items: center; gap: 2px; padding: 2px 4px; background: #e0c394; border: 1px solid #a27b4970; border-radius: 3px; font-size: 11px; }
+.squad-no { margin: 0 4px 0 2px; color: #6c5741; }
 .squad-chip button { padding: 1px 6px; font-size: 12px; line-height: 1.2; }
-.squad-chip .remove { margin-left: 2px; background: transparent; border-color: transparent; color: #9aa7a8; }
-.squad-chip input { width: 42px; padding: 2px; background: #0b1318; color: #fff; border: 1px solid #3a474d; border-radius: 2px; text-align: center; font: 12px system-ui; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.squad-chip .remove { margin-left: 2px; background: transparent; border-color: transparent; color: #6c5741; }
+.squad-chip input { width: 42px; padding: 2px; background: #ead2a5; color: #352315; border: 1px solid #a27b4970; border-radius: 2px; text-align: center; font: 12px system-ui; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
 .squad-chip input::-webkit-inner-spin-button, .squad-chip input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-footer { position: sticky; bottom: -20px; margin: 0 -24px -20px; padding: 12px 24px 16px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; background: #121b22; border-top: 1px solid #2c383d; }
+footer { position: sticky; bottom: -8px; margin: 0 -12px -8px; padding: 12px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; background: #eed8af; border-top: 1px solid #af8b5659; }
 .deploy-totals { display: grid; grid-template-columns: auto auto; gap: 3px 14px; margin: 0; font-size: 12px; }
-.deploy-totals dt { color: #97a3a4; }
+.deploy-totals dt { color: #6c5741; }
 .deploy-totals dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-.deploy-totals small { color: #97a3a4; font-size: 10px; }
-.deploy-totals .warn { color: #e8b25a; }
+.deploy-totals small { color: #6c5741; font-size: 10px; }
+.deploy-totals .warn { color: #955016; }
 .deploy-actions { display: flex; gap: 8px; }
 .deploy-actions button { padding: 9px 22px; font-size: 13px; letter-spacing: .1em; }
-.deploy-actions button:not(.secondary) { border-color: #c2a875; color: #f2e8cf; }
+.deploy-actions button:not(.secondary) { border-color: #815a30; color: #352315; }
 .deploy-actions .secondary { background: transparent; }
-@media (max-width: 550px) { .deploy-dock { top: 84px; right: 16px; bottom: 16px; } .deploy-panel { padding: 16px; } footer { bottom: -16px; margin: 0 -16px -16px; padding: 12px 16px; } .deploy-buttons small { display: none; } }
+@media (max-width: 550px) { .deploy-dock { top: 84px; right: 16px; bottom: 16px; } .deploy-panel { padding: 8px; } footer { bottom: -8px; margin: 0 -8px -8px; padding: 10px 8px; } .deploy-buttons small { display: none; } }
 </style>

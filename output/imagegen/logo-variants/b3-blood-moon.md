@@ -1,0 +1,7 @@
+# B3｜赤月の終戦
+
+生成方法：組み込み image_gen。背景透過。新しい方向性として生成。
+
+## 生成プロンプト
+
+Use case: logo-brand. Create a single original finished title logo for a medieval dark fantasy tactical RTS where human armies battle demon armies with limited reinforcements. Exact title text only: "THE LAST BATTALION". Spell B A T T A L I O N correctly. Small "THE LAST" above large "BATTALION". Strong typography and excellent legibility at game menu size. Wide horizontal lockup around 2.4:1, generous safe transparent margins on all sides, no clipped ornaments. Actual transparent background alpha; no drawn checkerboard, no backdrop, no scene, no mockup or presentation board. No extra words, numbers, captions, watermarks, modern guns or vehicles. One logo only. A radically different atmospheric minimalist dark fantasy title identity based on the blood moon. A large deep crimson eclipse crescent forms a compact emblem centered above and slightly behind the first line; a narrow black negative-space spear intersects its lower arc, suggesting the lone surviving battalion. Lettering is pale ivory, tall elegantly condensed uppercase serif with sharp fine wedge tips and sturdy enough stems for game-menu legibility, substantial tracking on THE LAST, less tracking on BATTALION. Flat graphic lettering without bevels or metallic texture. The moon can have subtle dark red etched surface marks entirely inside its shape, but no outer glow, no haze. Restrained, ominous and beautiful. No shields, flags, gold ornaments, frames, or armies pictured. Crisp isolated silhouette on actual alpha.

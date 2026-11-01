@@ -1,0 +1,7 @@
+# B1｜大隊の紋章
+
+生成方法：組み込み image_gen。背景透過。新しい方向性として生成。
+
+## 生成プロンプト
+
+Use case: logo-brand. Create a single original finished title logo for a medieval dark fantasy tactical RTS where human armies battle demon armies with limited reinforcements. Exact title text only: "THE LAST BATTALION". Spell B A T T A L I O N correctly. Small "THE LAST" above large "BATTALION". Strong typography and excellent legibility at game menu size. Wide horizontal lockup around 2.4:1, generous safe transparent margins on all sides, no clipped ornaments. Actual transparent background alpha; no drawn checkerboard, no backdrop, no scene, no mockup or presentation board. No extra words, numbers, captions, watermarks, modern guns or vehicles. One logo only. A radically different flat heraldic identity, modern graphic design using medieval military symbolism. Two ink colors only: warm ivory and dark crimson. No metal textures, bevels, gold, gradients or dimensional effects. A compact geometric heraldic shield above the type, formed by three upright spear shapes and one negative-space banner, strong original silhouette, no letters inside the shield. Broad sturdy custom slab serif capitals with straight geometric cuts and measured spacing. Clean vector-like edges. Flat ivory type and emblem accented with one crimson pennant. Sparse, disciplined, austere and iconic, closer to a military seal printed on a campaign standard than a fantasy movie logo. No enclosing badge around the entire wordmark.

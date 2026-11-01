@@ -1,0 +1,11 @@
+Generator: built-in image_gen
+Asset: public/images/ui/command-walnut.png
+Consumer: app/components/CommandBar.vue
+The wood is an image. Brass frame, rivets, divider, focus states and live controls are rendered in CSS/Vue. Existing parchment artwork is reused for selected buttons, the unit name tag and the hint strip.
+
+Use case: stylized-concept.
+Asset type: opaque tileable dark wood texture for a medieval tactical strategy game's command toolbar.
+Primary request: a refined dark walnut wooden military council table surface, viewed perfectly flat and straight down, filling the entire square image edge to edge.
+Material: deep warm espresso brown walnut, subtle long horizontal wood fibres, very restrained wear and tiny fine scratches, waxed matte finish, low contrast consistent texture.
+Lighting: completely even diffuse lighting, no highlight hotspot, no vignette, no cast shadows, no perspective.
+Practical UI constraints: icons and text will be drawn on top separately. Keep the wood dark and visually quiet so pale brass icons remain legible. Seamless repeating texture. No boards separated by deep cracks, no large knots, no frame, no rim, no metal, no nails, no ornament, no icons, no letters, no labels, no map, no props, no parchment. Texture only. Entire image fully opaque.

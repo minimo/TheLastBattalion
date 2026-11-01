@@ -1,0 +1,7 @@
+# A2｜盾の陣
+
+生成方法：組み込み image_gen。背景透過。参照画像：public/images/title-logo.png。
+
+## 生成プロンプト
+
+Use case: logo-brand. Create a single original finished title logo for a medieval dark fantasy tactical RTS where human armies battle demon armies with limited reinforcements. Exact title text only: "THE LAST BATTALION". Spell B A T T A L I O N correctly. Small "THE LAST" above large "BATTALION". Strong typography and excellent legibility at game menu size. Wide horizontal lockup around 2.4:1, generous safe transparent margins on all sides, no clipped ornaments. Actual transparent background alpha; no drawn checkerboard, no backdrop, no scene, no mockup or presentation board. No extra words, numbers, captions, watermarks, modern guns or vehicles. One logo only. The attached existing logo is the style reference. Design a different sibling in exactly the same aged steel, muted antique gold, deep crimson and dark iron material family. Main distinguishing feature: a compact symmetrical shieldwall crest above the title, three overlapping battered angular shields, center shield largest with a narrow worn crimson vertical stripe; seven disciplined spear tips rise behind them like a military formation. No large waving flag. Bold square monumental Roman serif capitals with carefully chiseled edges and slight scars. Broad grounded silhouette, orderly and defensive, severe and prestigious. The crest is compact, and the word BATTALION dominates. Restrained metal framework, no elaborate curls.

@@ -93,23 +93,23 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
 
 <template>
   <div ref="root" class="command-dock">
-    <p class="command-hint" role="status">
+    <p class="command-hint parchment-window" role="status">
       <span :key="hint" class="hint-text">{{ hint }}</span>
       <span v-if="input.buildError.value" class="build-error">{{ input.buildError.value }}</span>
     </p>
     <div class="command-bar-wrap">
-    <div v-if="armyOpen && !deploying" class="command-popup">
+    <div v-if="armyOpen && !deploying" class="command-popup parchment-window">
       <ArmyMenu :formation="gameStore.formation" @formation="setFormation" @order="orderArmy" />
     </div>
     <nav class="command-bar" aria-label="操作">
       <template v-if="!deploying">
         <div class="command-group">
           <template v-if="selected">
-            <button class="command squad-name" :class="selected.owner" :title="`${squadName(selected)}の選択を外す`" @click="deselect">
+            <button class="command squad-name" :class="selected.owner" :title="`${squadName(selected)}の選択を外す`" :aria-label="`${squadName(selected)}の選択を外す`" @click="deselect">
               <CommandIcon name="close" /><span class="label">{{ squadName(selected) }}</span>
             </button>
             <template v-if="selected.owner === 'player'">
-              <button v-for="action in squadActions(selected.type)" :key="action.key" class="command" :class="{ active: isActive(action) }" :aria-pressed="isActive(action)" @click="runAction(action)">
+              <button v-for="action in squadActions(selected.type)" :key="action.key" class="command" :class="{ active: isActive(action) }" :aria-pressed="isActive(action)" :title="action.label" @click="runAction(action)">
                 <CommandIcon :name="action.icon" /><span class="label">{{ action.label }}</span>
               </button>
               <button v-if="buildMode?.kind === 'barricade'" class="command" @click="input.rotateBuild()">
@@ -118,11 +118,11 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
             </template>
           </template>
           <template v-else-if="selectedCompany">
-            <button class="command squad-name" :class="selectedCompany.owner" :title="`${companyName(selectedCompany)}の選択を外す`" @click="deselect">
+            <button class="command squad-name" :class="selectedCompany.owner" :title="`${companyName(selectedCompany)}の選択を外す`" :aria-label="`${companyName(selectedCompany)}の選択を外す`" @click="deselect">
               <CommandIcon name="close" /><span class="label">{{ companyName(selectedCompany) }}</span>
             </button>
             <template v-if="selectedCompany.owner === 'player'">
-              <button v-for="action in companyActions(selectedCompany.types)" :key="action.key" class="command" :class="{ active: isCompanyActive(action) }" :aria-pressed="isCompanyActive(action)" @click="runCompanyAction(action)">
+              <button v-for="action in companyActions(selectedCompany.types)" :key="action.key" class="command" :class="{ active: isCompanyActive(action) }" :aria-pressed="isCompanyActive(action)" :title="action.label" @click="runCompanyAction(action)">
                 <CommandIcon :name="action.icon" /><span class="label">{{ action.label }}</span>
               </button>
             </template>
@@ -131,10 +131,10 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
             <CommandIcon name="army" /><span class="label">全軍 · {{ formationName }} ▴</span>
           </button>
         </div>
-        <div class="command-divider"></div>
+        <div class="command-divider" aria-hidden="true"></div>
         <div class="command-group">
           <button class="command" :class="{ active: squadsOpen }" :aria-pressed="squadsOpen" @click="emit('toggleSquads')"><CommandIcon name="squads" /><span class="label">部隊</span></button>
-          <button class="command" :class="{ active: paused }" @click="gameStore.togglePause()"><CommandIcon :name="paused ? 'play' : 'pause'" /><span class="label">{{ paused ? '再開' : '停止' }}</span></button>
+          <button class="command" :class="{ active: paused }" :aria-pressed="paused" @click="gameStore.togglePause()"><CommandIcon :name="paused ? 'play' : 'pause'" /><span class="label">{{ paused ? '再開' : '停止' }}</span></button>
           <button class="command" :aria-label="`ゲーム速度 ×${gameStore.gameSpeed}（押すと切り替え）`" @click="nextSpeed"><CommandIcon name="speed" /><span class="label">×{{ gameStore.gameSpeed }}</span></button>
         </div>
       </template>
@@ -148,26 +148,46 @@ defineExpose({ closePopups: () => { armyOpen.value = false } })
 </template>
 
 <style scoped>
-.command-dock { position: absolute; z-index: 8; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100% - 16px); pointer-events: none; }
-.command-hint { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 18px; background: #0b151dd9; border: 1px solid #44545a; border-radius: 999px; color: #e4e2da; font-size: 12px; letter-spacing: .04em; text-align: center; text-shadow: 0 1px 2px #000; }
-.build-error { color: #ffb39f; font-size: 11px; }
+.command-dock { position: absolute; z-index: 8; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; width: max-content; max-width: calc(100% - 16px); pointer-events: none; }
+.command-hint { box-sizing: border-box; max-width: 100%; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 2px 10px; border-width: 7px 9px 6px; border-image-width: 7px 9px 6px; color: #493522; font-size: 12px; line-height: 1.45; letter-spacing: .03em; text-align: center; text-wrap: pretty; filter: drop-shadow(0 2px 3px #0006); }
+.build-error { color: #90391f; font-size: 11px; font-weight: 600; }
 .hint-text { animation: hint-in .2s ease-out; }
 @keyframes hint-in { from { opacity: 0; } }
-.command-bar-wrap { position: relative; max-width: 100%; }
-.command-popup { position: absolute; left: 0; bottom: calc(100% + 8px); pointer-events: auto; padding: 4px 0 8px; background: #0e1d25f2; border: 1px solid #a48d5f; border-radius: 8px; box-shadow: 0 6px 18px #0009; }
-.command-bar { pointer-events: auto; display: flex; align-items: stretch; gap: 2px; max-width: 100%; overflow-x: auto; scrollbar-width: none; padding: 6px; background: #0e1d25ee; border: 1px solid #a48d5f; border-radius: 10px; box-shadow: 0 6px 20px #0008; }
-.command-group { display: flex; gap: 2px; }
-.command-divider { width: 1px; margin: 6px 5px; background: #44545a; flex: none; }
-.command { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-width: 58px; margin: 0; padding: 8px 8px 6px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: #e2cf9f; font: 11px system-ui, sans-serif; letter-spacing: .04em; white-space: nowrap; cursor: pointer; transition: background .12s, border-color .12s; }
-.command:hover { border-color: #5d6466; background: #17262f; transform: none; }
-.command.active { border-color: #c2a875; background: #3a3121; color: #f2e8cf; }
-.command.squad-name { color: #9fc0f5; }
-.command.squad-name.cpu { color: #f1907f; }
+/* The frame stays fixed while the controls inside can scroll horizontally. */
+.command-bar-wrap { position: relative; box-sizing: border-box; min-width: 0; max-width: 100%; border: 2px solid #96703e; border-top-color: #d0ae6a; border-bottom-color: #634522; border-radius: 5px; background: linear-gradient(#160c0670, #130a04a6), url('/images/ui/command-walnut.png') center / 480px auto repeat; box-shadow: inset 0 0 0 1px #e0b76d4d, inset 0 0 12px #0009, 0 5px 14px #0009; }
+.command-bar-wrap::after { content: ''; position: absolute; inset: 3px; pointer-events: none; background: radial-gradient(circle at 3px 3px, #edce88 0 1px, #886132 1.5px 2.5px, transparent 3px) top left, radial-gradient(circle at 3px 3px, #edce88 0 1px, #886132 1.5px 2.5px, transparent 3px) top right, radial-gradient(circle at 3px 3px, #edce88 0 1px, #886132 1.5px 2.5px, transparent 3px) bottom left, radial-gradient(circle at 3px 3px, #edce88 0 1px, #886132 1.5px 2.5px, transparent 3px) bottom right; background-size: 6px 6px; background-repeat: no-repeat; }
+.command-popup { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 12px); box-sizing: border-box; max-height: calc(100dvh - 180px); overflow-y: auto; pointer-events: auto; padding: 2px 0 6px; }
+.command-bar { box-sizing: border-box; pointer-events: auto; display: flex; align-items: stretch; gap: 3px; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: #9d7845 #20130b; padding: 8px 10px; }
+.command-bar::-webkit-scrollbar { height: 4px; }
+.command-bar::-webkit-scrollbar-thumb { background: #9d7845; }
+.command-bar::-webkit-scrollbar-track { background: #20130b; }
+.command-group { display: flex; flex: none; gap: 3px; }
+.command-divider { width: 1px; margin: 7px 6px; background: linear-gradient(transparent, #d4ae69 25%, #97703b 75%, transparent); box-shadow: 1px 0 #0008; flex: none; }
+.command { box-sizing: border-box; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-width: 62px; min-height: 58px; margin: 0; padding: 4px 5px 3px; background: linear-gradient(#d8af6120, #09050233); border: solid transparent; border-width: 6px 5px; border-radius: 3px; box-shadow: inset 0 0 0 1px #b78c4933; color: #e2c58a; font: 11px system-ui, sans-serif; letter-spacing: .04em; white-space: nowrap; cursor: pointer; text-shadow: 0 1px 2px #000; transition: color .12s, box-shadow .12s; }
+.command :deep(.command-icon) { background: linear-gradient(#f0d99e, #bb8d48); }
+.command:hover { color: #fff0c6; box-shadow: inset 0 0 0 1px #d2ab66aa, inset 0 0 14px #d8af6126; transform: none; }
+.command.active, .command.squad-name { border-image: url('/images/ui/parchment-window-small.png') 160 100 130 fill / 6px 5px / 0 stretch; border-radius: 0; background: none; box-shadow: none; color: #49311b; text-shadow: none; }
+.command.active :deep(.command-icon), .command.squad-name :deep(.command-icon) { background: currentColor; }
+.command.active .label { font-weight: 700; }
+.command.active:hover, .command.squad-name:hover { color: #28190c; filter: brightness(1.05); }
+.command.squad-name { color: #274d7b; }
+.command.squad-name.cpu { color: #943c2b; }
+.command.squad-name .label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.command:focus-visible { outline: 2px solid #ffe0a0; outline-offset: 1px; }
 @media (max-width: 900px) {
-  .command { min-width: 44px; padding: 8px 6px; }
-  .command .label { display: none; }
-  .command.army .label, .command.squad-name .label { display: inline; }
-  .command-hint { font-size: 11px; padding: 6px 12px; }
+  .command { min-width: 52px; min-height: 54px; padding: 3px; font-size: 10px; gap: 4px; }
+  .command-hint { font-size: 11px; padding: 2px 6px; }
+  .command.squad-name .label { max-width: 90px; }
 }
-@media (max-width: 550px) { .command.army .label, .command.squad-name .label { display: none; } }
+@media (max-width: 550px) {
+  .command-dock { max-width: calc(100% - 12px); }
+  .command-bar { padding: 7px 8px; }
+  .command { min-width: 50px; font-size: 9px; }
+  .command-divider { margin-inline: 3px; }
+  .command-hint { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hint-text { animation: none; }
+  .command { transition: none; }
+}
 </style>

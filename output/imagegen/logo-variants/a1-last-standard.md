@@ -1,0 +1,7 @@
+# A1｜最後の軍旗
+
+生成方法：組み込み image_gen。背景透過。参照画像：public/images/title-logo.png。
+
+## 生成プロンプト
+
+Use case: logo-brand. Create a single original finished title logo for a medieval dark fantasy tactical RTS where human armies battle demon armies with limited reinforcements. Exact title text only: "THE LAST BATTALION". Spell B A T T A L I O N correctly. Small "THE LAST" above large "BATTALION". Strong typography and excellent legibility at game menu size. Wide horizontal lockup around 2.4:1, generous safe transparent margins on all sides, no clipped ornaments. Actual transparent background alpha; no drawn checkerboard, no backdrop, no scene, no mockup or presentation board. No extra words, numbers, captions, watermarks, modern guns or vehicles. One logo only. The attached existing logo is the style reference. Develop a sibling design in the same visual family, not a copy: aged pale steel monumental Roman serif capitals, dark forged bevels, subtle antique gold edges, a torn crimson battle standard. Make the main distinguishing feature a dramatically windswept crimson banner sweeping left and right behind the top line, on a single upright spear pole; the banner has real woven cloth and battle wear. Keep a very small shield at the central junction, only two supporting spear tips. Strong disciplined typography, tall upright letterforms, restrained battle scars. The type must remain fully readable and in front of the cloth. A solemn heroic last stand, premium crafted metal fantasy game branding. Reduce the ornamental horizontal frame compared with the reference.

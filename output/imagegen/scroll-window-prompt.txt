@@ -1,0 +1,12 @@
+Generator: built-in image_gen
+Asset: public/images/ui/scroll-window.png
+Size: 1024 x 1536, RGBA PNG
+
+Use case: ui-mockup
+Asset type: production game UI window background, single isolated transparent PNG sprite.
+Primary request: a parchment scroll unfurled vertically, for a medieval fantasy tactical strategy game's window UI.
+Composition: portrait 2:3 canvas, strict straight-on orthographic view, centered symmetrical silhouette. One wide horizontal rolled parchment cylinder at the top and one at the bottom, wooden spindle ends with restrained antiqued brass caps. A tall broad rectangular sheet connects them. Entire silhouette visible with a small transparent margin, no cropping.
+Style: finely painted realistic fantasy game UI, crisp detailed edges, refined aged materials, restrained ornament compatible with an old carved medieval interface.
+Materials: warm pale ivory parchment, extremely subtle paper grain in the middle, softly weathered ochre edges, dark walnut spindle ends, muted antique bronze.
+Practical layout: central 75 percent of paper width and 78 percent of paper height is entirely blank, nearly uniform light ivory and fully opaque for readable dark UI text later. Keep all aging and small ornamental detail near the outer edges. Straight nearly parallel side edges, only slight organic irregularity. No large folds, stains or torn holes in the content region. Gentle dimensional shading only near rolls and edges.
+Constraints: one scroll only; no writing, no letters, no symbols, no title, no buttons, no icons, no watermark, no scene, no table, no props, no cast shadow on a background. Actual transparent alpha outside the scroll, opaque paper inside. This is a usable blank UI asset, not a screenshot or presentation board.

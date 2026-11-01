@@ -58,7 +58,7 @@ const squadStatus = (squad: SquadSummary) => {
 
 <template>
   <aside class="squad-panel" aria-label="部隊">
-    <div v-if="selected" class="squad-card" role="status">
+    <div v-if="selected" class="squad-card parchment-window" role="status">
       <div class="card-head">
         <span class="unit-name" :class="selected.owner">{{ ARMY_NAME[selected.owner] }} · {{ squadName(selected) }}</span>
         <span class="card-order">{{ ORDER_NAME[selected.order] }}</span>
@@ -82,7 +82,7 @@ const squadStatus = (squad: SquadSummary) => {
         <b>{{ constructionMeter(selected) }}%</b>
       </div>
     </div>
-    <div v-else-if="selectedCompany" class="squad-card" role="status">
+    <div v-else-if="selectedCompany" class="squad-card parchment-window" role="status">
       <div class="card-head">
         <span class="unit-name" :class="selectedCompany.owner">{{ ARMY_NAME[selectedCompany.owner] }} · {{ companyName(selectedCompany) }}</span>
         <span class="card-order">{{ companyOrder(squadsOf(selectedCompany)) }}</span>
@@ -99,7 +99,7 @@ const squadStatus = (squad: SquadSummary) => {
         </li>
       </ul>
     </div>
-    <div v-if="listOpen" class="squad-list">
+    <div v-if="listOpen" class="squad-list parchment-window parchment-scroll">
       <p v-if="!groups.length && !loose.length" class="empty">部隊がいません</p>
       <p v-else class="battalion">大隊 · {{ groups.length }}中隊{{ loose.length ? ` · ${loose.length}小隊` : '' }} · {{ total }}人</p>
       <section v-for="group in groups" :key="group.company.id">
@@ -136,53 +136,55 @@ const squadStatus = (squad: SquadSummary) => {
 
 <style scoped>
 .squad-panel { position: absolute; z-index: 6; left: 16px; top: 112px; bottom: 150px; width: 236px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-.squad-card, .squad-list { pointer-events: auto; background: #0e1d25e6; border: 1px solid #44545a; border-radius: 6px; }
-.squad-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #b8c4c5; flex: none; }
+.squad-card, .squad-list { pointer-events: auto; }
+.squad-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #59432e; flex: none; }
 .card-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.unit-name { font-size: 12px; color: #e8ecea; }
-.unit-name.player { color: #9fc0f5; }
-.unit-name.cpu { color: #f1907f; }
-.card-order { color: #c5af83; white-space: nowrap; }
+.unit-name { font-size: 12px; color: #39291d; }
+.unit-name.player { color: #274d7b; }
+.unit-name.cpu { color: #943c2b; }
+.card-order { color: #70502d; white-space: nowrap; }
 .meter { display: grid; grid-template-columns: 34px 1fr 44px; gap: 8px; align-items: center; }
 .meter:has(.build) { grid-template-columns: auto 1fr 36px; }
-.meter b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; color: #dfe6e4; }
-.meter.tired b { color: #e8b25a; }
-.bar { height: 4px; background: #00000080; border-radius: 2px; overflow: hidden; }
-.bar span { display: block; height: 100%; background: #8bd38f; }
-.bar.stamina span { background: #7fb6e8; }
-.meter.tired .bar.stamina span { background: #e08b5a; }
-.bar.ammo span { background: #e2c27a; }
-.bar.build span { background: #c9a36b; }
+.meter b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; color: #39291d; }
+.meter.tired b { color: #955016; }
+.bar { height: 4px; background: #76562c30; border-radius: 2px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: #54743e; }
+.bar.stamina span { background: #416b8a; }
+.meter.tired .bar.stamina span { background: #a44c24; }
+.bar.ammo span { background: #9b742c; }
+.bar.build span { background: #896329; }
 .squad-list { padding: 4px; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+/* Keep the scroll ends compact for the narrow troop list at every screen width. */
+.squad-list.parchment-scroll { border-width: 32px 10px 34px; border-image-width: 32px 10px 34px; }
 .squad-list ul { list-style: none; margin: 0 0 4px; padding: 0 0 0 10px; display: flex; flex-direction: column; gap: 1px; }
-.empty { margin: 6px 8px; font-size: 11px; color: #8f9a9b; }
-.battalion { margin: 4px 8px 6px; font-size: 10px; letter-spacing: .12em; color: #c5af83; }
-.card-types { color: #8fa3a6; font-size: 10px; }
-.card-parent { align-self: flex-start; margin: 0; padding: 0; background: none; border: 0; color: #8fa3a6; font-size: 10px; cursor: pointer; }
-.card-parent:hover { color: #fff1c2; transform: none; }
+.empty { margin: 6px 8px; font-size: 11px; color: #725b43; }
+.battalion { margin: 4px 8px 6px; font-size: 10px; letter-spacing: .12em; color: #70502d; }
+.card-types { color: #705940; font-size: 10px; }
+.card-parent { align-self: flex-start; margin: 0; padding: 0; background: none; border: 0; color: #705940; font-size: 10px; cursor: pointer; }
+.card-parent:hover { color: #805522; transform: none; }
 .card-squads { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 140px; overflow-y: auto; overflow-x: hidden; }
-.company-name, .caret, .squad-row { margin: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: #c6cfcd; cursor: pointer; text-align: left; }
+.company-name, .caret, .squad-row { margin: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: #4e3b29; cursor: pointer; text-align: left; }
 .squad-row { cursor: default; }
 .squad-row.loose { cursor: pointer; }
-.squad-row.loose:hover { border-color: #526469; transform: none; }
-.loose-head { margin: 6px 0 2px; padding: 0 8px; font-size: 10px; color: #8fa3a6; }
+.squad-row.loose:hover { border-color: #936b3b; transform: none; }
+.loose-head { margin: 6px 0 2px; padding: 0 8px; font-size: 10px; color: #705940; }
 .squad-row { width: 100%; box-sizing: border-box; }
 .group-head { display: flex; align-items: center; gap: 2px; border: 1px solid transparent; border-radius: 4px; }
-.group-head.selected { border-color: #fff1c2; }
+.group-head.selected { border-color: #805522; }
 .company-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; padding: 6px 8px 6px 2px; font-size: 12px; }
-.company-name small { font-size: 10px; color: #8fa3a6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.company-name b { margin-left: auto; font-weight: 400; font-size: 11px; color: #9fc0f5; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.caret { width: 22px; padding: 6px 0 6px 6px; color: #c5af83; font-size: 12px; }
-.care { color: #e8b25a; }
+.company-name small { font-size: 10px; color: #705940; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-name b { margin-left: auto; font-weight: 400; font-size: 11px; color: #274d7b; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.caret { width: 22px; padding: 6px 0 6px 6px; color: #70502d; font-size: 12px; }
+.care { color: #955016; }
 .squad-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 28px; gap: 6px; align-items: center; padding: 4px 8px; font-size: 10px; }
 /* 長い小隊名は省略して、行が枠からはみ出して横スクロールが出ないようにする。 */
 .squad-row > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .squad-row .order { white-space: nowrap; }
-.company-name:hover, .caret:hover { border-color: #526469; transform: none; }
-.squad-row.selected { border-color: #fff1c2; color: #fff; }
-.squad-row .order { color: #8fa3a6; }
-.squad-row .order.low { color: #e8b25a; }
-.squad-row b { text-align: right; color: #9fc0f5; font-weight: 500; font-variant-numeric: tabular-nums; }
+.company-name:hover, .caret:hover { border-color: #936b3b; transform: none; }
+.squad-row.selected { border-color: #805522; color: #352315; }
+.squad-row .order { color: #705940; }
+.squad-row .order.low { color: #955016; }
+.squad-row b { text-align: right; color: #274d7b; font-weight: 500; font-variant-numeric: tabular-nums; }
 @media (max-width: 900px) { .squad-panel { top: 100px; left: 10px; width: 200px; } }
 @media (max-width: 550px) { .squad-panel { width: calc(100% - 20px); max-width: 260px; bottom: 170px; } }
 </style>

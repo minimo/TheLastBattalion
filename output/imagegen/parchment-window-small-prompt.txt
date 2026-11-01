@@ -1,0 +1,12 @@
+Generator: built-in image_gen
+Asset: public/images/ui/parchment-window-small.png
+Reference: public/images/ui/scroll-window-handrolled.png (style/material only)
+
+Use case: ui-mockup.
+Asset type: a blank production game UI background for SMALL information windows, as one isolated transparent PNG image.
+Input image role: style and material reference ONLY. Match its warm pale ivory sheep parchment, subtle fibres, ochre gently weathered edges, and detailed painted medieval fantasy game art.
+Primary request: a single FLAT rectangular piece of parchment, with absolutely NO rolled edges, NO curls, NO scroll cylinders, NO rods, NO wood, NO metal, NO folds. Change the tall reference into a compact landscape 4:3 sheet intended for panels displayed at 200–236 CSS pixels wide and variable height.
+Composition: 4:3 landscape canvas, front-facing orthographic view, single paper centered and almost filling the canvas, about 3 percent transparent margin all around. Four essentially straight sides and softly irregular organically worn corners. Keep decorative aging within a narrow outer 4 percent band of the sheet. Very small edge nicks only, no deep tears or missing corners.
+Content area: broad entirely blank pale ivory center, very low contrast fine paper texture, consistent light tone suitable for small dark text, no strong mottling or stains. At least 86 percent of sheet width and height usable for text. Paper is fully opaque, outer silhouette genuinely transparent alpha.
+Style: consistent with the reference parchment, but fine texture and restrained edge detail optimized for small UI. Thin paper edges, no thick frame.
+Avoid: writing, symbols, logos, buttons, icons, additional sheets, scrolls, curled corners, ribbons, wax seals, props, tabletop, scenery, any solid or gradient background, cast shadow or glow outside the paper. This is one usable blank flat parchment UI sprite, not a mockup presentation.
