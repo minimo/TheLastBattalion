@@ -66,12 +66,11 @@ const MODES: { mode: BattleMode; name: string; description: string }[] = [
   { mode: 'defense', name: '防衛戦', description: '魔王軍から砦を守る。敵を全滅させれば勝利、本陣を落とされれば敗北' },
 ]
 const MODE_NAME = Object.fromEntries(MODES.map(m => [m.mode, m.name])) as Record<BattleMode, string>
+const FIXED_MODES = MODES.filter(m => m.mode !== 'field')
 const selectedMode = ref<BattleMode>(gameStore.mode)
-const modeDescription = computed(() => MODES.find(m => m.mode === selectedMode.value)!.description)
 const selectedMap = ref<MapType>(gameStore.mapChoice)
 /** 地形を選べるのは攻防戦だけ。攻城戦・防衛戦は地形が決まっている。 */
 const mapSelectable = computed(() => selectedMode.value === 'field')
-const shownMap = computed(() => mapTypeForMode(selectedMode.value, selectedMap.value))
 /** 戦場に入る。deploy なら戦場で部隊編成をしてから開戦し、そうでなければ前回の編成ですぐ開戦する（Restart）。 */
 const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy) }
 const resetView = () => scene?.resetCamera()
@@ -163,25 +162,31 @@ onUnmounted(() => {
                 </span>
               </label>
             </div>
-            <p id="mode-description" class="mode-description">{{ modeDescription }}</p>
+            <p id="mode-description" class="mode-description stable-description">
+              <span v-for="m in MODES" :key="m.mode" :class="{ 'is-reserved': selectedMode !== m.mode }" :aria-hidden="selectedMode !== m.mode">{{ m.description }}</span>
+            </p>
           </fieldset>
-          <fieldset v-if="mapSelectable" class="operation-section terrain-section" aria-describedby="map-description">
-            <legend class="title-sr-only">地形</legend>
-            <div class="map-select">
-              <label v-for="type in MAP_TYPES" :key="type" class="map-option">
-                <input v-model="selectedMap" type="radio" name="battle-terrain" :value="type">
-                <span class="map-tile">
-                  <TerrainIcon :type="type" />
-                  <span>{{ MAP_TYPE_NAME[type] }}</span>
-                  <span class="selection-mark" aria-hidden="true">◆</span>
-                </span>
-              </label>
+          <div class="terrain-slot terrain-section">
+            <fieldset class="operation-section" :class="{ 'is-reserved': !mapSelectable }" :disabled="!mapSelectable" :inert="!mapSelectable" :aria-hidden="!mapSelectable" aria-describedby="map-description">
+              <legend class="title-sr-only">地形</legend>
+              <div class="map-select">
+                <label v-for="type in MAP_TYPES" :key="type" class="map-option">
+                  <input v-model="selectedMap" type="radio" name="battle-terrain" :value="type">
+                  <span class="map-tile">
+                    <TerrainIcon :type="type" />
+                    <span>{{ MAP_TYPE_NAME[type] }}</span>
+                    <span class="selection-mark" aria-hidden="true">◆</span>
+                  </span>
+                </label>
+              </div>
+              <p id="map-description" class="mode-description stable-description">
+                <span v-for="type in MAP_TYPES" :key="type" :class="{ 'is-reserved': selectedMap !== type }" :aria-hidden="selectedMap !== type">{{ MAP_TYPE_DESCRIPTION[type] }}</span>
+              </p>
+            </fieldset>
+            <div v-for="m in FIXED_MODES" :key="m.mode" class="fixed-terrain" :class="{ 'is-reserved': selectedMode !== m.mode }" :inert="selectedMode !== m.mode" :aria-hidden="selectedMode !== m.mode">
+              <TerrainIcon :type="mapTypeForMode(m.mode, selectedMap)" />
+              <div><span class="fixed-terrain-label">指定地形 · {{ MAP_TYPE_NAME[mapTypeForMode(m.mode, selectedMap)] }}</span><p class="mode-description">{{ MAP_TYPE_DESCRIPTION[mapTypeForMode(m.mode, selectedMap)] }}</p></div>
             </div>
-            <p id="map-description" class="mode-description">{{ MAP_TYPE_DESCRIPTION[shownMap] }}</p>
-          </fieldset>
-          <div v-else class="fixed-terrain terrain-section">
-            <TerrainIcon :type="shownMap" />
-            <div><span class="fixed-terrain-label">指定地形 · {{ MAP_TYPE_NAME[shownMap] }}</span><p class="mode-description">{{ MAP_TYPE_DESCRIPTION[shownMap] }}</p></div>
           </div>
           <button type="submit" class="start-button">部隊編成へ <span aria-hidden="true">→</span></button>
           <div class="seed-options">
@@ -279,6 +284,10 @@ button:hover { transform: scale(1.05); }
 .mode-option input:focus-visible + .mode-tile, .map-option input:focus-visible + .map-tile { outline: 2px solid #f1d193; outline-offset: 3px; }
 .mode-description { margin: 6px 0 0; color: #d4bfa0; font-size: 12px; line-height: 1.5; text-wrap: pretty; }
 .terrain-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #c49b5959; }
+/* All alternatives share one grid cell so wrapping reserves the largest height. */
+.terrain-slot, .stable-description { display: grid; }
+.terrain-slot > *, .stable-description > * { grid-area: 1 / 1; min-width: 0; }
+.is-reserved { visibility: hidden; pointer-events: none; }
 .map-select { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
 .map-tile { box-sizing: border-box; height: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 3px; border: 1px solid #99713d55; border-radius: 2px; background: #130c0740; color: #dfc590; font-size: 12px; line-height: 1.3; }
 .map-tile :deep(.terrain-icon) { width: 22px; height: 22px; }
@@ -343,27 +352,29 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.world-labels[hidden]) { display: none; }
 .canvas-wrapper :deep(.world-label) { position: absolute; left: 0; top: 0; padding: 5px 7px; color: var(--faction); font: 600 14px system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; text-shadow: 0 1px 3px #000, 0 0 5px #000, 1px 0 2px #000, -1px 0 2px #000; }
 .canvas-wrapper :deep(.world-label[hidden]) { display: none; }
-.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.company-label) { margin: 0; padding: 1px 3px; background: none; border: solid transparent; border-width: 6px 5px 5px; border-image: url('/images/ui/parchment-window-small.png') 160 100 130 fill / 6px 5px 5px / 0 stretch; border-radius: 0; cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; line-height: 1.2; display: flex; gap: 4px; align-items: baseline; }
-.canvas-wrapper :deep(.squad-label .squad-count) { font-size: 10px; font-weight: 500; opacity: .85; }
-.canvas-wrapper :deep(.squad-label .squad-ammo) { font-size: 9px; font-weight: 500; opacity: .75; }
-.canvas-wrapper :deep(.squad-label.low-ammo .squad-ammo) { color: #954319; opacity: 1; }
-.canvas-wrapper :deep(.squad-label:hover) { transform: none; }
+/* Wooden nameplates; selection adds a raised metal molding outside the plate. */
+.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.company-label) { margin: 0; padding: 4px 7px; background: linear-gradient(#140b0670, #100804a6), url('/images/ui/command-walnut.png') center / 240px auto; border: 1px solid #654124; border-top-color: #aa7c48; border-bottom-color: #352012; border-radius: 2px; box-shadow: inset 0 0 0 1px #b1834933, 0 2px 3px #0009; cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; line-height: 1.2; display: flex; gap: 4px; align-items: baseline; }
+.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label)) { color: var(--label-ink, #f0dfb7); text-shadow: 0 1px 2px #000; }
+.canvas-wrapper :deep(.world-label.player) { --label-ink: #b4d5ff; }
+.canvas-wrapper :deep(.world-label.cpu) { --label-ink: #ffb3a0; }
+.canvas-wrapper :deep(.squad-label .squad-count) { font-size: 10px; font-weight: 500; opacity: .9; }
+.canvas-wrapper :deep(.squad-label .squad-ammo) { font-size: 9px; font-weight: 500; color: #e0ccaa; }
+.canvas-wrapper :deep(.squad-label.low-ammo .squad-ammo) { color: #ffd073; }
+.canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.company-label:hover) { transform: none; }
 .canvas-wrapper :deep(.squad-label.is-locked) { cursor: default; }
 .canvas-wrapper :deep(.squad-label.cpu) { font-size: 11px; }
 .canvas-wrapper :deep(.company-label) { z-index: 1; }
-.canvas-wrapper :deep(.company-label .company-count) { font-size: 10px; font-weight: 500; opacity: .85; }
-.canvas-wrapper :deep(.company-label.compact) { padding: 0 2px; border-width: 4px 5px; border-image-width: 4px 5px; font-size: 10px; }
+.canvas-wrapper :deep(.company-label .company-count) { font-size: 10px; font-weight: 500; opacity: .9; }
+.canvas-wrapper :deep(.company-label.compact) { padding: 3px 6px; font-size: 10px; }
 .canvas-wrapper :deep(.company-label.compact .company-count) { display: none; }
-.canvas-wrapper :deep(.world-label.is-selected), .canvas-wrapper :deep(.world-label.is-target), .canvas-wrapper :deep(.squad-label:not(.is-locked):hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { color: #fff4ca; text-shadow: 0 0 5px #eecf7d, 0 1px 3px #000; }
-.canvas-wrapper :deep(.world-label.is-source) { color: #e3edff; }
-/* Paper labels keep faction ink readable in every selection/drag state. */
-.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label)) { color: var(--label-ink, #493522); text-shadow: none; filter: drop-shadow(0 1px 2px #0008); }
-.canvas-wrapper :deep(.world-label.player) { --label-ink: #274d7b; }
-.canvas-wrapper :deep(.world-label.cpu) { --label-ink: #943c2b; }
-.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):is(.is-selected, .is-target, .is-hover, .is-source, :focus-visible)), .canvas-wrapper :deep(.squad-label:not(.is-locked):hover), .canvas-wrapper :deep(.company-label:hover) { color: var(--label-ink, #493522); text-shadow: none; filter: drop-shadow(0 0 3px #ffd477) drop-shadow(0 1px 2px #0008); z-index: 2; }
-.canvas-wrapper :deep(.world-label:is(.is-selected, .is-source) :is(.squad-name, .company-name)) { text-decoration: underline; text-underline-offset: 3px; }
-.canvas-wrapper :deep(.world-label.is-target :is(.squad-name, .company-name)) { text-decoration: underline dashed; text-underline-offset: 3px; }
-.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):focus-visible) { outline: 2px solid #70491f; outline-offset: 1px; }
+/* Hover stays subtle so it cannot be mistaken for the selected unit. */
+.canvas-wrapper :deep(.squad-label:not(.is-locked):hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { box-shadow: inset 0 0 0 1px #d9b77b99, 0 2px 4px #000a; z-index: 2; }
+.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):is(.is-selected, .is-source)) { z-index: 4; box-shadow: inset 0 0 0 1px #e7c27688, 0 3px 6px #000b; }
+/* Pseudo-elements keep the hit area and label position stable when selected. */
+.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):is(.is-selected, .is-source)::before) { content: ''; position: absolute; inset: -4px; border: 3px solid #c49849; border-top-color: #ffe8a3; border-right-color: #c49849; border-bottom-color: #805222; border-left-color: #e3bb6a; border-radius: 4px; box-shadow: inset 0 0 0 1px #4d3013, 0 0 0 1px #2d1b0c, 0 2px 5px #000a; pointer-events: none; }
+.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):is(.is-selected, .is-source)::after) { content: ''; position: absolute; inset: -3px; border-radius: 3px; background: radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) top left, radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) top right, radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) bottom left, radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) bottom right; background-size: 4px 4px; background-repeat: no-repeat; pointer-events: none; }
+.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label).is-target) { outline: 2px dashed #ffcf83; outline-offset: 5px; z-index: 3; }
+.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):focus-visible) { outline: 2px solid #fff1c8; outline-offset: 6px; }
 .canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #0b1216cc; border: 1px solid #000a; border-radius: 2px; overflow: hidden; box-shadow: 0 1px 3px #0008; }
 .canvas-wrapper :deep(.construction-gauge-fill) { display: block; height: 100%; background: var(--faction); }
