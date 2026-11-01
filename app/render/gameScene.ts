@@ -38,7 +38,7 @@ const TYPE_NAME: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍�
 const TYPE_ORDER: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
 /** 中隊の旗の高さ（小隊の旗より上）。 */
 const COMPANY_LABEL_HEIGHT = 34
-/** カメラがこれより遠いと小隊の旗を隠し、中隊の旗だけを出す（選んでいる小隊・中隊の小隊の旗は出す）。 */
+/** カメラから中隊までがこれより遠いと、その中隊の小隊の旗を隠して中隊の旗だけを出す（選んでいる小隊・中隊の小隊の旗は出す）。 */
 const SQUAD_LABEL_DISTANCE = 800
 /** 兵の中心（兵がいなければ undefined）。 */
 const membersCenter = (members: { x: number; y: number }[] | undefined) => members?.length
@@ -237,7 +237,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             // 攻城戦・防衛戦の守り手は岩山の城、攻防戦はベースキャンプ型の砦。
             const camp = fort.kind === 'castle' ? createCastle(fort, kit) : createFortCamp(fort, kit)
             const label = document.createElement('span')
-            label.className = 'world-label fort-label'
+            label.className = `world-label fort-label ${fort.owner}`
             label.style.setProperty('--faction', factionColor(fort.owner))
             labels.appendChild(label)
             scene.add(camp.group)
@@ -293,7 +293,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             if (visual && (visual.site !== site || visual.owner !== site.owner)) { visual.label.remove(); visual = undefined }
             if (!visual) {
                 const label = document.createElement('span')
-                label.className = 'world-label construction-label'
+                label.className = `world-label construction-label ${site.owner}`
                 label.style.setProperty('--faction', factionColor(site.owner))
                 const name = document.createElement('span'), gauge = document.createElement('span'), fill = document.createElement('span')
                 name.className = 'construction-name'; gauge.className = 'construction-gauge'; fill.className = 'construction-gauge-fill'
@@ -577,8 +577,12 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             const preview = typeof dragging === 'number' ? input.previewCommand() : null
             const companyPreview = input.previewCompanyCommand()
             const targeting = preview?.order === 'attack' || preview?.order === 'support' || companyPreview?.order === 'attack'
-            // 引いた視点では小隊の旗を隠し、中隊の旗だけにする（選んでいる小隊と、選んでいる中隊の小隊は出す）。
-            const far = camera.position.distanceTo(controls.target) > SQUAD_LABEL_DISTANCE
+            // カメラから遠い中隊は小隊の旗を隠し、中隊の旗だけにする（選んでいる小隊と、選んでいる中隊の小隊は出す）。
+            const farCompanies = new Set<number>()
+            for (const company of battle.companies) {
+                const at = companyPosition(battle, company)
+                if (camera.position.distanceTo(new THREE.Vector3(at.x, surfaceAt(at.x, at.y), at.y)) > SQUAD_LABEL_DISTANCE) farCompanies.add(company.id)
+            }
             const selectedCompany = input.selectedCompanyId.value
             for (const squad of battle.squads) {
                 alive.add(squad.id)
@@ -605,8 +609,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 const leader = battle.byId.get(squad.leaderId)
                 const at = leader && leader.state !== 'dead' ? leader : membersCenter(battle.members.get(squad.id)) ?? squad.center
                 placeLabel(visual.label, at.x, at.y, bannerSpan(squad.type, !!leader && heads.has(leader.id))[1] + 2)
-                // 引いた視点では中隊の小隊の旗を隠す（中隊の旗が代わりに立つ）。中隊に入らない小隊（工兵・補給兵）の旗は残す。
-                if (far && locked && dragging !== squad.id && (selectedCompany === null || squad.companyId !== selectedCompany)) visual.label.hidden = true
+                // 遠い中隊の小隊の旗を隠す（中隊の旗が代わりに立つ）。中隊に入らない小隊（工兵・補給兵）の旗は残す。
+                if (locked && farCompanies.has(squad.companyId) && dragging !== squad.id && (selectedCompany === null || squad.companyId !== selectedCompany)) visual.label.hidden = true
             }
             squadLabels.forEach((v, id) => { if (!alive.has(id)) { v.label.remove(); squadLabels.delete(id) } })
             // 中隊の旗を中隊の小隊の幟の真ん中の上に掲げる。
@@ -627,7 +631,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 visual.label.classList.toggle('is-source', input.draggingCompany.value === company.id)
                 visual.label.classList.toggle('is-hover', bannerCompanyHover === company.id)
                 visual.label.classList.toggle('is-target', input.hoverCompanyId.value === company.id && targeting)
-                visual.label.classList.toggle('compact', !far)
+                visual.label.classList.toggle('compact', !farCompanies.has(company.id))
                 visual.label.setAttribute('aria-label', `${company.owner === 'player' ? '自軍' : '敵軍'} 第${company.number}中隊（${TYPE_ORDER.filter(t => types.has(t)).map(t => TYPE_NAME[t]).join('・')}） ${squads.length}小隊 ${total}人`)
                 // 中隊長の幟の上に掲げる（中隊長が決まる前は小隊の幟の真ん中の上）。
                 const at = companyPosition(battle, company)
