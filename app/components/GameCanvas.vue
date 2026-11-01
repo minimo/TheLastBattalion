@@ -156,9 +156,9 @@ onUnmounted(() => {
               <label v-for="m in MODES" :key="m.mode" class="mode-option">
                 <input v-model="selectedMode" type="radio" name="battle-mode" :value="m.mode">
                 <span class="mode-tile">
+                  <span class="selection-mark" aria-hidden="true">◆</span>
                   <CommandIcon :name="m.mode === 'field' ? 'army' : m.mode === 'siege' ? 'charge' : 'hold'" />
                   <span>{{ m.name }}</span>
-                  <span class="selection-mark" aria-hidden="true">◆</span>
                 </span>
               </label>
             </div>
@@ -173,9 +173,9 @@ onUnmounted(() => {
                 <label v-for="type in MAP_TYPES" :key="type" class="map-option">
                   <input v-model="selectedMap" type="radio" name="battle-terrain" :value="type">
                   <span class="map-tile">
+                    <span class="selection-mark" aria-hidden="true">◆</span>
                     <TerrainIcon :type="type" />
                     <span>{{ MAP_TYPE_NAME[type] }}</span>
-                    <span class="selection-mark" aria-hidden="true">◆</span>
                   </span>
                 </label>
               </div>
