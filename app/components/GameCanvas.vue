@@ -353,8 +353,8 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.world-label) { position: absolute; left: 0; top: 0; padding: 5px 7px; color: var(--faction); font: 600 14px system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; text-shadow: 0 1px 3px #000, 0 0 5px #000, 1px 0 2px #000, -1px 0 2px #000; }
 .canvas-wrapper :deep(.world-label[hidden]) { display: none; }
 /* Wooden nameplates; selection adds a raised metal molding outside the plate. */
-.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.company-label) { margin: 0; padding: 4px 7px; background: linear-gradient(#140b0670, #100804a6), url('/images/ui/command-walnut.png') center / 240px auto; border: 1px solid #654124; border-top-color: #aa7c48; border-bottom-color: #352012; border-radius: 2px; box-shadow: inset 0 0 0 1px #b1834933, 0 2px 3px #0009; cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; line-height: 1.2; display: flex; gap: 4px; align-items: baseline; }
-.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label)) { color: var(--label-ink, #f0dfb7); text-shadow: 0 1px 2px #000; }
+.canvas-wrapper :deep(.world-label:is(.squad-label, .company-label, .fort-label, .construction-label)) { margin: 0; padding: 4px 7px; background: linear-gradient(#140b0670, #100804a6), url('/images/ui/command-walnut.png') center / 240px auto; border: 1px solid #654124; border-top-color: #aa7c48; border-bottom-color: #352012; border-radius: 2px; box-shadow: inset 0 0 0 1px #b1834933, 0 2px 3px #0009; color: var(--label-ink, #f0dfb7); text-shadow: 0 1px 2px #000; }
+.canvas-wrapper :deep(.squad-label), .canvas-wrapper :deep(.company-label) { cursor: pointer; pointer-events: auto; touch-action: none; font-size: 12px; line-height: 1.2; display: flex; gap: 4px; align-items: baseline; }
 .canvas-wrapper :deep(.world-label.player) { --label-ink: #b4d5ff; }
 .canvas-wrapper :deep(.world-label.cpu) { --label-ink: #ffb3a0; }
 .canvas-wrapper :deep(.squad-label .squad-count) { font-size: 10px; font-weight: 500; opacity: .9; }
@@ -365,7 +365,7 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.squad-label.cpu) { font-size: 11px; }
 .canvas-wrapper :deep(.company-label) { z-index: 1; }
 .canvas-wrapper :deep(.company-label .company-count) { font-size: 10px; font-weight: 500; opacity: .9; }
-.canvas-wrapper :deep(.company-label.compact) { padding: 3px 6px; font-size: 10px; }
+.canvas-wrapper :deep(.world-label.company-label.compact) { padding: 3px 6px; font-size: 10px; }
 .canvas-wrapper :deep(.company-label.compact .company-count) { display: none; }
 /* Hover stays subtle so it cannot be mistaken for the selected unit. */
 .canvas-wrapper :deep(.squad-label:not(.is-locked):hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { box-shadow: inset 0 0 0 1px #d9b77b99, 0 2px 4px #000a; z-index: 2; }
@@ -375,10 +375,11 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):is(.is-selected, .is-source)::after) { content: ''; position: absolute; inset: -3px; border-radius: 3px; background: radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) top left, radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) top right, radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) bottom left, radial-gradient(circle at 2px 2px, #fff0ba 0 1px, #6d471f 1.5px 2px, transparent 2.5px) bottom right; background-size: 4px 4px; background-repeat: no-repeat; pointer-events: none; }
 .canvas-wrapper :deep(.world-label:is(.squad-label, .company-label).is-target) { outline: 2px dashed #ffcf83; outline-offset: 5px; z-index: 3; }
 .canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):focus-visible) { outline: 2px solid #fff1c8; outline-offset: 6px; }
-.canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; opacity: .9; display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #0b1216cc; border: 1px solid #000a; border-radius: 2px; overflow: hidden; box-shadow: 0 1px 3px #0008; }
+.canvas-wrapper :deep(.fort-label) { font-size: 12px; line-height: 1.3; }
+.canvas-wrapper :deep(.construction-label) { font-size: 10px; font-weight: 500; line-height: 1.3; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.canvas-wrapper :deep(.construction-gauge) { display: block; width: 44px; height: 4px; background: #160e08; border: 1px solid #99713d; border-radius: 2px; overflow: hidden; box-shadow: inset 0 1px 2px #0008; }
 .canvas-wrapper :deep(.construction-gauge-fill) { display: block; height: 100%; background: var(--faction); }
-.canvas-wrapper :deep(.construction-label.damaged) { color: #ffcf6e; }
+.canvas-wrapper :deep(.world-label.construction-label.damaged) { color: #ffcf6e; border-color: #b98a42; }
 .canvas-wrapper :deep(.construction-label.damaged .construction-gauge-fill) { background: #ffcf6e; }
 @media (max-width: 550px) { .battle-header { padding: 6px 8px 20px; } .clock { top: 8px; } }
 </style>
