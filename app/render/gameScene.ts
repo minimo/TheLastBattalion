@@ -92,6 +92,60 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         controls.rotateLeft(-event.deltaX * pixels * Math.PI * 2 / Math.max(1, canvasEl.clientHeight))
     }
     canvasEl.addEventListener('wheel', trackpadRotate, { capture: true, passive: false })
+    // 寄るときはカーソル（ピンチでは2本の指の中点）へ向かい、引くときは寄る前の注視点へ戻りながら離れる。
+    /** 寄り始める前の注視点と距離。引いてこの距離まで戻ると注視点も元に戻る。パンや部隊へのカメラ移動で忘れる。 */
+    let zoomOrigin: { target: THREE.Vector3; distance: number } | null = null
+    let zoomed = false
+    const markZoom = (zoomIn: boolean) => {
+        if (!controls.enabled) return
+        zoomed = true
+        controls.zoomToCursor = zoomIn
+        if (zoomIn && !zoomOrigin) zoomOrigin = { target: controls.target.clone(), distance: camera.position.distanceTo(controls.target) }
+    }
+    const zoomByWheel = (event: WheelEvent) => { if (event.deltaY) markZoom(event.deltaY < 0) }
+    canvasEl.addEventListener('wheel', zoomByWheel, { capture: true, passive: true })
+    // OrbitControls より先に指の間隔の変化を見て、広がれば寄る向きとする。
+    const touches = new Map<number, { x: number; y: number }>()
+    const touchSpan = () => {
+        const [a, b] = [...touches.values()]
+        return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0
+    }
+    let pinchSpan = 0
+    const pinchDown = (event: PointerEvent) => {
+        if (event.pointerType !== 'touch') return
+        touches.set(event.pointerId, { x: event.pageX, y: event.pageY })
+        pinchSpan = touchSpan()
+    }
+    const pinchMove = (event: PointerEvent) => {
+        if (!touches.has(event.pointerId)) return
+        touches.set(event.pointerId, { x: event.pageX, y: event.pageY })
+        const span = touchSpan()
+        if (touches.size === 2 && pinchSpan && span !== pinchSpan) markZoom(span > pinchSpan)
+        pinchSpan = span
+    }
+    const pinchUp = (event: PointerEvent) => {
+        if (!touches.delete(event.pointerId)) return
+        pinchSpan = touchSpan()
+    }
+    canvasEl.addEventListener('pointerdown', pinchDown, { capture: true, passive: true })
+    canvasEl.addEventListener('pointermove', pinchMove, { capture: true, passive: true })
+    canvasEl.addEventListener('pointerup', pinchUp, { capture: true, passive: true })
+    canvasEl.addEventListener('pointercancel', pinchUp, { capture: true, passive: true })
+    /** controls.update() の後に呼ぶ。引いた分の割合だけ、寄る前の注視点へ視点ごと戻す。 */
+    const settleZoom = (targetBefore: THREE.Vector3, distanceBefore: number) => {
+        if (!zoomed) {
+            if (controls.target.distanceToSquared(targetBefore) > 1e-4) zoomOrigin = null
+            return
+        }
+        zoomed = false
+        const distance = camera.position.distanceTo(controls.target)
+        if (!zoomOrigin || distance <= distanceBefore) return
+        const t = Math.min(1, (distance - distanceBefore) / Math.max(1e-6, zoomOrigin.distance - distanceBefore))
+        const shift = zoomOrigin.target.clone().sub(controls.target).multiplyScalar(t)
+        controls.target.add(shift)
+        camera.position.add(shift)
+        if (t >= 1) zoomOrigin = null
+    }
     /** 部隊へのカメラ移動。動いている部隊を追うため、毎フレーム現在の重心へ向けて補間する。 */
     let focus: { at: () => Point | undefined; elapsed: number; target: THREE.Vector3; offset: THREE.Vector3; endOffset: THREE.Vector3 } | null = null
     const FOCUS_DURATION = .9, FOCUS_MAX_DISTANCE = 420
@@ -100,7 +154,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         const offset = camera.position.clone().sub(controls.target)
         // 向きは保ったまま、遠すぎるときだけ寄せる。
         const endOffset = offset.clone().setLength(Math.min(offset.length(), maxDistance))
-        focus = { at, elapsed: 0, target: controls.target.clone(), offset, endOffset }
+        zoomOrigin = null
+        focus ={ at, elapsed: 0, target: controls.target.clone(), offset, endOffset }
     }
     const focusSquad = (squadId: number) => {
         if (!gameStore.battle?.squadById.has(squadId)) return
@@ -129,6 +184,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     canvasEl.addEventListener('wheel', cancelFocus, { capture: true, passive: true })
     const resetCamera = () => {
         focus = null
+        zoomOrigin = null
         controls.enableDamping = false
         controls.update() // Flush any rotation momentum before restoring the view.
         // 自軍の真後ろから敵軍の方を望む。注視点は両軍の本拠地の中間。
@@ -537,7 +593,9 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         }
         controls.enabled = gameStore.status !== 'title'
         updateFocus(delta)
+        const targetBefore = controls.target.clone(), distanceBefore = camera.position.distanceTo(controls.target)
         controls.update()
+        settleZoom(targetBefore, distanceBefore)
         // Keep the camera above hills when orbiting close to the terrain.
         const groundBelowCamera = world.field.heightAt(camera.position.x, camera.position.z)
         if (camera.position.y < groundBelowCamera + 12) {
@@ -664,6 +722,11 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         window.removeEventListener('blur', cancel)
         input.reset()
         canvasEl.removeEventListener('wheel', trackpadRotate, true)
+        canvasEl.removeEventListener('wheel', zoomByWheel, true)
+        canvasEl.removeEventListener('pointerdown', pinchDown, true)
+        canvasEl.removeEventListener('pointermove', pinchMove, true)
+        canvasEl.removeEventListener('pointerup', pinchUp, true)
+        canvasEl.removeEventListener('pointercancel', pinchUp, true)
         canvasEl.removeEventListener('wheel', cancelFocus, true)
         controls.dispose()
         camps.forEach(c => { c.camp.destroy(); c.label.remove() })
