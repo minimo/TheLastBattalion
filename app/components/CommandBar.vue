@@ -79,12 +79,12 @@ const hint = computed(() => {
   const dragging = props.input.dragging.value
   if (props.input.draggingCompany.value !== null) {
     const command = props.input.previewCompanyCommand()
-    const name = command ? DROP_NAME[command.order as SquadOrder] : ''
+    const name = props.input.dropAlly() ? '味方の所へ移動' : command ? DROP_NAME[command.order as SquadOrder] : ''
     return `離すと中隊ごと${name ? `「${name}」` : '指示'} · 敵の中隊・小隊で攻撃 · 自陣で退却 · 敵陣で突撃`
   }
   if (typeof dragging === 'number') {
     const command = props.input.previewCommand()
-    const name = command?.order === 'build' ? (command.kind === 'bridge' ? '橋を架ける' : '建設・修理') : command ? DROP_NAME[command.order] : ''
+    const name = command?.order === 'build' ? (command.kind === 'bridge' ? '橋を架ける' : '建設・修理') : props.input.dropAlly() ? '味方の所へ移動' : command ? DROP_NAME[command.order] : ''
     return `離すと${name ? `「${name}」` : '指示'} · 敵部隊で攻撃 · 自陣で退却 · 敵陣で突撃`
   }
   if (paused.value) return '一時停止中 · 停止中も指示できます'

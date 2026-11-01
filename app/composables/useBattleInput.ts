@@ -1,6 +1,6 @@
 import { nextTick, ref } from 'vue'
 import type { CompanyCommand, SquadCommand, useGameStore } from '~/stores/game'
-import { canOccupy, constructionNear, nearestCompanySquad, previewConstruction, squadPosition, type CompanyOrder } from '~/game/battle'
+import { canOccupy, companyPosition, companySquads, constructionNear, nearestCompanySquad, previewConstruction, squadPosition, type CompanyOrder } from '~/game/battle'
 import type { ConstructionAxis, ConstructionKind, Point, SquadOrder } from '~/types/game'
 
 type EntityPointerEvent = Pick<PointerEvent, 'clientX' | 'clientY'>
@@ -32,6 +32,8 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
     const hoverSquadId = ref<number | null>(null)
     /** ポインターの下の中隊の旗。 */
     const hoverCompanyId = ref<number | null>(null)
+    /** ポインターが旗（小隊の旗・幟、中隊の旗）の上にあるか（地面で近くの部隊を拾ったときは false）。 */
+    let overBanner = false
     const selectedSquadId = ref<number | null>(null)
     /** 選んでいる中隊（小隊を選んでいる間は null）。 */
     const selectedCompanyId = ref<number | null>(null)
@@ -107,6 +109,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
     const setWorldPointer = (point: Point, squadId: number | null, companyId: number | null = null) => {
         worldMousePos.value = point
         hoverCompanyId.value = companyId
+        overBanner = squadId !== null || companyId !== null
         const battle = gameStore.battle
         let hover = squadId
         if (hover === null && companyId === null && battle) {
@@ -127,6 +130,30 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (pressed && 'company' in pressed) draggingCompany.value = pressed.company
         else if (pressed) dragging.value = pressed.source
         pressed = null
+    }
+
+    /** ポインターの下にある味方の旗（中隊の旗を優先）。旗のない地面なら null。 */
+    const allyBanner = (): { squadId: number | null; companyId: number | null } | null => {
+        const battle = gameStore.battle
+        if (!battle || !overBanner) return null
+        const company = hoverCompanyId.value !== null ? battle.companyById.get(hoverCompanyId.value) : undefined
+        if (company) return company.owner === 'player' ? { squadId: null, companyId: company.id } : null
+        const squad = hoverSquadId.value !== null ? battle.squadById.get(hoverSquadId.value) : undefined
+        return squad?.owner === 'player' ? { squadId: squad.id, companyId: null } : null
+    }
+
+    /**
+     * 移動の行き先。味方の旗の上で離したら、その小隊・中隊のいる所へ向かう
+     * （旗は宙にあるので、カーソルの下の地面は旗の持ち主より奥になる）。
+     */
+    const movePoint = (): Point => {
+        const battle = gameStore.battle!
+        const ally = allyBanner()
+        const company = ally?.companyId != null ? battle.companyById.get(ally.companyId) : undefined
+        if (company) return { ...companyPosition(battle, company) }
+        const squad = ally?.squadId != null ? battle.squadById.get(ally.squadId) : undefined
+        if (squad) return { ...squadPosition(battle, squad) }
+        return { ...worldMousePos.value }
     }
 
     /** ドラッグを離した地点から、部隊への指示を決める。 */
@@ -151,12 +178,18 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
             const plan = previewConstruction(battle, 'player', 'bridge', point)
             if (plan.valid) return { order: 'build', kind: 'bridge', point: { ...point } }
         }
-        // 補給部隊を味方の部隊へ落とすと、その部隊へ矢と体力を届ける。
-        if (source?.type === 'supply' && target && target.type !== 'supply' && target.id !== source.id) return { order: 'support', targetSquadId: target.id }
+        // 補給部隊を味方の部隊へ落とすと、その部隊へ矢と体力を届ける。味方の中隊の旗へ落とすと、その中隊のうち一番近い小隊へ届ける。
+        if (source?.type === 'supply') {
+            const receiver = company?.owner === 'player'
+                ? companySquads(battle, company.id).filter(sq => sq.type !== 'supply' && sq.id !== source.id)
+                    .reduce<typeof source | undefined>((best, sq) => !best || Math.hypot(sq.center.x - source.center.x, sq.center.y - source.center.y) < Math.hypot(best.center.x - source.center.x, best.center.y - source.center.y) ? sq : best, undefined)
+                : target && target.owner === 'player' && target.type !== 'supply' && target.id !== source.id ? target : undefined
+            if (receiver) return { order: 'support', targetSquadId: receiver.id }
+        }
         const home = battle.homes.player, enemy = battle.homes.cpu
         if (Math.hypot(home.x - point.x, home.y - point.y) < FORT_DROP_RADIUS) return { order: 'retreat' }
         if (Math.hypot(enemy.x - point.x, enemy.y - point.y) < FORT_DROP_RADIUS) return { order: 'charge' }
-        return { order: 'move', point: { ...point } }
+        return { order: 'move', point: movePoint() }
     }
 
     /** 中隊の旗のドラッグを離した地点から、中隊への指示を決める。 */
@@ -172,7 +205,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         const home = battle.homes.player, enemy = battle.homes.cpu
         if (Math.hypot(home.x - point.x, home.y - point.y) < FORT_DROP_RADIUS) return { order: 'retreat' }
         if (Math.hypot(enemy.x - point.x, enemy.y - point.y) < FORT_DROP_RADIUS) return { order: 'charge' }
-        return { order: 'move', point: { ...point } }
+        return { order: 'move', point: movePoint() }
     }
 
     const handleGlobalPointerUp = (e: PointerEvent) => {
@@ -255,6 +288,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         pressed = null
         dragging.value = null
         draggingCompany.value = null
+        overBanner = false
         hoverSquadId.value = null
         hoverCompanyId.value = null
         selectedSquadId.value = null
@@ -298,6 +332,24 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         previewCommand: () => typeof dragging.value === 'number' ? dropCommand(dragging.value) : null,
         /** 中隊の旗をドラッグ中の指示（プレビュー表示用）。 */
         previewCompanyCommand: () => draggingCompany.value !== null ? companyDropCommand() : null,
+        /**
+         * ドラッグ中に、離すと指示の相手になるものとして光らせる旗と建設物（表示用）。
+         * 旗は敵・味方や指示の種類に関わらずポインターの下のもの、建設物は離すと対象になる近さのもの。
+         */
+        dropTarget: () => {
+            const battle = gameStore.battle
+            if (!battle || (dragging.value === null && draggingCompany.value === null)) return null
+            return {
+                squadId: overBanner && hoverCompanyId.value === null ? hoverSquadId.value : null,
+                companyId: overBanner ? hoverCompanyId.value : null,
+                constructionId: constructionNear(battle, worldMousePos.value, CONSTRUCTION_DROP_RADIUS)?.id ?? null,
+            }
+        },
+        /** ドラッグ中に、離すとその小隊・中隊の所へ移動する味方の旗（表示用）。移動にならなければ null。 */
+        dropAlly: () => {
+            const command = typeof dragging.value === 'number' ? dropCommand(dragging.value) : draggingCompany.value !== null ? companyDropCommand() : null
+            return command?.order === 'move' ? allyBanner() : null
+        },
     }
 }
 

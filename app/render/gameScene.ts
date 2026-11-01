@@ -358,6 +358,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const removeConstructionLabels = () => { constructionLabels.forEach(v => v.label.remove()); constructionLabels.clear() }
     const updateConstructionLabels = (sites: Construction[]) => {
         const alive = new Set<number>()
+        // ドラッグ中、離すと指示の相手になる建設物（敵・味方や指示の種類に関わらず）。
+        const target = input.dropTarget()?.constructionId ?? null
         for (const site of sites) {
             alive.add(site.id)
             let visual = constructionLabels.get(site.id)
@@ -382,6 +384,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             if (visual.fill.style.width !== width) visual.fill.style.width = width
             visual.label.setAttribute('aria-label', `${text} 耐久${Math.ceil(site.hp)}/${site.maxHp}`)
             visual.label.classList.toggle('damaged', site.complete && site.hp < site.maxHp * .4)
+            visual.label.classList.toggle('is-target', target === site.id)
             placeLabel(visual.label, site.center.x, site.center.y, site.kind === 'outpost' ? 26 : 12)
         }
         constructionLabels.forEach((v, id) => { if (!alive.has(id)) { v.label.remove(); constructionLabels.delete(id) } })
@@ -417,7 +420,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             // 矢印はラベルの立つ隊長の幟から、狙う部隊なら相手の隊長の幟へ引く。
             const targetSquad = preview?.order === 'attack' || preview?.order === 'support' ? battle.squadById.get(preview.targetSquadId!) : undefined
             const target = targetSquad ? squadPosition(battle, targetSquad)
-                : preview?.constructionId !== undefined ? battle.constructionById.get(preview.constructionId)?.center : cursor
+                : preview?.constructionId !== undefined ? battle.constructionById.get(preview.constructionId)?.center : preview?.point ?? cursor
             if (squad && target && cursor.x > -9000) pathOverlay.add([squadPosition(battle, squad), target])
         } else {
             // 選んでいる小隊の行き先を示す。中隊なら小隊ごとには引かず、中隊長の幟から中隊長の小隊の行き先へ1本だけ引く。
@@ -656,6 +659,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             const preview = typeof dragging === 'number' ? input.previewCommand() : null
             const companyPreview = input.previewCompanyCommand()
             const targeting = preview?.order === 'attack' || preview?.order === 'support' || companyPreview?.order === 'attack'
+            // ドラッグ中は、ポインターの下の旗（敵・味方や指示の種類に関わらず。自分の旗は除く）を光らせる。
+            const drop = input.dropTarget()
             // カメラから遠い中隊は小隊の旗を隠し、中隊の旗だけにする（選んでいる小隊と、選んでいる中隊の小隊は出す）。
             const farCompanies = new Set<number>()
             for (const company of battle.companies) {
@@ -674,7 +679,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 visual.label.classList.toggle('is-locked', locked)
                 visual.label.classList.toggle('is-hover', bannerHover === squad.id && !locked)
                 visual.label.classList.toggle('is-source', dragging === squad.id)
-                visual.label.classList.toggle('is-target', input.hoverSquadId.value === squad.id && targeting)
+                visual.label.classList.toggle('is-target', (input.hoverSquadId.value === squad.id && targeting) || (drop?.squadId === squad.id && dragging !== squad.id))
                 // 補給に戻っている間はその旨を、弓兵は矢の残り、補給部隊は補給の残り回数、工兵は建設の進み具合、疲れていれば「疲労」を示す。
                 const tired = squad.stamina < STAMINA.tiredBelow
                 const site = squad.order === 'build' || squad.order === 'occupy' ? battle.constructionById.get(squad.constructionId) : undefined
@@ -709,7 +714,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 visual.label.classList.toggle('is-selected', selectedCompany === company.id)
                 visual.label.classList.toggle('is-source', input.draggingCompany.value === company.id)
                 visual.label.classList.toggle('is-hover', bannerCompanyHover === company.id)
-                visual.label.classList.toggle('is-target', input.hoverCompanyId.value === company.id && targeting)
+                visual.label.classList.toggle('is-target', (input.hoverCompanyId.value === company.id && targeting) || (drop?.companyId === company.id && input.draggingCompany.value !== company.id))
                 visual.label.classList.toggle('compact', !farCompanies.has(company.id))
                 visual.label.setAttribute('aria-label', `${company.owner === 'player' ? '自軍' : '敵軍'} 第${company.number}中隊（${TYPE_ORDER.filter(t => types.has(t)).map(t => TYPE_NAME[t]).join('・')}） ${squads.length}小隊 ${total}人`)
                 // 中隊長の幟の上に掲げる（中隊長が決まる前は小隊の幟の真ん中の上）。
