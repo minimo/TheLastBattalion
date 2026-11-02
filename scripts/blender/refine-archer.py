@@ -1,4 +1,4 @@
-"""Author a hooded war-bow archer in Blender, within 624 triangles.
+"""Author a hooded war-bow archer in Blender, showing at most 539 triangles at once.
 Game coordinates: X right, Y up, Z forward. Five batched parts; the upper-body aiming pivot is at the waist.
 Rebuilds only the generated study scene. The design does not import the previous model.
 """
@@ -110,7 +110,7 @@ body.patch([(-.22,8.39,1.04),(.22,8.39,1.04),(.22,8.73,1.04),(-.22,8.73,1.04)],'
 for side in [-1,1]:
     body.patch([(side*.16,7.8,1.08),(side*1.4,7.8,1.00),(side*1.52,6.3,1.13),(side*.35,6.05,1.18)],'faction')
 body.box((1.62,7.96,.14),(.78,.85,.88),'leather')
-objects=[body.finish()]
+objects=[]
 for role,sign in [('legL',-1),('legR',1)]:
     leg=Part(role,(sign*1.12,7.8,0))
     front=.36 if sign<0 else -.25
@@ -119,45 +119,47 @@ for role,sign in [('legL',-1),('legR',1)]:
     objects.append(leg.finish())
 
 # All upper-body coordinates are authored in the neutral drawn pose, then made local.
-weapon=Part('weapon',(0,8.5,0))
-weapon.rings([(8.40,1.48,.91,0,0),(10.8,1.89,1.17,0,0),(12.65,1.66,.92,0,-.05)],8,'leather',(False,True),smooth=False)
-weapon.rings([(12.3,.77,.66,0,-.10),(13.6,.50,.49,0,-.05)],6,'cloth')
+body.rings([(8.40,1.48,.91,0,0),(10.8,1.89,1.17,0,0),(12.65,1.66,.92,0,-.05)],8,'leather',(False,True),smooth=False)
+body.rings([(12.3,.77,.66,0,-.10),(13.6,.50,.49,0,-.05)],6,'cloth')
 # Hooded face with a leather scarf across the lower jaw.
-weapon.rings([(13.45,.56,.61,0,.12),(14.35,.87,.82,0,.16),(15.32,.83,.79,0,.08)],6,'skin',(False,True))
-weapon.patch([(-.56,13.48,.68),(.56,13.48,.68),(.72,14.02,.88),(-.72,14.02,.88)],'cloth')
+body.rings([(13.45,.56,.61,0,.12),(14.35,.87,.82,0,.16),(15.32,.83,.79,0,.08)],6,'skin',(False,True))
+body.patch([(-.56,13.48,.68),(.56,13.48,.68),(.72,14.02,.88),(-.72,14.02,.88)],'cloth')
 for sign in [-1,1]:
-    weapon.patch([(sign*.20,14.72,.93),(sign*.57,14.72,.89),(sign*.57,14.83,.89),(sign*.20,14.83,.93)],'dark')
-    weapon.patch([(0,14.83,.94),(sign*.14,14.20,.91),(0,14.20,1.16)],'skin')
+    body.patch([(sign*.20,14.72,.93),(sign*.57,14.72,.89),(sign*.57,14.83,.89),(sign*.20,14.83,.93)],'dark')
+    body.patch([(0,14.83,.94),(sign*.14,14.20,.91),(0,14.20,1.16)],'skin')
 # Open the front of the hood, retaining its sides, rear and crown.
-first=len(weapon.faces)
-weapon.rings([(13.35,1.17,.96,0,-.12),(15.38,1.21,1.10,0,-.18),(16.36,.28,.40,0,-.42)],8,'faction',(False,True),smooth=False)
+first=len(body.faces)
+body.rings([(13.35,1.17,.96,0,-.12),(15.38,1.21,1.10,0,-.18),(16.36,.28,.40,0,-.42)],8,'faction',(False,True),smooth=False)
 remove={first+j*8+i for j in range(2) for i in [0,6,7]}
 for attribute in ['faces','materials','smooth']:
-    values=getattr(weapon,attribute);setattr(weapon,attribute,[value for i,value in enumerate(values) if i not in remove])
+    values=getattr(body,attribute);setattr(body,attribute,[value for i,value in enumerate(values) if i not in remove])
 # Hood lining closes the gap beside the face; back faces are not drawn, so the hood's inside would show the background.
 for sign in [-1,1]:
-    weapon.patch([(sign*1.08,13.35,.25),(sign*1.12,15.38,.24),(sign*.76,15.3,.55),(sign*.78,13.5,.55)],'cloth')
+    body.patch([(sign*1.08,13.35,.25),(sign*1.12,15.38,.24),(sign*.76,15.3,.55),(sign*.78,13.5,.55)],'cloth')
 # Folded brow projects past the face, giving the hood depth and a sharper silhouette.
 for sign in [-1,1]:
-    weapon.patch([(sign*1.10,15.38,.65),(sign*.87,15.22,1.02),(0,15.68,1.12),(0,16.18,.12)],'faction')
+    body.patch([(sign*1.10,15.38,.65),(sign*.87,15.22,1.02),(0,15.68,1.12),(0,16.18,.12)],'faction')
 # Short shoulder cape and the cross-body quiver strap.
 for side in [-1,1]:
-    weapon.patch([(side*.55,13.12,-.02),(side*2.06,12.42,-.05),(side*2.1,11.35,-1.0),(side*.62,11.6,-1.22)],'cloth',(side,0,-1))
-    weapon.patch([(side*.55,13.12,.04),(side*2.06,12.42,.01),(side*2.1,11.35,-.94),(side*.62,11.6,-1.16)],'cloth',(-side,0,1))
-weapon.patch([(-1.15,12.25,.84),(-.85,12.4,.88),(.65,10.75,1.14),(.32,10.68,1.18)],'boot')
-weapon.patch([(.32,10.68,1.18),(.65,10.75,1.14),(1.24,9.2,.77),(.99,9.1,.84)],'boot')
-weapon.patch([(-.22,11.38,1.20),(.03,11.57,1.20),(.25,11.36,1.20),(0,11.17,1.20)],'gold')
+    body.patch([(side*.55,13.12,-.02),(side*2.06,12.42,-.05),(side*2.1,11.35,-1.0),(side*.62,11.6,-1.22)],'cloth',(side,0,-1))
+    body.patch([(side*.55,13.12,.04),(side*2.06,12.42,.01),(side*2.1,11.35,-.94),(side*.62,11.6,-1.16)],'cloth',(-side,0,1))
+body.patch([(-1.15,12.25,.84),(-.85,12.4,.88),(.65,10.75,1.14),(.32,10.68,1.18)],'boot')
+body.patch([(.32,10.68,1.18),(.65,10.75,1.14),(1.24,9.2,.77),(.99,9.1,.84)],'boot')
+body.patch([(-.22,11.38,1.20),(.03,11.57,1.20),(.25,11.36,1.20),(0,11.17,1.20)],'gold')
 # Quiver on the back with two visible feathered arrows.
 q0=Vector((.65,9.4,-1.25));q1=Vector((1.65,12.85,-1.65));qa=(q1-q0).normalized()
-tube(weapon,[(tuple(q0),.50,.53),(tuple(q1),.61,.64)],5,'leather',(True,False),smooth=False)
-tube(weapon,[(tuple(q1-qa*.18),.65,.68),(tuple(q1+qa*.12),.65,.68)],5,'gold',smooth=False)
+tube(body,[(tuple(q0),.50,.53),(tuple(q1),.61,.64)],5,'leather',(True,False),smooth=False)
+tube(body,[(tuple(q1-qa*.18),.65,.68),(tuple(q1+qa*.12),.65,.68)],5,'gold',smooth=False)
 for dx in [-.23,.23]:
     bottom=q1+Vector((dx,0,0));top=bottom+qa*(1.3+dx)
-    tube(weapon,[(tuple(bottom),.06,.06),(tuple(top),.06,.06)],3,'shaft',smooth=False)
+    tube(body,[(tuple(bottom),.06,.06),(tuple(top),.06,.06)],3,'shaft',smooth=False)
     for side in [-1,1]:
         p0=top-qa*.55; p1=top-qa*.1
-        weapon.patch([tuple(p0),tuple(p1),tuple(p1+Vector((side*.20,0,0))),tuple(p0+Vector((side*.15,0,0)))],'feather',(0,0,1))
-        weapon.patch([tuple(p0+Vector((0,0,.01))),tuple(p1+Vector((0,0,.01))),tuple(p1+Vector((side*.20,0,.01))),tuple(p0+Vector((side*.15,0,.01)))],'feather',(0,0,-1))
+        body.patch([tuple(p0),tuple(p1),tuple(p1+Vector((side*.20,0,0))),tuple(p0+Vector((side*.15,0,0)))],'feather',(0,0,1))
+        body.patch([tuple(p0+Vector((0,0,.01))),tuple(p1+Vector((0,0,.01))),tuple(p1+Vector((side*.20,0,.01))),tuple(p0+Vector((side*.15,0,.01)))],'feather',(0,0,-1))
+objects.insert(0,body.finish())
+# Only the arms and the bow change between aiming and carrying. Both aim parts pivot at the shoulders.
+weapon=Part('weapon',(0,12.3,0))
 # Left arm pushes the bow away; right elbow stays out and the draw fingers anchor at the cheek.
 bow_hand=Vector((1.0,14.10,5.30));draw_hand=Vector((1.0,14.10,.42))
 tube(weapon,[((-1.55,12.35,.45),.55,.58),((-.45,13.35,2.85),.44,.47),(tuple(bow_hand-Vector((0,0,.42))),.32,.35)],5,['cloth','leather'])
@@ -173,11 +175,21 @@ tube(weapon,rows,4,'wood',(True,True),smooth=False)
 for sign in [-1,1]:
     tip=(1.0,14.10+sign*5.20,3.70)
     tube(weapon,[(tip,.026,.026),(tuple(draw_hand),.026,.026)],3,'shaft',smooth=False)
-weapon.vertices=[(x,y-8.5,z) for x,y,z in weapon.vertices]
+weapon.vertices=[(x,y-12.3,z) for x,y,z in weapon.vertices]
 objects.append(weapon.finish())
 
+# Carried pose, shown unless attacking: arms down, the bow held at the left side.
+carry=Part('carry',(0,0,0))
+tube(carry,[((1.72,12.3,0),.54,.57),((2.2,10.35,.02),.43,.45),((2.12,8.75,.55),.3,.32)],5,['cloth','leather'])
+tube(carry,[((2.12,8.75,.55),.33,.36),((2.1,8.3,.7),.3,.33)],4,'leather',(True,True),smooth=False)
+tube(carry,[((-1.72,12.3,0),.54,.57),((-2.25,10.4,-.05),.43,.45),((-2.42,9.15,.72),.3,.32)],5,['cloth','leather'])
+tube(carry,[((-2.42,9.3,.85),.35,.38),((-2.42,8.72,.85),.33,.36)],4,'leather',(True,True),smooth=False)
+tube(carry,[((-2.42,9.0+y,.85+z),.14 if y else .22,.2 if y else .25) for y,z in [(-5.2,-1.2),(-2.6,-.45),(0,0),(2.6,-.45),(5.2,-1.2)]],4,'wood',(True,True),smooth=False)
+tube(carry,[((-2.42,3.8,-.35),.026,.026),((-2.42,14.2,-.35),.026,.026)],3,'shaft',smooth=False)
+objects.append(carry.finish())
+
 # Nocked arrow is its own batch so only the arrow disappears after release.
-nock=Part('nock',(0,8.5,0))
+nock=Part('nock',(0,12.3,0))
 tube(nock,[((1.0,14.18,.42),.047,.047),((1.0,14.18,6.10),.047,.047)],4,'shaft',smooth=False)
 base=[nock.vertex((1.0+x,14.18+y,6.10)) for x,y in [(-.14,0),(0,.10),(.14,0),(0,-.10)]]
 tip=nock.vertex((1.0,14.18,6.55))
@@ -185,11 +197,12 @@ for i in range(4):nock.face([base[i],base[(i+1)%4],tip],'edge',normal=(0,0,1))
 for sign in [-1,1]:
     nock.patch([(1.0,14.18,.65),(1.0,14.18,1.15),(1.0+sign*.23,14.18,1.15),(1.0+sign*.15,14.18,.65)],'feather',(0,1,0))
     nock.patch([(1.0,14.17,.65),(1.0,14.17,1.15),(1.0+sign*.23,14.17,1.15),(1.0+sign*.15,14.17,.65)],'feather',(0,-1,0))
-nock.vertices=[(x,y-8.5,z) for x,y,z in nock.vertices]
+nock.vertices=[(x,y-12.3,z) for x,y,z in nock.vertices]
 objects.append(nock.finish())
-root['triangles']=sum(len(o.data.loop_triangles) for o in objects)
-print('TOTAL',root['triangles'],'/624')
-assert root['triangles']<=624
+# The archer shows either its aiming parts or its carrying ones, never both.
+root['triangles']=sum(len(o.data.loop_triangles) for o in objects if o['tlb_role']!='carry')
+print('TOTAL',root['triangles'],'/539')
+assert root['triangles']<=539
 
 world=bpy.data.worlds.new('TLB Archer Studio');scene.world=world;world.use_nodes=True
 bg=next(n for n in world.node_tree.nodes if n.type=='BACKGROUND');bg.inputs['Color'].default_value=(.08,.11,.16,1);bg.inputs['Strength'].default_value=.65

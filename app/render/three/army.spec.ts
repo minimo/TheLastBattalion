@@ -75,7 +75,7 @@ describe('army visibility and cached transforms', () => {
         update(r, [s], { time: 2, leaders: new Set([1]) })
         expect(r.stats.matrixWrites).toBeGreaterThan(0)
         update(r, [s], { time: 2 })
-        expect(activeMeshes(r)).toHaveLength(5)
+        expect(activeMeshes(r)).toHaveLength(6)
         s.moving = false; s.state = 'fight'; s.aim = .3
         update(r, [s], { time: 2 })
         expect(r.stats.matrixWrites).toBeGreaterThan(0)

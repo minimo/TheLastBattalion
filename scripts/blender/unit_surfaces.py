@@ -31,6 +31,14 @@ SURFACES = {
     'dark': ('white', 0x151e26), 'eye': ('white', 0xff3a1c),
     'coat': ('coat', 0x76503b), 'muzzle': ('coat', 0x46382e), 'mane': ('fur', 0x25282b),
     'shaft': ('wood', 0xb7a482), 'feather': ('bone', 0xc4d0d0),
+    'goblin': ('hide', 0x76863f), 'goblinDark': ('hide', 0x55632e), 'vest': ('leather', 0x4f3e2a),
+    'tunic': ('cloth', 0x6e624c), 'felt': ('cloth', 0x8a7656), 'burlap': ('cloth', 0x7d6748),
+    'log': ('wood', 0x8a6a45), 'logDark': ('wood', 0x574432), 'rope': ('leather', 0x6e5a40),
+    'bannerRed': ('cloth', 0x9a1c20), 'bannerMark': ('cloth', 0xb8726a), 'bannerCream': ('cloth', 0xf1e4be),
+    'bannerPole': ('wood', 0x4a3524), 'monsterPole': ('wood', 0x3a2a20),
+    # Flying arrows stay bright so they read from far away.
+    'arrowShaft': ('white', 0xe2cfa3), 'arrowHead': ('white', 0xb7c0c5), 'arrowFletch': ('white', 0xffffff),
+    'fur': ('fur', 0x5a5550), 'furLight': ('fur', 0x7a746b), 'fletchRed': ('cloth', 0x9c2f22),
 }
 
 def cell_rect(name):

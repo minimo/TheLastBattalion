@@ -13,11 +13,13 @@ from unit_surfaces import ATLAS_MEAN, ATLAS_SIZE, CELL_MARGIN, DENSITY, GRID, SU
 args = argparse.ArgumentParser()
 args.add_argument('--scene', required=True); args.add_argument('--output', required=True)
 args.add_argument('--max-triangles', type=int, required=True)
+# Banners and arrows do not stand on the ground, so they get no darkening toward the feet.
+args.add_argument('--prop', action='store_true')
 # Inside a running Blender, exec this file with EXPORT_ARGV set to the same arguments.
 args = args.parse_args(globals().get('EXPORT_ARGV') or sys.argv[sys.argv.index('--') + 1:])
 
 ROOT = Path(__file__).resolve().parents[2]
-ROLE_ORDER = ['body', 'legL', 'legR', 'mountFront', 'mountBack', 'weapon', 'nock']
+ROLE_ORDER = ['body', 'legL', 'legR', 'mountFront', 'mountBack', 'weapon', 'carry', 'nock', 'prop']
 SMOOTH_ANGLE = {'plate': 42, 'iron': 42, 'blade': 25, 'brass': 40}  # hard-edged metal; everything else uses the default
 SMOOTH_ANGLE_DEFAULT = 58
 AO_RAYS, AO_DISTANCE, AO_FLOOR = 64, 3.2, .34
@@ -64,6 +66,7 @@ def shade_at(position, normal):
         direction = tangent * (r * math.cos(a)) + bitangent * (r * math.sin(a)) + normal * math.sqrt(max(0, 1 - r * r))
         if bvh.ray_cast(origin, direction, AO_DISTANCE)[0] is not None: hits += 1
     occlusion = AO_FLOOR + (1 - AO_FLOOR) * (1 - hits / AO_RAYS)
+    if args.prop: return occlusion
     # Ground bounce and grime: feet are a little darker than shoulders.
     ground = min(1, position.y / (model_height * .55))
     return occlusion * (.8 + .2 * ground * ground * (3 - 2 * ground))
@@ -182,7 +185,9 @@ for role in [r for r in ROLE_ORDER if r in parts]:
     asset['parts'].append({'role': role, 'pivot': list(parts[role]['game_pivot']), 'positions': positions, 'normals': normals,
         'uvs': uvs, 'colors': colors, 'shades': shades, 'indices': indices})
     print(role, len(indices) // 3, 'triangles,', len(colors), 'vertices')
-assert asset['triangles'] <= args.max_triangles, f"Over budget: {asset['triangles']}"
+# An archer shows either its aiming parts or its carrying ones, so the budget counts what is on screen.
+shown = sum(len(p['indices']) // 3 for p in asset['parts'] if p['role'] != 'carry')
+assert shown <= args.max_triangles, f'Over budget: {shown}'
 output = ROOT / f'app/render/three/assets/{args.output}.json'
 output.write_text(json.dumps(asset, separators=(',', ':')) + '\n')
-print('Exported', asset['triangles'], 'triangles,', sum(len(p['colors']) for p in asset['parts']), 'vertices,', output.stat().st_size // 1024, 'KiB')
+print('Exported', shown, 'shown of', asset['triangles'], 'triangles,', sum(len(p['colors']) for p in asset['parts']), 'vertices,', output.stat().st_size // 1024, 'KiB')

@@ -100,7 +100,8 @@ class Part:
         rim = [self.vertex(Vector(base) + x * (radius * math.sin(i * math.tau / sides)) + z * (radius * math.cos(i * math.tau / sides))) for i in range(sides)]
         point = self.vertex(tip)
         for i in range(sides): self.face([rim[i], rim[(i + 1) % sides], point], material)
-    def finish(self, scene, root, names):
+    def finish(self, scene, root):
+        names = sorted(set(self.materials))
         mesh = bpy.data.meshes.new(root.name + ' ' + self.role)
         mesh.from_pydata([xyz(Vector(p) - Vector(self.pivot)) for p in self.vertices], [], self.faces)
         mesh.update()

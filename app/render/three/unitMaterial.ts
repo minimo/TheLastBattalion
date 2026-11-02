@@ -10,7 +10,7 @@ function placeholder(r: number, g: number, b: number) {
 }
 
 /**
- * The one material for every unit of both armies, so textures add no draw calls.
+ * The one material for every unit, banner and arrow of both armies, so textures add no draw calls.
  * The atlas is colourless detail multiplied by the vertex colour; the army's colour stays in the vertices.
  * The mask's G channel is roughness and B is metalness, hence the factors of 1.
  */
