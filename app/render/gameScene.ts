@@ -253,6 +253,12 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     let mapReference = gameStore.mapGrid
     scene.add(world.group)
     const army = createArmyRenderer(scene)
+    const armyView = { camera, light: sun, viewportHeight: canvasEl.clientHeight }
+    const renderTimings = { frameCpuMs: 0, simulationMs: 0, renderSubmitMs: 0 }
+    if (import.meta.dev) Object.assign(window, { __tlbRenderStats: () => ({
+        army: { ...army.stats }, ...renderTimings,
+        drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
+    }) })
     const constructions = createConstructionRenderer(kit, (x, y) => world.field.surfaceAt(x, y))
     scene.add(constructions.group)
     /** 地面の高さ（完成した橋の上では床の高さ）。 */
@@ -601,6 +607,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     let lastTime = 0, animationTime = 0, frame = 0, destroyed = false
     const animate = (now: number) => {
         if (destroyed) return
+        const frameStarted = performance.now()
+        renderTimings.simulationMs = 0
         const delta = lastTime ? Math.min((now - lastTime) / 1000, .1) : 0
         lastTime = now
         if (mapReference !== gameStore.mapGrid) {
@@ -636,7 +644,9 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         pathOverlay.group.visible = visible
         camps.forEach(c => { c.camp.group.visible = visible })
         if (visible) {
+            const simulationStarted = performance.now()
             gameStore.update(delta)
+            renderTimings.simulationMs = performance.now() - simulationStarted
             if (gameStore.status === 'playing') animationTime += delta * gameStore.timeScale
             const night = getNightAlpha(gameStore.dayTime) * 2
             sky.intensity = (1.7 - night * .9) * light.sunScale
@@ -729,11 +739,15 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 ?? (preview?.order === 'build' && preview.kind ? input.buildPreviewAt(preview.kind, input.worldMousePos.value) : null)
             constructions.preview(buildPlan)
             const ringed = new Set(input.selectedSquadId.value !== null ? [input.selectedSquadId.value] : selectedCompany !== null ? battle.companyById.get(selectedCompany)?.squadIds ?? [] : [])
-            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()))
+            armyView.viewportHeight = canvasEl.clientHeight
+            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()), armyView)
             updatePaths()
         }
         pathOverlay.updateCamera()
+        const renderStarted = performance.now()
         renderer.render(scene, camera)
+        renderTimings.renderSubmitMs = performance.now() - renderStarted
+        renderTimings.frameCpuMs = performance.now() - frameStarted
         frame = requestAnimationFrame(animate)
     }
     frame = requestAnimationFrame(animate)

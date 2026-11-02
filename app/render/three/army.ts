@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import type { Army, Arrow, Soldier, SpentArrow, UnitType } from '../../types/game'
 import { createArrowGeometry, createArrowTrailGeometry, createBannerGeometry, createMonsterBannerGeometry, createUnitModels, type PartRole } from './unitModels'
 import { FACTION } from './models'
+import { InstanceBuffer } from './instanceBuffer'
+import { createArmyVisibility, type ArmyView } from './armyVisibility'
 
 type SurfaceHeight = (x: number, y: number) => number
 
@@ -10,183 +12,209 @@ const TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply',
 /** 中隊長の幟の大きさ（小隊長の幟に対する倍率）。 */
 export const COMPANY_BANNER_SCALE = 1.4
 
-interface PartBatch { role: PartRole; pivot: THREE.Vector3; mesh: THREE.InstancedMesh }
+interface PartBatch { role: PartRole; pivot: THREE.Vector3; buffer: InstanceBuffer }
+interface UnitBatch { parts: PartBatch[]; count: number }
 
-/** 兵士・矢をInstancedMeshで一括描画する。 */
+export interface ArmyRenderStats {
+    totalSoldiers: number
+    renderedSoldiers: number
+    culledSoldiers: number
+    shadowSoldiers: number
+    cells: number
+    matrixCompositions: number
+    matrixWrites: number
+    dirtyMatrixBytes: number
+    updateMs: number
+}
+
+/** 兵士の可視判定後、陣営・兵種・影の有無・部位ごとに一括描画する。 */
 export function createArmyRenderer(scene: THREE.Scene) {
     const group = new THREE.Group()
     group.name = 'army'
     scene.add(group)
     const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .72, metalness: .12 })
     const models = createUnitModels()
-    const batches = new Map<string, { scale: number; parts: PartBatch[]; capacity: number }>()
-    const makeMesh = (geometry: THREE.BufferGeometry, capacity: number) => {
-        const mesh = new THREE.InstancedMesh(geometry, material, capacity)
-        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-        mesh.frustumCulled = false
-        mesh.castShadow = true
-        mesh.receiveShadow = true
-        mesh.count = 0
-        group.add(mesh)
-        return mesh
-    }
-    for (const army of ARMIES) for (const type of TYPES) {
+    const visibility = createArmyVisibility()
+    const stats: ArmyRenderStats = { totalSoldiers: 0, renderedSoldiers: 0, culledSoldiers: 0, shadowSoldiers: 0,
+        cells: 0, matrixCompositions: 0, matrixWrites: 0, dirtyMatrixBytes: 0, updateMs: 0 }
+    const buffer = (geometry: THREE.BufferGeometry, mat: THREE.Material, shadow: boolean, order = 0) =>
+        new InstanceBuffer(group, geometry, mat, shadow, order)
+    const batches = Object.fromEntries(ARMIES.map(army => [army, Object.fromEntries(TYPES.map(type => {
         const model = models[army][type]
-        const capacity = 512
-        batches.set(`${army}:${type}`, { scale: model.scale, capacity, parts: model.parts.map(p => ({ role: p.role, pivot: p.pivot, mesh: makeMesh(p.geometry, capacity) })) })
-    }
-    const grow = (batch: { parts: PartBatch[]; capacity: number }, needed: number) => {
-        let capacity = batch.capacity
-        while (capacity < needed) capacity *= 2
-        for (const p of batch.parts) {
-            const old = p.mesh
-            p.mesh = makeMesh(old.geometry, capacity)
-            old.removeFromParent(); old.dispose()
-        }
-        batch.capacity = capacity
-    }
-
-    /** 必要に応じて容量を倍々に増やすInstancedMesh。 */
-    const growable = (geometry: THREE.BufferGeometry, mat: THREE.Material, shadow: boolean, renderOrder = 0) => {
-        let capacity = 512
-        const create = () => {
-            const mesh = new THREE.InstancedMesh(geometry, mat, capacity)
-            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-            mesh.frustumCulled = false; mesh.castShadow = shadow; mesh.count = 0; mesh.renderOrder = renderOrder
-            group.add(mesh)
-            return mesh
-        }
-        let mesh = create()
-        return {
-            get mesh() { return mesh },
-            ensure(needed: number) {
-                if (needed <= capacity) return
-                while (capacity < needed) capacity *= 2
-                const old = mesh
-                mesh = create()
-                old.removeFromParent(); old.dispose()
-            },
-            dispose() { mesh.dispose() },
-        }
-    }
+        const makeBatch = (shadow: boolean): UnitBatch => ({ count: 0, parts: model.parts.map(p =>
+            ({ role: p.role, pivot: p.pivot, buffer: buffer(p.geometry, material, shadow) })) })
+        // Any joint rotation preserves this radius. Include bob and the pikeman's thrust.
+        const radius = Math.max(...model.parts.map(p => {
+            p.geometry.computeBoundingSphere()
+            const sphere = p.geometry.boundingSphere!
+            return p.pivot.length() + sphere.center.length() + sphere.radius + 3.4
+        })) * model.scale
+        return [type, { scale: model.scale, radius, height: (type === 'cavalry' ? 24 : 17) * model.scale,
+            near: makeBatch(true), far: makeBatch(false) }]
+    }))])) as Record<Army, Record<UnitType, { scale: number; radius: number; height: number; near: UnitBatch; far: UnitBatch }>>
+    const allBatches = ARMIES.flatMap(army => TYPES.flatMap(type => [batches[army][type].near, batches[army][type].far]))
     const arrowGeometry = createArrowGeometry(), trailGeometry = createArrowTrailGeometry()
     const trailMaterial = new THREE.MeshBasicMaterial({ color: 0xfffbea, transparent: true, opacity: .3, depthWrite: false })
-    const flying = growable(arrowGeometry, material, true)
-    const trails = growable(trailGeometry, trailMaterial, false, 4)
-    const stuck = growable(arrowGeometry, material, false)
+    const flying = buffer(arrowGeometry, material, true)
+    const trails = buffer(trailGeometry, trailMaterial, false, 4)
+    const stuck = buffer(arrowGeometry, material, false)
     const hidden = new THREE.Matrix4().makeScale(0, 0, 0)
-    // 隊長が背負う自軍の幟。人間軍は縦長の幟、モンスター軍は十字の槍に吊るしたボロ布。
-    const bannerGeometries = { player: createBannerGeometry(FACTION.player), cpu: createMonsterBannerGeometry() } as Record<Army, THREE.BufferGeometry>
-    const banners = Object.fromEntries(ARMIES.map(army => [army, growable(bannerGeometries[army], material, true)])) as Record<Army, ReturnType<typeof growable>>
-    const bannerCounts = { player: 0, cpu: 0 } as Record<Army, number>
+    const bannerGeometries = { player: createBannerGeometry(FACTION.player), cpu: createMonsterBannerGeometry() }
+    const banners = Object.fromEntries(ARMIES.map(army => [army, {
+        near: buffer(bannerGeometries[army], material, true), far: buffer(bannerGeometries[army], material, false),
+        nearCount: 0, farCount: 0,
+    }])) as Record<Army, { near: InstanceBuffer; far: InstanceBuffer; nearCount: number; farCount: number }>
+    const bannerRadius = Math.max(...ARMIES.map(army => {
+        const geometry = bannerGeometries[army]
+        geometry.computeBoundingSphere()
+        return geometry.boundingSphere!.center.length() + geometry.boundingSphere!.radius
+    }))
+    // Includes attachment offset, company-leader scale, sway, and the largest unit scale.
+    const leaderRadius = (14 + bannerRadius * COMPANY_BANNER_SCALE) * Math.max(...ARMIES.flatMap(army => TYPES.map(type => models[army][type].scale)))
     const bannerLocal = new THREE.Matrix4(), bannerSway = new THREE.Matrix4(), bannerEuler = new THREE.Euler()
     const bannerScale = new THREE.Matrix4().makeScale(COMPANY_BANNER_SCALE, COMPANY_BANNER_SCALE, COMPANY_BANNER_SCALE)
-
-    // 選択中の部隊の兵の足元に輪を出す。
     const ringGeometry = new THREE.RingGeometry(2.6, 3.4, 20)
     ringGeometry.rotateX(-Math.PI / 2)
     const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xfff1c2, transparent: true, opacity: .85, depthWrite: false, side: THREE.DoubleSide })
-    let ringCapacity = 128
-    const makeRings = () => {
-        const mesh = new THREE.InstancedMesh(ringGeometry, ringMaterial, ringCapacity)
-        mesh.frustumCulled = false; mesh.renderOrder = 5; mesh.count = 0
-        group.add(mesh)
-        return mesh
-    }
-    let rings = makeRings()
+    const rings = buffer(ringGeometry, ringMaterial, false, 5)
     const ringMatrix = new THREE.Matrix4()
-
-    const base = new THREE.Matrix4(), local = new THREE.Matrix4(), out = new THREE.Matrix4()
+    type ModelBatch = typeof batches.player.infantry
+    interface Pose {
+        model: ModelBatch; base: THREE.Matrix4; local: Float64Array; revisions: Uint32Array
+        x: number; y: number; z: number; heading: number; fall: number
+        baseRevision: number
+        banner?: { baseRevision: number; sway: number; bob: number; company: boolean; revision: number; matrix: THREE.Matrix4 }
+    }
+    // Object identity also handles a new battle reusing soldier IDs. Removed soldiers can be collected.
+    const poses = new WeakMap<Soldier, Pose>()
+    const write = (target: InstanceBuffer, index: number, matrix: ArrayLike<number>, offset = 0) => {
+        if (target.write(index, matrix, offset)) stats.matrixWrites++
+    }
+    const finish = (target: InstanceBuffer, count: number) => { stats.dirtyMatrixBytes += target.finish(count) }
+    const local = new THREE.Matrix4(), out = new THREE.Matrix4()
     const position = new THREE.Vector3(), scale = new THREE.Vector3(), quaternion = new THREE.Quaternion(), euler = new THREE.Euler(0, 0, 0, 'YXZ')
-    const counts = new Map<string, number>()
     const from = new THREE.Vector3(), to = new THREE.Vector3(), tangent = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), trailScale = new THREE.Matrix4()
 
     return {
         group,
-        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number, selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>, companyLeaderIds: ReadonlySet<number> = new Set()) {
-            counts.clear()
-            for (const s of soldiers) { const key = `${s.owner}:${s.type}`; counts.set(key, (counts.get(key) ?? 0) + 1) }
-            for (const [key, batch] of batches) if ((counts.get(key) ?? 0) > batch.capacity) grow(batch, counts.get(key)!)
-            counts.clear()
+        stats,
+        update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number,
+            selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>, companyLeaderIds: ReadonlySet<number> = new Set(), view?: ArmyView) {
+            const started = performance.now()
+            stats.totalSoldiers = soldiers.length
+            stats.renderedSoldiers = stats.culledSoldiers = stats.shadowSoldiers = 0
+            stats.matrixCompositions = stats.matrixWrites = stats.dirtyMatrixBytes = 0
+            const radiusOf = (s: Soldier) => Math.max(batches[s.owner][s.type].radius, leaderIds.has(s.id) && s.state !== 'dead' ? leaderRadius : 0)
+            visibility.prepare(soldiers, heightAt, battleTime, radiusOf, view)
+            stats.cells = visibility.cellCount
+            for (const batch of allBatches) batch.count = 0
+            for (const army of ARMIES) banners[army].nearCount = banners[army].farCount = 0
             let ringCount = 0
-            for (const army of ARMIES) { banners[army].ensure(leaderIds.size); bannerCounts[army] = 0 }
-            const selectedCount = selectedSquadIds.size ? soldiers.reduce((n, s) => n + (selectedSquadIds.has(s.squadId) && s.state !== 'dead' ? 1 : 0), 0) : 0
-            if (selectedCount > ringCapacity) {
-                while (ringCapacity < selectedCount) ringCapacity *= 2
-                const old = rings
-                rings = makeRings()
-                old.removeFromParent(); old.dispose()
-            }
-            for (const s of soldiers) {
-                const key = `${s.owner}:${s.type}`
-                const batch = batches.get(key)!
-                const index = counts.get(key) ?? 0
-                counts.set(key, index + 1)
+            for (let soldierIndex = 0; soldierIndex < soldiers.length; soldierIndex++) {
+                const s = soldiers[soldierIndex]!
+                const model = batches[s.owner][s.type]
+                const classification = visibility.classify(s, soldierIndex, radiusOf(s), model.height)
+                if (!classification) { stats.culledSoldiers++; continue }
+                stats.renderedSoldiers++
+                const shadow = classification === 2
+                if (shadow) stats.shadowSoldiers++
+                const batch = shadow ? model.near : model.far
+                const index = batch.count++
                 const dead = s.state === 'dead'
                 const since = dead ? battleTime - s.deathTime : 0
-                // 倒れる → しばらく横たわる → 地面に沈む
                 const fall = dead ? Math.min(1, since / .45) * Math.PI / 2 : 0
                 const sink = dead ? Math.max(0, since - 5) * 2.2 : 0
-                const ground = heightAt(s.x, s.y)
-                position.set(s.x, ground + .2 - sink, s.y)
-                euler.set(-fall, s.heading, 0)
-                quaternion.setFromEuler(euler)
-                scale.setScalar(batch.scale)
-                base.compose(position, quaternion, scale)
+                const ground = visibility.ground(soldierIndex)
+                const y = ground + .2 - sink
+                let pose = poses.get(s)
+                if (!pose || pose.model !== model) {
+                    pose = { model, base: new THREE.Matrix4(), baseRevision: 0,
+                        local: new Float64Array(batch.parts.length * 4).fill(NaN), revisions: new Uint32Array(batch.parts.length),
+                        x: NaN, y: NaN, z: NaN, heading: NaN, fall: NaN }
+                    poses.set(s, pose)
+                }
+                const baseChanged = pose.x !== s.x || pose.y !== y || pose.z !== s.y || pose.heading !== s.heading || pose.fall !== fall
+                if (baseChanged) {
+                    position.set(s.x, y, s.y)
+                    euler.set(-fall, s.heading, 0)
+                    quaternion.setFromEuler(euler)
+                    scale.setScalar(model.scale)
+                    pose.base.compose(position, quaternion, scale)
+                    pose.x = s.x; pose.y = y; pose.z = s.y; pose.heading = s.heading; pose.fall = fall
+                    pose.baseRevision++
+                    stats.matrixCompositions++
+                }
                 const phase = time * (s.type === 'cavalry' ? 13 : 10) + s.elapsedTime * 3
-                const stride = s.moving && !dead ? Math.sin(phase) * (s.type === 'cavalry' ? .7 : .6) : 0
-                const bob = s.moving && !dead ? Math.abs(Math.sin(phase)) * (s.type === 'cavalry' ? 1 : .6) : 0
-                // 弓兵は構えると腕を前へ上げ、相手が遠いほど上へ向ける。放った直後は手元の矢がない。
+                const step = s.moving && !dead ? Math.sin(phase) : 0
+                const stride = step * (s.type === 'cavalry' ? .7 : .6)
+                const bob = Math.abs(step) * (s.type === 'cavalry' ? 1 : .6)
                 const aiming = s.type === 'archer' && !dead && (s.swing > 0 || s.state === 'fight' && !s.moving && s.aim > 0)
                 const bowPitch = aiming ? -(1.45 + s.aim) : -.1
                 const swing = s.swing > 0 ? Math.sin((1 - s.swing / .45) * Math.PI) : 0
-                for (const p of batch.parts) {
-                    // Legs and weapons ride on the bobbing body; mount legs stay planted.
+                for (let partIndex = 0; partIndex < batch.parts.length; partIndex++) {
+                    const p = batch.parts[partIndex]!
                     let rx = 0, dy = p.role === 'mountFront' || p.role === 'mountBack' ? 0 : bob
+                    const hide = p.role === 'nock' && (!aiming || s.swing > .35)
                     if (p.role === 'legL' || p.role === 'mountFront') rx = stride
                     else if (p.role === 'legR' || p.role === 'mountBack') rx = -stride
-                    else if (p.role === 'nock') {
-                        if (!aiming || s.swing > .35) { p.mesh.setMatrixAt(index, hidden); continue }
-                        rx = bowPitch
-                    } else if (p.role === 'weapon') {
+                    else if (p.role === 'nock') rx = bowPitch
+                    else if (p.role === 'weapon') {
                         if (s.type === 'archer') rx = bowPitch
                         else if (s.type === 'cavalry') rx = -swing * .5
-                        // 槍兵は進むときも戦うときも穂先を向いている方（進む方向・攻撃する相手）へ向け、突くときは前へ突き出す。
                         else if (s.type === 'pikeman') rx = -swing * .12
                         else rx = -.15 - swing * 1.6
                     }
-                    local.makeRotationX(rx)
                     const thrust = p.role === 'weapon' && s.type === 'pikeman' ? swing * 2.4 : 0
-                    local.setPosition(p.pivot.x, p.pivot.y + dy, p.pivot.z + thrust)
-                    out.multiplyMatrices(base, local)
-                    p.mesh.setMatrixAt(index, out)
+                    const state = partIndex * 4
+                    if (baseChanged || pose.local[state] !== rx || pose.local[state + 1] !== dy
+                        || pose.local[state + 2] !== thrust || pose.local[state + 3] !== Number(hide)) {
+                        pose.local[state] = rx; pose.local[state + 1] = dy
+                        pose.local[state + 2] = thrust; pose.local[state + 3] = Number(hide)
+                        pose.revisions[partIndex] = pose.revisions[partIndex]! + 1
+                    }
+                    // Write directly into the instance buffer. Repacking recomputes from the cached
+                    // base/local pose, avoiding a second matrix copy for every moving soldier.
+                    const revision = pose.revisions[partIndex]!
+                    if (!p.buffer.matches(index, pose, revision)) {
+                        if (hide) out.copy(hidden)
+                        else {
+                            local.makeRotationX(rx)
+                            local.setPosition(p.pivot.x, p.pivot.y + dy, p.pivot.z + thrust)
+                            out.multiplyMatrices(pose.base, local)
+                            stats.matrixCompositions++
+                        }
+                        if (p.buffer.writeCached(index, pose, revision, out.elements)) stats.matrixWrites++
+                    }
                 }
                 if (leaderIds.has(s.id) && !dead) {
-                    // 背中の竿の付け根に付け、歩くと揺れ、止まっているとゆっくりたなびく。騎兵は騎手の背に付ける。
                     const rider = s.type === 'cavalry'
                     const sway = s.moving ? Math.sin(phase * .5) * .07 : Math.sin(time * 1.4 + s.id) * .035
-                    bannerSway.makeRotationFromEuler(bannerEuler.set(sway * .4, 0, sway))
-                    bannerLocal.makeTranslation(0, (rider ? 12.5 : 7.6) + bob, rider ? -1.6 : -1.7).multiply(bannerSway)
-                    // 中隊長（中隊のまん中の小隊の隊長）は、同じ幟を大きくして背負う。
-                    if (companyLeaderIds.has(s.id)) bannerLocal.multiply(bannerScale)
-                    out.multiplyMatrices(base, bannerLocal)
-                    banners[s.owner].mesh.setMatrixAt(bannerCounts[s.owner]++, out)
+                    const company = companyLeaderIds.has(s.id)
+                    const cached = pose.banner ??= { baseRevision: -1, sway: NaN, bob: NaN, company, revision: 0, matrix: new THREE.Matrix4() }
+                    if (cached.baseRevision !== pose.baseRevision || cached.sway !== sway || cached.bob !== bob || cached.company !== company) {
+                        bannerSway.makeRotationFromEuler(bannerEuler.set(sway * .4, 0, sway))
+                        bannerLocal.makeTranslation(0, (rider ? 12.5 : 7.6) + bob, rider ? -1.6 : -1.7).multiply(bannerSway)
+                        if (company) bannerLocal.multiply(bannerScale)
+                        cached.matrix.multiplyMatrices(pose.base, bannerLocal)
+                        cached.baseRevision = pose.baseRevision; cached.sway = sway; cached.bob = bob; cached.company = company
+                        cached.revision++; stats.matrixCompositions++
+                    }
+                    const banner = banners[s.owner]
+                    if ((shadow ? banner.near : banner.far).writeCached(shadow ? banner.nearCount++ : banner.farCount++, cached, cached.revision, cached.matrix.elements)) stats.matrixWrites++
                 }
                 if (selectedSquadIds.has(s.squadId) && !dead) {
                     const size = s.type === 'cavalry' ? 1.5 : 1
                     ringMatrix.makeScale(size, 1, size).setPosition(s.x, ground + .6, s.y)
-                    rings.setMatrixAt(ringCount++, ringMatrix)
+                    write(rings, ringCount++, ringMatrix.elements)
                 }
             }
-            rings.count = ringCount
-            for (const army of ARMIES) { banners[army].mesh.count = bannerCounts[army]; banners[army].mesh.instanceMatrix.needsUpdate = true }
-            rings.instanceMatrix.needsUpdate = true
-            for (const [key, batch] of batches) {
-                const count = counts.get(key) ?? 0
-                for (const p of batch.parts) { p.mesh.count = count; p.mesh.instanceMatrix.needsUpdate = true }
+            finish(rings, ringCount)
+            for (const army of ARMIES) {
+                finish(banners[army].near, banners[army].nearCount)
+                finish(banners[army].far, banners[army].farCount)
             }
+            for (const batch of allBatches) for (const p of batch.parts) finish(p.buffer, batch.count)
             // 飛んでいる矢: 放物線上の位置に置き、向きを軌道の接線に合わせる。
-            flying.ensure(arrows.length); trails.ensure(arrows.length)
             for (let i = 0; i < arrows.length; i++) {
                 const arrow = arrows[i]!
                 const t = Math.min(1, arrow.time / arrow.duration)
@@ -197,16 +225,14 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 // Matrix4.lookAt orients +Z toward the eye argument.
                 to.copy(from).add(tangent)
                 out.lookAt(to, from, up).setPosition(from)
-                flying.mesh.setMatrixAt(i, out)
+                write(flying, i, out.elements)
                 // 軌跡は放った直後と着弾直前で短くする。
                 const trail = 9 * Math.min(1, t * 6, (1 - t) * 6 + .3)
                 out.multiply(trailScale.makeScale(1, 1, Math.max(.01, trail)))
-                trails.mesh.setMatrixAt(i, out)
+                write(trails, i, out.elements)
             }
-            flying.mesh.count = trails.mesh.count = arrows.length
-            flying.mesh.instanceMatrix.needsUpdate = trails.mesh.instanceMatrix.needsUpdate = true
+            finish(flying, arrows.length); finish(trails, arrows.length)
             // 地面に刺さった矢: 矢じりを少し埋め、消える前にゆっくり沈める。
-            stuck.ensure(spentArrows.length)
             for (let i = 0; i < spentArrows.length; i++) {
                 const spent = spentArrows[i]!
                 const age = battleTime - spent.time
@@ -214,16 +240,17 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 from.set(spent.x, heightAt(spent.x, spent.y) - Math.max(0, age - 1.8) * 4, spent.y).addScaledVector(tangent, -1.9)
                 to.copy(from).add(tangent)
                 out.lookAt(to, from, up).setPosition(from)
-                stuck.mesh.setMatrixAt(i, out)
+                write(stuck, i, out.elements)
             }
-            stuck.mesh.count = spentArrows.length
-            stuck.mesh.instanceMatrix.needsUpdate = true
+            finish(stuck, spentArrows.length)
+            stats.updateMs = performance.now() - started
         },
         destroy() {
-            for (const batch of batches.values()) for (const p of batch.parts) { p.mesh.geometry.dispose(); p.mesh.dispose() }
+            for (const batch of allBatches) for (const p of batch.parts) p.buffer.dispose()
+            for (const army of ARMIES) for (const type of TYPES) for (const p of models[army][type].parts) p.geometry.dispose()
             flying.dispose(); trails.dispose(); stuck.dispose(); arrowGeometry.dispose(); trailGeometry.dispose(); trailMaterial.dispose()
             rings.dispose(); ringGeometry.dispose(); ringMaterial.dispose()
-            for (const army of ARMIES) { banners[army].dispose(); bannerGeometries[army].dispose() }
+            for (const army of ARMIES) { banners[army].near.dispose(); banners[army].far.dispose(); bannerGeometries[army].dispose() }
             material.dispose()
             group.removeFromParent()
         },
