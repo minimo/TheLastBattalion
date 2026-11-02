@@ -16,7 +16,7 @@ bpy.context.window.scene=scene
 PALETTE={
     'steel':0x627886, 'edge':0xb1c3cb, 'iron':0x344550,
     'cloth':0x263747, 'faction':0x6f9be8, 'leather':0x514032,
-    'boot':0x292c30, 'gold':0xb29660, 'wood':0x58452f, 'dark':0x151e26,
+    'boot':0x292c30, 'gold':0xb29660, 'wood':0x58452f, 'dark':0x151e26, 'mail':0x7a858b,
 }
 def linear(v): return v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4
 materials={}
@@ -127,7 +127,7 @@ body.patch([(-.84,14.65,-.80),(.84,14.65,-.80),(.93,13.92,-1.37),(-.93,13.92,-1.
 body.rings([(11.65,.93,1.08,-2.20,.13),(12.35,1.15,1.24,-2.12,.08),(13.0,.56,.75,-1.96,-.02)],8,['iron','steel'],(False,True),smooth=False)
 body.rings([(11.75,.74,.94,2.24,-.07),(12.45,.89,1.05,2.12,-.08),(12.86,.40,.63,1.98,-.10)],8,['iron','steel'],(False,True),smooth=False)
 # Bent shield arm: upper arm down, forearm across the torso, hand behind the shield.
-tube(body,[((-2.60,12,.05),.60,.61),((-2.85,10.45,.42),.51,.53),((-1.95,10.65,1.65),.40,.44)],5,['cloth','steel'])
+tube(body,[((-2.60,12,.05),.60,.61),((-2.85,10.45,.42),.51,.53),((-1.95,10.65,1.65),.40,.44)],5,['mail','steel'])
 tube(body,[((-2.0,10.62,1.55),.40,.43),((-1.80,10.68,1.95),.43,.46)],4,'leather',(True,True),smooth=False)
 # Broad heater shield held forward, turned toward the protected side.
 outline=[(-1.68,1.85),(1.68,1.85),(1.47,-.50),(0,-2.65),(-1.47,-.50)]
@@ -159,14 +159,14 @@ objects=[body.finish()]
 for role,sign in [('legL',-1),('legR',1)]:
     leg=Part(role,(sign*1.12,7.8,0))
     advance=.42 if sign<0 else -.30
-    leg.rings([(-6.5,.39,.48,sign*.16,advance),(-5.0,.56,.63,sign*.13,advance),(-3.45,.55,.60,sign*.08,.28),(-1.75,.71,.76,0,.08),(0,.63,.65,0,0)],6,['steel','steel','cloth','cloth'])
+    leg.rings([(-6.5,.39,.48,sign*.16,advance),(-5.0,.56,.63,sign*.13,advance),(-3.45,.55,.60,sign*.08,.28),(-1.75,.71,.76,0,.08),(0,.63,.65,0,0)],6,['steel','steel','mail','mail'])
     plate(leg,[(-.44,-3.12,.80),(.44,-3.12,.80),(.51,-3.55,.81),(.28,-3.94,.80),(-.28,-3.94,.80),(-.51,-3.55,.81)],(0,-3.5,1.0),'iron')
     leg.rings([(-7.58,.58,1.04,sign*.17,.40+advance),(-7.03,.63,1.12,sign*.17,.40+advance),(-6.25,.42,.52,sign*.15,advance)],6,'boot',(True,True),smooth=False)
     objects.append(leg.finish())
 weapon=Part('weapon',(2.65,12,0))
 # The elbow is below the shoulder; the forearm reaches forward into a closed fist.
 elbow=Vector((.53,-1.9,-.23));wrist=Vector((.42,-1.56,1.47));hand=Vector((.40,-1.36,1.99))
-tube(weapon,[((0,-.05,0),.57,.59),(tuple(elbow),.48,.50),(tuple(wrist),.36,.40)],6,['cloth','steel'])
+tube(weapon,[((0,-.05,0),.57,.59),(tuple(elbow),.48,.50),(tuple(wrist),.36,.40)],6,['mail','steel'])
 # Sword-local frame: one axis shared by grip, glove, guard and blade.
 a=Vector((.30,.91,.28)).normalized();b=Vector((1,0,0));b=(b-a*b.dot(a)).normalized();c=b.cross(a)
 def sword_point(x,y,z): return tuple(hand+b*x+a*y+c*z)
@@ -223,3 +223,4 @@ for area in bpy.context.screen.areas:
         area.spaces.active.region_3d.view_rotation=cam.rotation_euler.to_quaternion()
         enum(area.spaces.active.shading,'type','MATERIAL')
 print('New infantry design ready.')
+bpy.ops.wm.save_mainfile()

@@ -29,7 +29,7 @@
 - `assets/blender/human-cavalry-preview.png`：全身プレビュー。
 - `assets/blender/human-cavalry-motion.png`：脚・胴体の上下動・騎槍を動かした姿勢。
 - `app/render/three/assets/humanCavalry.json`：ゲーム用の位置・法線・パレット番号・インデックス。
-- `app/render/three/humanCavalry.ts`：4部位のジオメトリを構築。
+- `app/render/three/unitAsset.ts`：全兵種共通の読み込み処理。
 - `scripts/blender/export-cavalry.py`：編集したモデルを再書き出し。
 - `scripts/blender/refine-cavalry.py`：モデル生成スクリプト。**生成シーン内の編集を置き換えるので、通常の再書き出しには使わない。**
 

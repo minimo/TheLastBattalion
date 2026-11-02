@@ -2,10 +2,12 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Army, UnitType } from '../../types/game'
 import { FACTION } from './models'
-import { createHumanInfantryModel as humanInfantry } from './humanInfantry'
-import { createHumanArcherModel as humanArcher } from './humanArcher'
-import { createHumanPikemanModel as humanPikeman } from './humanPikeman'
-import { createHumanCavalryModel as humanCavalry } from './humanCavalry'
+import { createUnitAssetModel as asset, WHITE_UV } from './unitAsset'
+import humanInfantryAsset from './assets/humanInfantry.json'
+import humanArcherAsset from './assets/humanArcher.json'
+import humanPikemanAsset from './assets/humanPikeman.json'
+import humanCavalryAsset from './assets/humanCavalry.json'
+import orcInfantryAsset from './assets/orcInfantry.json'
 
 /**
  * 数千体を描くため、兵士は部位ごとの結合ジオメトリ（頂点カラー）をInstancedMeshで描画する。
@@ -57,6 +59,9 @@ function assemble(build: (add: (shape: THREE.BufferGeometry, hex: number, p: Vec
         const colors = new Float32Array(g.getAttribute('position').count * 3)
         for (let i = 0; i < colors.length; i += 3) { colors[i] = color.r; colors[i + 1] = color.g; colors[i + 2] = color.b }
         g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+        const uvs = new Float32Array(g.getAttribute('position').count * 2)
+        for (let i = 0; i < uvs.length; i += 2) { uvs[i] = WHITE_UV[0]; uvs[i + 1] = WHITE_UV[1] }
+        g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
         pieces.push(g)
     })
     const merged = mergeGeometries(pieces)!
@@ -155,35 +160,6 @@ function monsterLegs(skin: number, wrap: number, scale = 1) {
         add(CYLINDER, wrap, [0, -4.6 * scale, 0], [.75 * scale, 2.6 * scale, .8 * scale])
         add(BOX, skin, [0, -6.85 * scale, .5 * scale], [1.6 * scale, 1 * scale, 2.6 * scale])
     })))
-}
-
-function orcInfantry(faction: number): UnitModel {
-    const body = part('body', [0, 0, 0], assemble(add => {
-        add(SPHERE, ORC, [0, 10.6, 0], [2.9, 3.2, 1.9])
-        add(BOX, RUST, [0, 11, 1.25], [3.6, 3, .5])
-        add(BOX, faction, [0, 7.4, 1.05], [3, 2.6, .35])
-        add(BOX, faction, [0, 7.4, -1.05], [3, 2.6, .35])
-        add(BOX, LEATHER, [0, 8.4, 0], [5, .8, 3.3])
-        orcHead(add, ORC, 14.6, 1.1)
-        // 棘付きの肩当て
-        add(SPHERE, RUST, [-2.5, 12.6, 0], [1.4, .9, 1.6])
-        for (const z of [-.6, .6]) add(CONE, BONE, [-2.8, 13.7, z], [.25, 1, .25])
-        add(SPHERE, ORC, [2.4, 12.4, 0], [1.1, .9, 1.3])
-        add(CYLINDER, ORC, [-3.2, 10.1, .3], [.8, 3, .8])
-        // 丸い木盾（所属色の塗り）
-        add(CYLINDER, WOOD, [-3.6, 9, 1.4], [2.6, .45, 2.6], [Math.PI / 2, 0, 0])
-        add(CYLINDER, faction, [-3.6, 9, 1.68], [1.8, .1, 1.8], [Math.PI / 2, 0, 0])
-        add(BOX, IRON, [-3.6, 9, 1.8], [.8, .8, .4])
-    }))
-    const weapon = part('weapon', [2.9, 12, 0], assemble(add => {
-        add(CYLINDER, ORC, [.3, -1.5, 0], [.75, 2.8, .75])
-        add(CYLINDER, ORC, [.4, -3.8, 1], [.65, 2.1, .65], [-.55, 0, 0])
-        add(SPHERE, ORC, [.4, -4.5, 1.6], [.7, .7, .7])
-        add(CYLINDER, WOOD, [.4, -1, 2], [.3, 7, .3])
-        add(BOX, IRON, [.4, 1.6, 3], [.4, 3, 2.2])
-        add(BOX, 0xb9bcb8, [.4, 1.6, 4.1], [.3, 3.2, .3])
-    }))
-    return { parts: [body, ...monsterLegs(ORC, LEATHER), weapon], scale: .46 }
 }
 
 /** 魔王軍の槍兵: 骨の穂先の長槍と、厚板の大盾を持つオーク。 */
@@ -374,8 +350,8 @@ function orcEngineer(faction: number): UnitModel {
 
 export function createUnitModels(): Record<Army, Record<UnitType, UnitModel>> {
     return {
-        player: { infantry: humanInfantry(FACTION.player), pikeman: humanPikeman(FACTION.player), archer: humanArcher(FACTION.player), cavalry: humanCavalry(FACTION.player), supply: humanPorter(FACTION.player), engineer: humanEngineer(FACTION.player) },
-        cpu: { infantry: orcInfantry(FACTION.cpu), pikeman: orcPikeman(FACTION.cpu), archer: goblinArcher(FACTION.cpu), cavalry: wolfRider(FACTION.cpu), supply: goblinPorter(FACTION.cpu), engineer: orcEngineer(FACTION.cpu) },
+        player: { infantry: asset(humanInfantryAsset, 'human-infantry', FACTION.player), pikeman: asset(humanPikemanAsset, 'human-pikeman', FACTION.player), archer: asset(humanArcherAsset, 'human-archer', FACTION.player), cavalry: asset(humanCavalryAsset, 'human-cavalry', FACTION.player), supply: humanPorter(FACTION.player), engineer: humanEngineer(FACTION.player) },
+        cpu: { infantry: asset(orcInfantryAsset, 'orc-infantry', FACTION.cpu), pikeman: orcPikeman(FACTION.cpu), archer: goblinArcher(FACTION.cpu), cavalry: wolfRider(FACTION.cpu), supply: goblinPorter(FACTION.cpu), engineer: orcEngineer(FACTION.cpu) },
     }
 }
 

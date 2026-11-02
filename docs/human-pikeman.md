@@ -22,7 +22,7 @@
 - `assets/blender/human-pikeman-preview.png`：全身と長槍のプレビュー。
 - `assets/blender/human-pikeman-grip.png`：最大の突き出し量・回転角を付けた右腕と握りの詳細。
 - `app/render/three/assets/humanPikeman.json`：ゲーム用の位置・法線・パレット番号・インデックス。
-- `app/render/three/humanPikeman.ts`：4部位のジオメトリを構築。
+- `app/render/three/unitAsset.ts`：全兵種共通の読み込み処理。
 - `scripts/blender/export-pikeman.py`：編集したモデルの再書き出し。
 - `scripts/blender/refine-pikeman.py`：モデル生成スクリプト。**生成シーン内の編集を置き換えるので、通常の再書き出しには使わない。**
 

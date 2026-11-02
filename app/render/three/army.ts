@@ -4,6 +4,7 @@ import { createArrowGeometry, createArrowTrailGeometry, createBannerGeometry, cr
 import { FACTION } from './models'
 import { InstanceBuffer } from './instanceBuffer'
 import { createArmyVisibility, type ArmyView } from './armyVisibility'
+import { createUnitMaterial } from './unitMaterial'
 
 type SurfaceHeight = (x: number, y: number) => number
 
@@ -32,7 +33,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
     const group = new THREE.Group()
     group.name = 'army'
     scene.add(group)
-    const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .72, metalness: .12 })
+    const { material, disposeTextures } = createUnitMaterial()
     const models = createUnitModels()
     const visibility = createArmyVisibility()
     const stats: ArmyRenderStats = { totalSoldiers: 0, renderedSoldiers: 0, culledSoldiers: 0, shadowSoldiers: 0,
@@ -260,7 +261,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
             flying.dispose(); trails.dispose(); stuck.dispose(); arrowGeometry.dispose(); trailGeometry.dispose(); trailMaterial.dispose()
             rings.dispose(); ringGeometry.dispose(); ringMaterial.dispose()
             for (const army of ARMIES) { banners[army].near.dispose(); banners[army].far.dispose(); bannerGeometries[army].dispose() }
-            material.dispose()
+            material.dispose(); disposeTextures()
             group.removeFromParent()
         },
     }

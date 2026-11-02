@@ -25,7 +25,7 @@
 - `assets/blender/human-archer-preview.png`：水平に構えた全身プレビュー。
 - `assets/blender/human-archer-aim.png`：最大仰角のプレビュー。
 - `app/render/three/assets/humanArcher.json`：ゲーム用の位置・法線・色パレット・インデックス。
-- `app/render/three/humanArcher.ts`：5部位のジオメトリを構築する読み込み処理。
+- `app/render/three/unitAsset.ts`：全兵種共通の読み込み処理。
 - `scripts/blender/export-archer.py`：編集後のメッシュを再書き出しするスクリプト。
 - `scripts/blender/refine-archer.py`：モデルの生成スクリプト。**生成シーン内の編集を置き換えるので、通常の再書き出しには使わない。**
 
