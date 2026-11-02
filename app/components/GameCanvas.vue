@@ -285,7 +285,7 @@ onUnmounted(() => {
       <SquadPanel v-else :selected-id="input.selectedSquadId.value" :selected-company-id="input.selectedCompanyId.value" :list-open="squadsOpen" @focus="focusSquad" @focus-company="focusCompany" />
       <CommandBar ref="commandBar" :input="input" :deploying="deploying" :menu-open="menuOpen" :squads-open="squadsOpen"
         @toggle-menu="menuOpen = !menuOpen" @toggle-squads="squadsOpen = !squadsOpen" @reset-view="resetView" />
-      <BattleMenu v-if="menuOpen && !deploying" :mode-name="MODE_NAME[gameStore.mode]" :map-name="MAP_TYPE_NAME[gameStore.mapType]" @close="menuOpen = false" @title="title" />
+      <BattleMenu v-if="menuOpen && !deploying" :mode-name="MODE_NAME[gameStore.mode]" :map-name="MAP_TYPE_NAME[gameStore.mapType]" @close="menuOpen = false" @title="withCurtain(title)" />
     </template>
     <div v-if="gameStore.isGameOver && gameStore.status !== 'title'" class="overlay">
       <div class="modal parchment-window">
@@ -294,8 +294,8 @@ onUnmounted(() => {
         <p>撃破数 人間軍 {{ gameStore.summary.player.killed }} / 魔王軍 {{ gameStore.summary.cpu.killed }}</p>
         <p v-if="gameStore.summary.cpu.deserted">魔王軍の逃走 {{ gameStore.summary.cpu.deserted }}</p>
         <div class="modal-actions">
-          <button @click="start(undefined, false)">Restart</button>
-          <button @click="title" class="secondary">Back to Title</button>
+          <button @click="withCurtain(() => start(undefined, false))">Restart</button>
+          <button @click="withCurtain(title)" class="secondary">Back to Title</button>
         </div>
       </div>
     </div>
