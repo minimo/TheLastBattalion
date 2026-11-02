@@ -481,8 +481,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         const companyId = element?.dataset.company ? Number(element.dataset.company) : bannerCompanyHover
         const squadId = element?.dataset.squad ? Number(element.dataset.squad) : bannerHover
         input.setWorldPointer(groundPoint(event), squadId, companyId)
-        const selectable = squadId !== null && input.canSelectSquad(squadId)
-        renderer.domElement.style.cursor = input.buildMode.value ? 'crosshair' : selectable || companyId !== null ? 'pointer' : 'default'
+        renderer.domElement.style.cursor = input.buildMode.value ? 'crosshair' : squadId !== null || companyId !== null ? 'pointer' : 'default'
         return { squadId, companyId }
     }
     /**
@@ -533,7 +532,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 if (d < bestDistance && s.squadId >= 0) { bestDistance = d; best = s.squadId }
             })
         }
-        if (best !== null && input.canSelectSquad(best)) { input.selectSquad(best); return }
+        // 中隊の小隊のユニットなら、その中隊を選ぶ。
+        if (best !== null) { input.selectSquad(best); return }
         input.selectSquad(null)
         input.selectCompany(null)
     }
@@ -558,13 +558,12 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         // Decide once, before OrbitControls receives pointerdown. Crossing a banner
         // during a background drag must never turn that gesture into an order.
         // 建設場所を選んでいる間は、旗の上を押しても部隊は掴まず、その地点に建てる。
-        // 選べない小隊（中隊の小隊）の旗を押したときは、地面を押したのと同じにする。
-        const grabbed = squadId !== null && input.canSelectSquad(squadId)
-        backgroundGesture = !!input.buildMode.value || (!grabbed && companyId === null)
+        // 中隊の小隊の旗を押したときは、その中隊の旗を押したのと同じにする。
+        backgroundGesture = !!input.buildMode.value || (squadId === null && companyId === null)
         setBackgroundGesture(backgroundGesture)
         if (backgroundGesture) { pressed = { x: event.clientX, y: event.clientY }; renderer.domElement.style.cursor = 'grabbing' }
         else if (companyId !== null) input.handleCompanyPointerDown(companyId, event)
-        else if (grabbed) input.handleSquadPointerDown(squadId!, event)
+        else if (squadId !== null) input.handleSquadPointerDown(squadId, event)
     }
     const move = (event: PointerEvent) => {
         if (!canCommand() || backgroundGesture) return
@@ -684,10 +683,9 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 const count = String(squad.count)
                 if (visual.count.textContent !== count) visual.count.textContent = count
                 visual.label.classList.toggle('is-selected', input.selectedSquadId.value === squad.id)
-                // 中隊の小隊の旗は選べないので、押せる見た目にしない。
+                // 中隊の小隊の旗は、押すとその中隊を選ぶ。
                 const locked = !input.canSelectSquad(squad.id)
-                visual.label.classList.toggle('is-locked', locked)
-                visual.label.classList.toggle('is-hover', bannerHover === squad.id && !locked)
+                visual.label.classList.toggle('is-hover', bannerHover === squad.id)
                 visual.label.classList.toggle('is-source', dragging === squad.id)
                 visual.label.classList.toggle('is-target', (input.hoverSquadId.value === squad.id && targeting) || (drop?.squadId === squad.id && dragging !== squad.id))
                 // 補給に戻っている間はその旨を、弓兵は矢の残り、補給部隊は補給の残り回数、工兵は建設の進み具合、疲れていれば「疲労」を示す。

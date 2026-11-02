@@ -461,14 +461,13 @@ button:hover { transform: scale(1.05); }
 .canvas-wrapper :deep(.squad-label .squad-ammo) { font-size: 9px; font-weight: 500; color: #e0ccaa; }
 .canvas-wrapper :deep(.squad-label.low-ammo .squad-ammo) { color: #ffd073; }
 .canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.company-label:hover) { transform: none; }
-.canvas-wrapper :deep(.squad-label.is-locked) { cursor: default; }
 .canvas-wrapper :deep(.squad-label.cpu) { font-size: 11px; }
 .canvas-wrapper :deep(.company-label) { z-index: 1; }
 .canvas-wrapper :deep(.company-label .company-count) { font-size: 10px; font-weight: 500; opacity: .9; }
 .canvas-wrapper :deep(.world-label.company-label.compact) { padding: 3px 6px; font-size: 10px; }
 .canvas-wrapper :deep(.company-label.compact .company-count) { display: none; }
 /* Hover stays subtle so it cannot be mistaken for the selected unit. */
-.canvas-wrapper :deep(.squad-label:not(.is-locked):hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { box-shadow: inset 0 0 0 1px #d9b77b99, 0 2px 4px #000a; z-index: 2; }
+.canvas-wrapper :deep(.squad-label:hover), .canvas-wrapper :deep(.squad-label.is-hover), .canvas-wrapper :deep(.company-label:hover), .canvas-wrapper :deep(.company-label.is-hover) { box-shadow: inset 0 0 0 1px #d9b77b99, 0 2px 4px #000a; z-index: 2; }
 .canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):is(.is-selected, .is-source)) { z-index: 4; box-shadow: inset 0 0 0 1px #e7c27688, 0 3px 6px #000b; }
 /* Pseudo-elements keep the hit area and label position stable when selected. */
 .canvas-wrapper :deep(.world-label:is(.squad-label, .company-label):is(.is-selected, .is-source)::before) { content: ''; position: absolute; inset: -4px; border: 3px solid #c49849; border-top-color: #ffe8a3; border-right-color: #c49849; border-bottom-color: #805222; border-left-color: #e3bb6a; border-radius: 4px; box-shadow: inset 0 0 0 1px #4d3013, 0 0 0 1px #2d1b0c, 0 2px 5px #000a; pointer-events: none; }

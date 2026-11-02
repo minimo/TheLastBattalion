@@ -87,7 +87,9 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
 
     const handleSquadPointerDown = (squadId: number, e: EntityPointerEvent) => {
         const squad = gameStore.battle?.squadById.get(squadId)
-        if (!squad || !canSelectSquad(squadId)) return
+        if (!squad) return
+        // 中隊の小隊の旗・幟を押したら、中隊の旗を押したのと同じにする（中隊を選び、ドラッグ・長押しで中隊へ指示する）。
+        if (!canSelectSquad(squadId)) { handleCompanyPointerDown(squad.companyId, e); return }
         selectSquad(squadId)
         pointerDownPos.value = { x: e.clientX, y: e.clientY }
         if (squad.owner !== 'player') { clearLongPress(); pressed = null; return }
@@ -239,9 +241,11 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         return true
     }
 
-    /** 小隊を選ぶ（中隊の選択は外す）。選べない小隊（中隊の小隊）なら、小隊は選ばない。 */
+    /** 小隊を選ぶ（中隊の選択は外す）。中隊の小隊なら、その中隊を選ぶ。 */
     const selectSquad = (id: number | null) => {
-        if (id !== null && !canSelectSquad(id)) id = null
+        const squad = id !== null ? gameStore.battle?.squadById.get(id) : undefined
+        if (squad && !canSelectSquad(squad.id)) { selectCompany(squad.companyId); return }
+        if (id !== null && !squad) id = null
         selectedSquadId.value = id
         if (id !== null) selectedCompanyId.value = null
     }
