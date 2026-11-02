@@ -16,7 +16,7 @@ bpy.context.window.scene=scene
 PALETTE={
     'coat':0x76503b, 'muzzle':0x46382e, 'mane':0x25282b, 'steel':0x627886, 'edge':0xb1c3cb, 'iron':0x344550,
     'cloth':0x263747, 'faction':0x6f9be8, 'leather':0x514032,
-    'boot':0x292c30, 'gold':0xb29660, 'wood':0x58452f, 'dark':0x151e26,
+    'boot':0x292c30, 'gold':0xb29660, 'wood':0x58452f, 'dark':0x151e26, 'mail':0x7a858b,
 }
 def linear(v): return v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4
 materials={}
@@ -103,16 +103,16 @@ def plate(part,outline,center,material):
 
 body=Part('body',(0,0,0))
 # Horse barrel and haunches: longitudinal sections, with a tapered chest and croup.
-tube(body,[((0,9.55,-5.0),1.45,1.75),((0,10.0,-3.5),2.22,2.44),((0,10.0,.4),2.30,2.48),((0,10.1,3.8),1.80,2.32)],6,'coat',(True,True))
+tube(body,[((0,9.75,-5.0),1.5,2.05),((0,9.75,-3.5),2.26,2.82),((0,9.6,.4),2.32,2.92),((0,9.85,3.8),1.8,2.72)],6,'coat',(True,True))
 # Upright neck sweeps forward into a sloping forehead and a narrower muzzle.
-tube(body,[((0,10.4,3.35),1.35,1.75),((0,13.0,4.75),1.04,1.42),((0,15.15,5.35),.77,1.0)],6,'coat',(False,True))
-tube(body,[((0,15.3,5.55),.83,1.02),((0,14.85,6.65),.80,.86),((0,13.65,8.25),.66,.65)],6,['coat','coat'],(True,True),smooth=False)
-tube(body,[((0,13.90,7.9),.69,.69),((0,13.47,8.53),.64,.52)],6,'muzzle',(False,True))
+tube(body,[((0,10.4,3.35),1.12,1.95),((0,13.0,4.65),.8,1.32),((0,15.15,5.35),.6,.92)],6,'coat',(False,True))
+tube(body,[((0,15.3,5.55),.7,1.02),((0,14.85,6.65),.68,.86),((0,13.65,8.25),.54,.65)],6,['coat','coat'],(True,True),smooth=False)
+tube(body,[((0,13.90,7.9),.57,.69),((0,13.47,8.53),.52,.52)],6,'muzzle',(False,True))
 for sign in [-1,1]:
     v=[body.vertex(p) for p in [(sign*.40,15.75,5.30),(sign*.81,15.75,5.25),(sign*.63,15.85,5.92),(sign*.69,17.0,5.40)]]
     for f in [(0,2,1),(0,1,3),(1,2,3),(2,0,3)]:body.face([v[i] for i in f],'coat')
-    body.patch([(sign*.77,15.25,6.15),(sign*.77,15.16,6.61),(sign*.79,15.42,6.40)],'dark',(sign,0,0))
-    body.patch([(sign*.62,13.78,8.12),(sign*.62,13.55,8.42),(sign*.65,13.88,8.40)],'dark',(sign,0,0))
+    body.patch([(sign*.71,15.25,6.15),(sign*.7,15.16,6.61),(sign*.72,15.42,6.40)],'dark',(sign,0,0))
+    body.patch([(sign*.55,13.78,8.12),(sign*.53,13.55,8.42),(sign*.56,13.88,8.40)],'dark',(sign,0,0))
 # Low black mane along the rear neck, plus a tapered tail.
 for a,b in [((14.9,4.43),(13.2,3.62)),((13.2,3.62),(11.5,2.45))]:
     for sign in [-1,1]:
@@ -120,19 +120,17 @@ for a,b in [((14.9,4.43),(13.2,3.62)),((13.2,3.62),(11.5,2.45))]:
 tube(body,[((0,10.65,-4.90),.41,.44),((0,8.2,-6.05),.50,.47),((0,5.0,-6.55),.18,.22)],4,'mane',(False,True))
 # Split caparison panels leave the horse's anatomy and lower legs readable.
 for sign in [-1,1]:
-    panels=[[(sign*2.52,11.2,-3.5),(sign*2.56,11.2,.5),(sign*2.56,8.1,.5),(sign*2.52,7.6,-3.4)],[(sign*2.56,11.2,.5),(sign*2.40,11.2,2.75),(sign*2.43,8.0,2.5),(sign*2.56,8.1,.5)]]
-    for pts in panels:
-        body.patch(pts,'faction',(sign,0,0))
-        body.patch([(x-sign*.04,y,z) for x,y,z in pts],'cloth',(-sign,0,0))
-    body.patch([(sign*2.60,9.85,-2.6),(sign*2.60,10.5,-1.5),(sign*2.60,9.85,-.4),(sign*2.60,8.6,-1.5)],'edge',(sign,0,0))
+    columns=[[(2.12,11.95,-3.5),(2.62,9.75,-3.5),(2.42,7.5,-3.3)],[(2.14,12.0,.5),(2.68,9.75,.5),(2.48,7.1,.5)],[(2.0,11.95,2.75),(2.5,9.85,2.75),(2.3,7.5,2.5)]]
+    for a,b in zip(columns,columns[1:]):
+        for j in range(2):
+            body.patch([(sign*a[j][0],a[j][1],a[j][2]),(sign*b[j][0],b[j][1],b[j][2]),(sign*b[j+1][0],b[j+1][1],b[j+1][2]),(sign*a[j+1][0],a[j+1][1],a[j+1][2])],'faction',(sign,0,0))
+    body.patch([(sign*2.72,9.75,-2.6),(sign*2.62,10.5,-1.5),(sign*2.72,9.75,-.4),(sign*2.7,8.6,-1.5)],'edge',(sign,0,0))
 # Raised saddle, cantle and leather girth.
 body.box((0,12.36,-.55),(2.9,.48,3.1),'leather')
 body.box((0,12.86,-1.96),(2.85,.75,.37),'leather')
-for sign in [-1,1]:
-    body.patch([(sign*2.64,11.0,-.4),(sign*2.64,11.0,.05),(sign*2.64,7.9,.05),(sign*2.64,7.9,-.4)],'leather',(sign,0,0))
 # Rider sits astride the saddle, knees bent forward and boots below the hips.
 for sign in [-1,1]:
-    tube(body,[((sign*.95,13.1,-.55),.63,.66),((sign*2.65,11.8,1.05),.59,.62),((sign*2.65,9.80,.43),.38,.43)],5,['cloth','steel'])
+    tube(body,[((sign*.95,13.1,-.55),.63,.66),((sign*2.65,11.8,1.05),.59,.62),((sign*2.65,9.80,.43),.38,.43)],5,['mail','steel'])
     body.box((sign*2.66,9.35,.92),(.86,.65,1.55),'boot')
     # Stirrups and their leather hangers are narrow, double-sided strips.
     for mat,pts in [('leather',[(sign*2.86,12.25,-.50),(sign*2.86,12.25,-.28),(sign*2.99,9.1,.45),(sign*2.99,9.1,.23)]),('iron',[(sign*2.18,9.0,.48),(sign*3.08,9.0,.48),(sign*3.08,9.0,1.18),(sign*2.18,9.0,1.18)])]:
@@ -151,18 +149,18 @@ for sign in [-1,1]:
 # Small swept plume: a clear cavalry silhouette without a separate animation batch.
 tube(body,[((0,20.85,-.50),.23,.24),((0,21.65,-.95),.45,.55),((0,21.0,-2.0),.12,.25)],4,'faction',(False,True),smooth=False)
 # Left arm holds both reins above the withers.
-tube(body,[((-2.27,17.0,-.20),.52,.55),((-2.55,15.05,.55),.43,.46),((-1.05,14.95,2.10),.32,.35)],5,['cloth','steel'])
+tube(body,[((-2.27,17.0,-.20),.52,.55),((-2.55,15.05,.55),.43,.46),((-1.05,14.95,2.10),.32,.35)],5,['mail','steel'])
 body.box((-1.0,14.95,2.12),(.72,.65,.77),'leather')
 for sign in [-1,1]:
-    tube(body,[((-1.0,14.95,2.12),.04,.04),((sign*1.3,13.6,4.4),.04,.04),((sign*.75,13.95,8.12),.04,.04)],3,'leather',smooth=False)
-    body.patch([(sign*.83,15.0,6.40),(sign*.85,14.86,6.40),(sign*.73,13.82,8.20),(sign*.73,14.02,8.20)],'leather',(sign,0,0))
+    tube(body,[((-1.0,14.95,2.12),.04,.04),((sign*.62,13.95,8.12),.04,.04)],3,'leather',smooth=False)
+    body.patch([(sign*.72,15.0,6.40),(sign*.73,14.86,6.40),(sign*.6,13.82,8.20),(sign*.6,14.02,8.20)],'leather',(sign,0,0))
 objects=[body.finish()]
 # Each front/rear pair keeps the existing single pivot and stride animation.
 for role,z in [('mountFront',3.8),('mountBack',-3.9)]:
     legs=Part(role,(0,8.2,z))
     for sign in [-1,1]:
-        if role=='mountFront':rows=[((sign*1.3,1.7,-.25),.56,.65),((sign*1.4,-3.3,-.12),.34,.39),((sign*1.4,-6.6,.03),.25,.30)]
-        else:rows=[((sign*1.3,1.7,.25),.65,.75),((sign*1.4,-3.1,1.05),.43,.47),((sign*1.4,-5.35,-.40),.26,.32),((sign*1.4,-6.6,-.12),.24,.28)]
+        if role=='mountFront':rows=[((sign*1.3,1.0,-.6),.62,.7),((sign*1.4,-1.75,-.1),.46,.55),((sign*1.4,-3.65,.02),.33,.38),((sign*1.4,-6.6,.03),.22,.27)]
+        else:rows=[((sign*1.3,1.7,.25),.65,.75),((sign*1.4,-3.1,1.05),.46,.52),((sign*1.4,-5.35,-.40),.25,.32),((sign*1.4,-6.6,-.12),.22,.27)]
         tube(legs,rows,4,'coat',smooth=True)
         legs.rings([(-8.0,.44,.67,sign*1.4,.22),(-7.35,.47,.68,sign*1.4,.20),(-6.5,.27,.33,sign*1.4,0)],4,['boot','coat'],(True,False),smooth=False)
     objects.append(legs.finish())

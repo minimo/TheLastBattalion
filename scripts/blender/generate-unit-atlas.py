@@ -75,6 +75,9 @@ def surface(name):
     if name == 'hide':
         mottle, pores, folds = noise(1.9), noise(.45), noise(1.3, 3, 1)
         return 1 + mottle * .13 + np.abs(pores) * -.09 + folds * .05, mottle * .05 + pores * .03
+    if name == 'coat':
+        # Short, glossy hair: faint strands over broad muscle shading.
+        return 1 + noise(.7, 1, 10) * .04 + noise(2.2) * .07, noise(1.5) * .05
     raise KeyError(name)
 
 albedo = np.full((ATLAS_SIZE, ATLAS_SIZE), ATLAS_MEAN)

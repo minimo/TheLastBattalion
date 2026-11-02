@@ -103,7 +103,7 @@ def plate(part,outline,center,material):
 
 # Lower coat and belt remain on the hips; the aiming assembly bends above them.
 body=Part('body',(0,0,0))
-body.rings([(8.35,1.40,.87,0,0),(9.25,1.12,.70,0,0)],8,'cloth')
+body.rings([(8.35,1.40,.87,0,0),(9.25,1.0,.45,0,0)],8,'cloth')
 body.rings([(7.45,1.9,1.04,0,0),(8.70,1.56,.94,0,0)],8,'cloth',smooth=False)
 body.rings([(8.38,1.66,1.02,0,0),(8.73,1.66,1.02,0,0)],8,'leather',smooth=False)
 body.patch([(-.22,8.39,1.04),(.22,8.39,1.04),(.22,8.73,1.04),(-.22,8.73,1.04)],'gold')
@@ -134,6 +134,9 @@ weapon.rings([(13.35,1.17,.96,0,-.12),(15.38,1.21,1.10,0,-.18),(16.36,.28,.40,0,
 remove={first+j*8+i for j in range(2) for i in [0,6,7]}
 for attribute in ['faces','materials','smooth']:
     values=getattr(weapon,attribute);setattr(weapon,attribute,[value for i,value in enumerate(values) if i not in remove])
+# Hood lining closes the gap beside the face; back faces are not drawn, so the hood's inside would show the background.
+for sign in [-1,1]:
+    weapon.patch([(sign*1.08,13.35,.25),(sign*1.12,15.38,.24),(sign*.76,15.3,.55),(sign*.78,13.5,.55)],'cloth')
 # Folded brow projects past the face, giving the hood depth and a sharper silhouette.
 for sign in [-1,1]:
     weapon.patch([(sign*1.10,15.38,.65),(sign*.87,15.22,1.02),(0,15.68,1.12),(0,16.18,.12)],'faction')
@@ -156,32 +159,32 @@ for dx in [-.23,.23]:
         weapon.patch([tuple(p0),tuple(p1),tuple(p1+Vector((side*.20,0,0))),tuple(p0+Vector((side*.15,0,0)))],'feather',(0,0,1))
         weapon.patch([tuple(p0+Vector((0,0,.01))),tuple(p1+Vector((0,0,.01))),tuple(p1+Vector((side*.20,0,.01))),tuple(p0+Vector((side*.15,0,.01)))],'feather',(0,0,-1))
 # Left arm pushes the bow away; right elbow stays out and the draw fingers anchor at the cheek.
-bow_hand=Vector((.35,14.10,5.30));draw_hand=Vector((.35,14.10,.85))
-tube(weapon,[((-1.67,12.30,.05),.55,.58),((-.90,13.25,2.55),.44,.47),(tuple(bow_hand-Vector((0,0,.42))),.32,.35)],5,['cloth','leather'])
-tube(weapon,[((1.65,12.30,-.05),.54,.57),((3.25,14.02,-.90),.43,.45),((.72,14.10,.61),.30,.32)],5,['cloth','leather'])
+bow_hand=Vector((1.0,14.10,5.30));draw_hand=Vector((1.0,14.10,.42))
+tube(weapon,[((-1.55,12.35,.45),.55,.58),((-.45,13.35,2.85),.44,.47),(tuple(bow_hand-Vector((0,0,.42))),.32,.35)],5,['cloth','leather'])
+# Upper arm and forearm are separate tubes, so the sharp elbow does not pinch into a spike.
+tube(weapon,[((1.6,12.35,-.4),.54,.57),((2.85,13.95,-1.75),.42,.44)],5,'cloth',(False,True))
+tube(weapon,[((2.95,14.1,-1.85),.42,.42),((1.25,14.1,.12),.29,.31)],5,'leather')
 tube(weapon,[(tuple(bow_hand-Vector((0,.35,0))),.37,.40),(tuple(bow_hand+Vector((0,.32,0))),.35,.37)],4,'leather',(True,True),smooth=False)
-tube(weapon,[((.75,14.10,.60),.28,.32),(tuple(draw_hand),.25,.29)],4,'leather',(True,True),smooth=False)
+tube(weapon,[((1.2,14.10,.05),.3,.33),(tuple(draw_hand),.27,.31)],4,'leather',(True,True),smooth=False)
 # Recurved war bow. Its grip, string apex and arrow all share the same aiming plane.
 bow_path=[(-5.20,3.70),(-3.70,4.00),(-1.75,5.02),(0,5.30),(1.75,5.02),(3.70,4.00),(5.20,3.70)]
-rows=[((.35,14.10+y,z),.14 if y else .22,.20 if y else .25) for y,z in bow_path]
+rows=[((1.0,14.10+y,z),.14 if y else .22,.20 if y else .25) for y,z in bow_path]
 tube(weapon,rows,4,'wood',(True,True),smooth=False)
 for sign in [-1,1]:
-    tip=(.35,14.10+sign*5.20,3.70)
+    tip=(1.0,14.10+sign*5.20,3.70)
     tube(weapon,[(tip,.026,.026),(tuple(draw_hand),.026,.026)],3,'shaft',smooth=False)
-# Leather wrap around the bow grip remains enclosed by the supporting hand.
-tube(weapon,[((.35,13.64,5.30),.23,.26),((.35,14.55,5.30),.23,.26)],4,'boot',smooth=False)
 weapon.vertices=[(x,y-8.5,z) for x,y,z in weapon.vertices]
 objects.append(weapon.finish())
 
 # Nocked arrow is its own batch so only the arrow disappears after release.
 nock=Part('nock',(0,8.5,0))
-tube(nock,[((.35,14.18,.85),.047,.047),((.35,14.18,6.10),.047,.047)],4,'shaft',smooth=False)
-base=[nock.vertex((.35+x,14.18+y,6.10)) for x,y in [(-.14,0),(0,.10),(.14,0),(0,-.10)]]
-tip=nock.vertex((.35,14.18,6.55))
+tube(nock,[((1.0,14.18,.42),.047,.047),((1.0,14.18,6.10),.047,.047)],4,'shaft',smooth=False)
+base=[nock.vertex((1.0+x,14.18+y,6.10)) for x,y in [(-.14,0),(0,.10),(.14,0),(0,-.10)]]
+tip=nock.vertex((1.0,14.18,6.55))
 for i in range(4):nock.face([base[i],base[(i+1)%4],tip],'edge',normal=(0,0,1))
 for sign in [-1,1]:
-    nock.patch([(.35,14.18,1.05),(.35,14.18,1.55),(.35+sign*.23,14.18,1.55),(.35+sign*.15,14.18,1.05)],'feather',(0,1,0))
-    nock.patch([(.35,14.17,1.05),(.35,14.17,1.55),(.35+sign*.23,14.17,1.55),(.35+sign*.15,14.17,1.05)],'feather',(0,-1,0))
+    nock.patch([(1.0,14.18,.65),(1.0,14.18,1.15),(1.0+sign*.23,14.18,1.15),(1.0+sign*.15,14.18,.65)],'feather',(0,1,0))
+    nock.patch([(1.0,14.17,.65),(1.0,14.17,1.15),(1.0+sign*.23,14.17,1.15),(1.0+sign*.15,14.17,.65)],'feather',(0,-1,0))
 nock.vertices=[(x,y-8.5,z) for x,y,z in nock.vertices]
 objects.append(nock.finish())
 root['triangles']=sum(len(o.data.loop_triangles) for o in objects)

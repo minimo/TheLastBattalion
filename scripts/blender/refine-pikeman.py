@@ -16,7 +16,7 @@ bpy.context.window.scene=scene
 PALETTE={
     'steel':0x627886, 'edge':0xb1c3cb, 'iron':0x344550,
     'cloth':0x263747, 'faction':0x6f9be8, 'leather':0x514032,
-    'boot':0x292c30, 'gold':0xb29660, 'wood':0x58452f, 'dark':0x151e26,
+    'boot':0x292c30, 'gold':0xb29660, 'wood':0x58452f, 'dark':0x151e26, 'mail':0x7a858b,
 }
 def linear(v): return v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4
 materials={}
@@ -133,7 +133,7 @@ for sign in [-1,1]:
     body.rings([(11.40,.90,1.14,sign*2.23,.03),(12.23,1.16,1.31,sign*2.13,-.04),(13.05,.54,.72,sign*1.95,-.10)],8,['iron','steel'],(False,True),smooth=False)
     body.patch([(sign*1.65,11.70,1.0),(sign*2.83,11.7,.85),(sign*2.91,11.38,.85),(sign*1.65,11.38,1.0)],'edge')
 # Left forearm reaches the horizontal handle inside the tall shield.
-tube(body,[((-2.55,11.95,.05),.60,.62),((-2.90,10.0,.42),.51,.54),((-2.35,10.20,1.72),.40,.44)],5,['cloth','steel'])
+tube(body,[((-2.55,11.95,.05),.60,.62),((-2.90,10.0,.42),.51,.54),((-2.35,10.20,1.72),.40,.44)],5,['mail','steel'])
 tube(body,[((-2.40,10.18,1.55),.42,.45),((-2.22,10.23,1.98),.43,.45)],4,'leather',(True,True),smooth=False)
 # Chamfered tower shield with a central ridge. Thickness and rear face are real geometry.
 outline=[(-1.38,3.05),(1.38,3.05),(1.80,2.57),(1.64,-2.67),(.98,-3.20),(-.98,-3.20),(-1.64,-2.67),(-1.80,2.57)]
@@ -159,13 +159,13 @@ objects=[body.finish()]
 for role,sign in [('legL',-1),('legR',1)]:
     leg=Part(role,(sign*1.12,7.8,0))
     advance=.42 if sign<0 else -.30
-    leg.rings([(-6.5,.39,.48,sign*.16,advance),(-5.0,.56,.63,sign*.13,advance),(-3.45,.55,.60,sign*.08,.28),(-1.75,.71,.76,0,.08),(0,.63,.65,0,0)],6,['steel','steel','cloth','cloth'])
+    leg.rings([(-6.5,.39,.48,sign*.16,advance),(-5.0,.56,.63,sign*.13,advance),(-3.45,.55,.60,sign*.08,.28),(-1.75,.71,.76,0,.08),(0,.63,.65,0,0)],6,['steel','steel','mail','mail'])
     plate(leg,[(-.44,-3.12,.80),(.44,-3.12,.80),(.51,-3.55,.81),(.28,-3.94,.80),(-.28,-3.94,.80),(-.51,-3.55,.81)],(0,-3.5,1.0),'iron')
     leg.rings([(-7.58,.58,1.04,sign*.17,.40+advance),(-7.03,.63,1.12,sign*.17,.40+advance),(-6.25,.42,.52,sign*.15,advance)],6,'boot',(True,True),smooth=False)
     objects.append(leg.finish())
 weapon=Part('weapon',(2.6,12,0))
 # Lowered elbow, forearm extended forward. The sleeve overlaps the fixed shoulder armour.
-tube(weapon,[((0,-.12,-.65),.57,.59),((.55,-2.20,-.35),.49,.53),((.30,-2.40,1.65),.37,.41)],6,['cloth','steel'])
+tube(weapon,[((0,-.12,-.65),.57,.59),((.55,-2.20,-.35),.49,.53),((.30,-2.40,1.65),.37,.41)],6,['mail','steel'])
 # Every grip section is centred on the horizontal shaft, including the closed gauntlet.
 tube(weapon,[((.30,-2.40,1.68),.43,.47),((.30,-2.40,2.58),.44,.47)],6,'iron',(True,True),smooth=False)
 weapon.patch([(-.04,-1.94,1.92),(.32,-1.91,1.93),(.60,-2.11,2.22),(.25,-2.0,2.29)],'edge',(0,1,0))

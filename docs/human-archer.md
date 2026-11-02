@@ -7,13 +7,15 @@
 | 腰・ベルト・裾 | 66 |
 | 左脚 | 68 |
 | 右脚 | 68 |
-| 上半身・頭・両腕・弓・矢筒 | 317 |
+| 上半身・頭・両腕・弓・矢筒 | 316 |
 | つがえた矢 | 20 |
-| 合計 | 539 |
+| 合計 | 538 |
 
-旧モデルの624三角形から85三角形（約13.6%）削減。描画頂点は863。5部位のインスタンス描画、縮尺0.43、共有マテリアル、距離による影の切り替えを維持し、テクスチャやマテリアルは追加していない。色は線形色空間の頂点カラーで、フードと裾には陣営色の係数0.65を適用する。大量配置時の実測性能は未確認。
+旧モデルの624三角形から86三角形（約13.8%）削減。描画頂点は882。5部位のインスタンス描画、縮尺0.43、共有マテリアル、距離による影の切り替えを維持し、質感は共通テクスチャ（unit-textures.md）を使う。色は線形色空間の頂点カラーで、フードと裾には陣営色の係数0.65を適用する。大量配置時の実測性能は未確認。
 
 ## 照準とアニメーション
+
+弓と矢は顔の正面ではなく右頬の横（X=1.0）に通し、引き手の前腕が顔の前を横切らないようにしている。
 
 `weapon` に上半身全体と両腕・弓をまとめ、`nock` と共通の腰ピボット `[0, 8.5, 0]` を使う。頭、握り、弦、矢が一緒に傾くため、照準を変えても手と弓が離れない。脚のピボットは従来どおり `[±1.12, 7.8, 0]`。
 
@@ -22,11 +24,8 @@
 ## 編集用ファイル
 
 - `assets/blender/human-archer.blend`：`TLB Archer Study` シーンにモデル・照明・カメラを保存。既存の歩兵シーンも保持。
-- `assets/blender/human-archer-preview.png`：水平に構えた全身プレビュー。
-- `assets/blender/human-archer-aim.png`：最大仰角のプレビュー。
 - `app/render/three/assets/humanArcher.json`：ゲーム用の位置・法線・色パレット・インデックス。
 - `app/render/three/unitAsset.ts`：全兵種共通の読み込み処理。
-- `scripts/blender/export-archer.py`：編集後のメッシュを再書き出しするスクリプト。
 - `scripts/blender/refine-archer.py`：モデルの生成スクリプト。**生成シーン内の編集を置き換えるので、通常の再書き出しには使わない。**
 
 ## 編集後の再書き出し
@@ -35,11 +34,8 @@
 
 保存後、BlenderのPython Consoleで実行する。
 
-```python
-from pathlib import Path
-import bpy
-p = Path(bpy.data.filepath).resolve().parents[2] / 'scripts/blender/export-archer.py'
-exec(compile(p.read_text(), str(p), 'exec'), {'__file__': str(p)})
+```sh
+Blender assets/blender/human-archer.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Archer Study' --output humanArcher --max-triangles 539
 ```
 
 書き出し時に5部位・ピボット・縮尺・624三角形以下・有限の頂点値・縮退していない三角形を確認する。照明とカメラはゲーム用データに含めない。

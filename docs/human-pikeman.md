@@ -10,7 +10,7 @@
 | 右腕・槍 | 132 | 120 |
 | 合計 | 684 | 654 |
 
-30三角形（約4.4%）削減。描画頂点は1,126。4部位のインスタンス描画、縮尺0.44、共有マテリアル、影・可視判定の仕組みを維持する。追加テクスチャは使用しない。頂点カラーは線形色空間で書き出し、盾と裾の陣営色には係数0.65を適用する。大量配置時の性能は未測定。
+30三角形（約4.4%）削減。描画頂点は1,093。4部位のインスタンス描画、縮尺0.44、共有マテリアル、影・可視判定の仕組みを維持する。追加テクスチャは使用しない。頂点カラーは線形色空間で書き出し、盾と裾の陣営色には係数0.65を適用する。大量配置時の性能は未測定。
 
 ## 動作
 
@@ -19,24 +19,18 @@
 ## ファイル
 
 - `assets/blender/human-pikeman.blend`：`TLB Pikeman Study` シーンに編集用モデル・照明・カメラを保存。既存シーンも保持。
-- `assets/blender/human-pikeman-preview.png`：全身と長槍のプレビュー。
-- `assets/blender/human-pikeman-grip.png`：最大の突き出し量・回転角を付けた右腕と握りの詳細。
 - `app/render/three/assets/humanPikeman.json`：ゲーム用の位置・法線・パレット番号・インデックス。
 - `app/render/three/unitAsset.ts`：全兵種共通の読み込み処理。
-- `scripts/blender/export-pikeman.py`：編集したモデルの再書き出し。
 - `scripts/blender/refine-pikeman.py`：モデル生成スクリプト。**生成シーン内の編集を置き換えるので、通常の再書き出しには使わない。**
 
 ## 編集後の反映
 
 `Pikeman Refined` の子である4部位を編集する。`tlb_role`・`game_pivot` を維持し、右腕の位置・回転を中立姿勢へ戻して保存する。書き出し時にBlenderのZ上方向からゲームのY上方向へ変換する。
 
-保存後、BlenderのPython Consoleで次を実行する。
+保存後、Blenderの次を実行する。
 
-```python
-from pathlib import Path
-import bpy
-p = Path(bpy.data.filepath).resolve().parents[2] / 'scripts/blender/export-pikeman.py'
-exec(compile(p.read_text(), str(p), 'exec'), {'__file__': str(p)})
+```sh
+Blender assets/blender/human-pikeman.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Pikeman Study' --output humanPikeman --max-triangles 654
 ```
 
 書き出し処理は4部位・ピボット・縮尺・684三角形以下・有限の頂点値・縮退していない三角形を確認してから保存する。照明とカメラは書き出さない。

@@ -4,13 +4,13 @@
 
 | 部位 | 旧モデルの三角形数 | リファイン後 |
 |---|---:|---:|
-| 馬の胴体・騎手・馬具 | 480 | 514 |
-| 前脚2本 | 96 | 68 |
+| 馬の胴体・騎手・馬具 | 480 | 498 |
+| 前脚2本 | 96 | 84 |
 | 後脚2本 | 96 | 84 |
 | 右腕・騎槍 | 72 | 78 |
 | 合計 | 744 | 744 |
 
-三角形数を増やさず、胴体と装備へ配分し直した。描画頂点は1,174。4部位のインスタンス描画、縮尺0.44、共有マテリアル、影・可視判定を維持する。テクスチャや専用シェーダーは追加していない。色は線形色空間の頂点カラーで、馬衣・羽飾り・小旗には陣営色の係数0.65を適用する。大量配置時の性能は未測定。
+三角形数を増やさず、胴体と装備へ配分し直した。描画頂点は1,306。4部位のインスタンス描画、縮尺0.44、共有マテリアル、影・可視判定を維持する。質感は共通テクスチャ（unit-textures.md）を使う色は線形色空間の頂点カラーで、馬衣・羽飾り・小旗には陣営色の係数0.65を適用する。大量配置時の性能は未測定。
 
 ## 可動部
 
@@ -25,25 +25,19 @@
 
 ## ファイル
 
-- `assets/blender/human-cavalry.blend`：`TLB Cavalry Study` シーンの編集用モデル・照明・カメラ。以前の兵種のシーンも保持。
-- `assets/blender/human-cavalry-preview.png`：全身プレビュー。
-- `assets/blender/human-cavalry-motion.png`：脚・胴体の上下動・騎槍を動かした姿勢。
+- `assets/blender/human-cavalry-textured.blend`：`TLB Cavalry Study` シーンの編集用モデル・照明・カメラ。胴を深くし、首と頭を左右に薄くし、前脚に膝を付け、馬衣を胴に沿わせた版。`human-cavalry.blend` は修正前の版。
 - `app/render/three/assets/humanCavalry.json`：ゲーム用の位置・法線・パレット番号・インデックス。
 - `app/render/three/unitAsset.ts`：全兵種共通の読み込み処理。
-- `scripts/blender/export-cavalry.py`：編集したモデルを再書き出し。
 - `scripts/blender/refine-cavalry.py`：モデル生成スクリプト。**生成シーン内の編集を置き換えるので、通常の再書き出しには使わない。**
 
 ## 編集後の反映
 
 `Cavalry Refined` の子である4部位を編集し、`tlb_role`・`game_pivot` を維持する。回転と位置を中立姿勢に戻して保存する。BlenderのZ上方向からゲームのY上方向へ、書き出し時に変換する。
 
-保存後、BlenderのPython Consoleで次を実行する。
+保存後、Blenderの次を実行する。
 
-```python
-from pathlib import Path
-import bpy
-p = Path(bpy.data.filepath).resolve().parents[2] / 'scripts/blender/export-cavalry.py'
-exec(compile(p.read_text(), str(p), 'exec'), {'__file__': str(p)})
+```sh
+Blender assets/blender/human-cavalry-textured.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Cavalry Study' --output humanCavalry --max-triangles 744
 ```
 
 書き出し処理は4部位・ピボット・縮尺・744三角形以下・有限の頂点値・縮退していない三角形を確認して保存する。照明とカメラはゲーム用データに含めない。

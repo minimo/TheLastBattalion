@@ -13,8 +13,7 @@ UVを持たないモデルは白いセルを参照し、頂点カラーだけで
 
 | モデル | 状態 |
 |---|---|
-| 人間の歩兵、オーク歩兵 | 移行済み（試作） |
-| 人間の槍兵・弓兵・騎兵 | 形状はBlender製、テクスチャは未適用 |
+| 人間の歩兵・槍兵・弓兵・騎兵、オーク歩兵 | 移行済み |
 | その他・幟・矢 | `unitModels.ts` のプリミティブのまま |
 
 ## ファイル
@@ -25,7 +24,7 @@ UVを持たないモデルは白いセルを参照し、頂点カラーだけで
 - `scripts/blender/unit_kit.py`：モデル生成の共通部品。
 - `scripts/blender/refine-orc-infantry.py`：オーク歩兵の生成。開いているファイルは保存しない。
 - `app/render/three/unitAsset.ts`：書き出したJSONの読み込み。`app/render/three/unitMaterial.ts`：共有マテリアル。
-- `assets/blender/unit-pilot-close.png`、`unit-pilot-squads.png`：ゲームと同じライトと描画コードで撮った確認画像（地面は単色で、実際の地形ではない）。
+- `assets/blender/unit-pilot-close.png`、`unit-pilot-squads.png`、`unit-humans.png`：ゲームと同じライトと描画コードで撮った確認画像（地面は単色で、実際の地形ではない）。
 
 ## 反映の手順
 
@@ -40,6 +39,9 @@ Blender --background --python scripts/blender/generate-unit-atlas.py
 ```sh
 Blender assets/blender/orc-infantry.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Orc Infantry Study' --output orcInfantry --max-triangles 624
 Blender assets/blender/human-infantry.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Infantry Study' --output humanInfantry --max-triangles 608
+Blender assets/blender/human-pikeman.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Pikeman Study' --output humanPikeman --max-triangles 654
+Blender assets/blender/human-archer.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Archer Study' --output humanArcher --max-triangles 539
+Blender assets/blender/human-cavalry-textured.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Cavalry Study' --output humanCavalry --max-triangles 744
 ```
 
 起動中のBlenderからは、`EXPORT_ARGV` に同じ引数のリストを渡して `export-unit.py` を `exec` する。
