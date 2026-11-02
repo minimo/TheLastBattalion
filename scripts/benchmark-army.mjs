@@ -11,8 +11,8 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const modules = new Map()
 function load(file, source = fs.readFileSync(file, 'utf8')) {
     if (modules.has(file)) return modules.get(file)
-    const code = stripTypeScriptTypes(source, { mode: 'transform' }).replace(/from ['"]([^'"]+)['"]/g, (_, name) => {
-        const url = name.startsWith('.') ? load(path.resolve(path.dirname(file), name + '.ts')) : import.meta.resolve(name)
+    const code = file.endsWith('.json') ? `export default ${source}` : stripTypeScriptTypes(source, { mode: 'transform' }).replace(/from ['"]([^'"]+)['"]/g, (_, name) => {
+        const url = name.startsWith('.') ? load(path.resolve(path.dirname(file), path.extname(name) ? name : name + '.ts')) : import.meta.resolve(name)
         return `from '${url}'`
     })
     const url = 'data:text/javascript;base64,' + Buffer.from(code).toString('base64')

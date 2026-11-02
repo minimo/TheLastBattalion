@@ -146,10 +146,17 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 }
                 const phase = time * (s.type === 'cavalry' ? 13 : 10) + s.elapsedTime * 3
                 const step = s.moving && !dead ? Math.sin(phase) : 0
-                const stride = step * (s.type === 'cavalry' ? .7 : .6)
-                const bob = Math.abs(step) * (s.type === 'cavalry' ? 1 : .6)
+                // The horse's shaped legs need a smaller swing than the monster mount's
+                // straight legs, keeping the paired hooves apart and hips under the barrel.
+                const stride = step * (s.type === 'cavalry' ? (s.owner === 'player' ? .45 : .7) : .6)
+                const bob = Math.abs(step) * (s.type === 'cavalry' && s.owner === 'cpu' ? 1 : .6)
                 const aiming = s.type === 'archer' && !dead && (s.swing > 0 || s.state === 'fight' && !s.moving && s.aim > 0)
-                const bowPitch = aiming ? -(1.45 + s.aim) : -.1
+                // Human archers are authored with the bow already drawn. Tilt the whole
+                // upper body at the waist, keeping both hands, string and arrow together.
+                // Limit the visual lean; projectile trajectories still use the full aim.
+                const bowPitch = s.owner === 'player'
+                    ? (aiming ? -Math.min(.55, Math.max(0, s.aim)) : .08)
+                    : (aiming ? -(1.45 + s.aim) : -.1)
                 const swing = s.swing > 0 ? Math.sin((1 - s.swing / .45) * Math.PI) : 0
                 for (let partIndex = 0; partIndex < batch.parts.length; partIndex++) {
                     const p = batch.parts[partIndex]!
@@ -164,7 +171,9 @@ export function createArmyRenderer(scene: THREE.Scene) {
                         else if (s.type === 'pikeman') rx = -swing * .12
                         else rx = -.15 - swing * 1.6
                     }
-                    const thrust = p.role === 'weapon' && s.type === 'pikeman' ? swing * 2.4 : 0
+                    // Keep the refined human sleeve inside its fixed shoulder armour during a thrust.
+                    const thrust = p.role === 'weapon' && s.type === 'pikeman'
+                        ? swing * (s.owner === 'player' ? 1.2 : 2.4) : 0
                     const state = partIndex * 4
                     if (baseChanged || pose.local[state] !== rx || pose.local[state + 1] !== dy
                         || pose.local[state + 2] !== thrust || pose.local[state + 3] !== Number(hide)) {

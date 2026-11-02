@@ -2,6 +2,10 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Army, UnitType } from '../../types/game'
 import { FACTION } from './models'
+import { createHumanInfantryModel as humanInfantry } from './humanInfantry'
+import { createHumanArcherModel as humanArcher } from './humanArcher'
+import { createHumanPikemanModel as humanPikeman } from './humanPikeman'
+import { createHumanCavalryModel as humanCavalry } from './humanCavalry'
 
 /**
  * 数千体を描くため、兵士は部位ごとの結合ジオメトリ（頂点カラー）をInstancedMeshで描画する。
@@ -88,32 +92,6 @@ function humanHead(add: Parameters<Parameters<typeof assemble>[0]>[0], helmet: n
     }
 }
 
-function humanInfantry(faction: number): UnitModel {
-    const body = part('body', [0, 0, 0], assemble(add => {
-        add(SPHERE, STEEL, [0, 10.5, 0], [2.35, 3, 1.4])
-        add(BOX, faction, [0, 9.4, 1.18], [3.1, 4.6, .35])
-        add(BOX, faction, [0, 9.2, -1.2], [3.1, 4.4, .3])
-        add(BOX, LEATHER, [0, 8.1, 0], [4.3, .65, 2.7])
-        humanHead(add, STEEL, null)
-        for (const side of [-1, 1]) add(SPHERE, STEEL, [side * 2.1, 12.3, 0], [1.15, .75, 1.45])
-        add(CYLINDER, STEEL, [-2.9, 10.1, .3], [.6, 3, .6])
-        // 凧型の盾（所属色）
-        add(SPHERE, IRON, [-3.3, 8.6, 1.4], [2, 2.9, .4])
-        add(SPHERE, faction, [-3.3, 8.6, 1.62], [1.75, 2.6, .25])
-        add(BOX, 0xd8c27a, [-3.3, 8.8, 1.86], [.8, .8, .3])
-    }))
-    const weapon = part('weapon', [2.65, 12, 0], assemble(add => {
-        add(CYLINDER, STEEL, [.25, -1.4, 0], [.55, 2.6, .55])
-        add(CYLINDER, STEEL, [.4, -3.7, 1], [.5, 2.1, .5], [-.55, 0, 0])
-        add(SPHERE, SKIN, [.4, -4.4, 1.6], [.55, .6, .55])
-        add(BOX, LEATHER, [.4, -3.7, 2], [.45, 2, .45])
-        add(BOX, 0xbfa463, [.4, -2.5, 2], [2.6, .35, .55])
-        add(BOX, 0xd9e1e5, [.4, 1.5, 2], [.85, 7.5, .22])
-        add(CONE, 0xd9e1e5, [.4, 5.7, 2], [.43, 1.2, .12])
-    }))
-    return { parts: [body, ...humanLegs(0x4d4038, STEEL), weapon], scale: .44 }
-}
-
 type Add = Parameters<Parameters<typeof assemble>[0]>[0]
 
 /** 前へ構えた長槍（腕の付け根からのローカル座標、+Z が前）。握る腕と、柄・穂先・房。 */
@@ -124,27 +102,6 @@ function pike(add: Add, arm: number, hand: number, shaft: number, head: number, 
     add(CYLINDER, shaft, [0, -3.5, 5], [.26, 24, .26], [Math.PI / 2, 0, 0])
     add(CONE, head, [0, -3.5, 18], [.5, 2.4, .5], [Math.PI / 2, 0, 0])
     add(BOX, tassel, [0, -3.5, 16.4], [.7, .7, .5])
-}
-
-/** 人間軍の槍兵: 重い鎧と大盾、前へ構えた長槍。 */
-function humanPikeman(faction: number): UnitModel {
-    const body = part('body', [0, 0, 0], assemble(add => {
-        add(SPHERE, STEEL, [0, 10.5, 0], [2.4, 3, 1.45])
-        add(BOX, faction, [0, 9.2, 1.2], [3.2, 4.8, .35])
-        add(BOX, LEATHER, [0, 8.1, 0], [4.4, .65, 2.8])
-        humanHead(add, STEEL, null)
-        // 頬当てと兜の飾り
-        for (const side of [-1, 1]) add(BOX, STEEL, [side * 1.2, 14.9, .6], [.25, 1.6, 1.2])
-        add(BOX, faction, [0, 17.3, -.2], [.3, .8, 2.2])
-        for (const side of [-1, 1]) add(SPHERE, STEEL, [side * 2.15, 12.3, 0], [1.25, .8, 1.5])
-        add(CYLINDER, STEEL, [-2.9, 10.1, .5], [.6, 3, .6])
-        // 体を隠す長方形の大盾（所属色）
-        add(BOX, IRON, [-2.9, 8.8, 2], [3.6, 6.4, .45])
-        add(BOX, faction, [-2.9, 8.8, 2.25], [3.1, 5.9, .12])
-        add(BOX, 0xd8c27a, [-2.9, 8.8, 2.35], [.5, 5.9, .1])
-    }))
-    const weapon = part('weapon', [2.6, 12, 0], assemble(add => pike(add, STEEL, SKIN, WOOD, 0xd9e1e5, faction)))
-    return { parts: [body, ...humanLegs(0x4d4038, STEEL), weapon], scale: .44 }
 }
 
 /** 引き絞った弓（握りは手の位置）。弦は弓の両端から引き手（肩の前）へV字に張る。 */
@@ -170,40 +127,6 @@ function nockedArrow(shaft: number, head: number, fletch: number, x: number, han
     })
 }
 
-function humanArcher(faction: number): UnitModel {
-    const body = part('body', [0, 0, 0], assemble(add => {
-        add(SPHERE, 0x80603f, [0, 10.4, 0], [2.15, 2.9, 1.3])
-        add(BOX, faction, [0, 9.4, 1.08], [2.8, 3.6, .3])
-        add(BOX, LEATHER, [0, 8.1, 0], [4, .6, 2.5])
-        humanHead(add, null, faction)
-        add(BOX, faction, [0, 10.5, -1.35], [3.2, 5.5, .25], [.12, 0, 0])
-        // 矢筒
-        add(CYLINDER, LEATHER, [1, 11.6, -1.7], [.65, 4.2, .65], [.25, 0, -.35])
-        for (const dx of [-.2, .2]) add(BOX, 0xe8e2d0, [1.6 + dx, 14, -2.2], [.14, 1.4, .14], [.25, 0, -.35])
-        add(CYLINDER, 0x80603f, [2.7, 10.4, .2], [.55, 3, .55], [0, 0, .15])
-    }))
-    // 左腕と弓。射撃時に腕を前へ上げ、遠い相手ほど上に向ける。
-    const weapon = part('weapon', [-2.5, 12, 0], assemble(add => {
-        add(CYLINDER, 0x80603f, [-.1, -1.6, 0], [.55, 3.2, .55])
-        add(SPHERE, SKIN, [-.1, -3.4, 0], [.55, .6, .55])
-        bow(add, WOOD, 0xe8e2d0, -.1, -3.4, 3.4)
-    }))
-    const nock = part('nock', [-2.5, 12, 0], nockedArrow(0xd8c39a, 0x9aa3a8, 0xf2f0ea, -.1, -3.4, 3.4))
-    return { parts: [body, ...humanLegs(0x5b5037, LEATHER), weapon, nock], scale: .43 }
-}
-
-function horse(add: Parameters<Parameters<typeof assemble>[0]>[0], coat: number, caparison: number) {
-    add(SPHERE, coat, [0, 10, 0], [2.6, 2.7, 5.6])
-    add(CYLINDER, coat, [0, 13.2, 4.8], [1.15, 4.6, 1.45], [.65, 0, 0])
-    add(BOX, coat, [0, 15.4, 7.1], [1.25, 1.5, 3.3], [.35, 0, 0])
-    for (const x of [-.45, .45]) add(CONE, coat, [x, 16.6, 6], [.25, .9, .25])
-    add(BOX, DARK, [0, 14, 4.2], [.4, 4.2, 1.2], [.65, 0, 0])
-    add(CYLINDER, DARK, [0, 9.6, -6.1], [.4, 4.6, .4], [-.55, 0, 0])
-    // 馬鎧の布（所属色）と鞍
-    add(BOX, caparison, [0, 9.2, 0], [5.6, 3.4, 9.2])
-    add(BOX, LEATHER, [0, 12.75, -.4], [2.6, .6, 2.8])
-}
-
 function mountLegs(coat: number, hoof: number, height: number, spread: number) {
     return assemble(add => {
         for (const x of [-spread, spread]) {
@@ -211,39 +134,6 @@ function mountLegs(coat: number, hoof: number, height: number, spread: number) {
             add(CYLINDER, hoof, [x, -height + .3, .1], [.62, .6, .7])
         }
     })
-}
-
-function rider(add: Parameters<Parameters<typeof assemble>[0]>[0], torso: number, faction: number, helmet: number) {
-    add(SPHERE, torso, [0, 15.6, 0], [2.2, 2.8, 1.35])
-    add(BOX, faction, [0, 14.6, 1.1], [2.9, 3.6, .3])
-    for (const side of [-1, 1]) {
-        add(CYLINDER, 0x4d4038, [side * 2.4, 12.8, .9], [.7, 3.4, .75], [1.1, 0, side * .25])
-        add(BOX, DARK, [side * 2.9, 10.6, 2.1], [1, 2.4, 1.4])
-        add(SPHERE, torso, [side * 2, 17.4, 0], [1.05, .7, 1.3])
-    }
-    add(CYLINDER, SKIN, [0, 18.6, 0], [.55, 1.2, .55])
-    add(SPHERE, SKIN, [0, 20, .12], [1.25, 1.6, 1.2])
-    add(SPHERE, helmet, [0, 20.9, -.1], [1.42, 1.1, 1.36])
-    add(CONE, faction, [0, 22.5, -.1], [.3, 1.4, .3])
-    add(CYLINDER, torso, [-2.6, 15.6, .6], [.55, 3, .55], [.5, 0, 0])
-}
-
-function humanCavalry(faction: number): UnitModel {
-    const body = part('body', [0, 0, 0], assemble(add => {
-        horse(add, 0x6b4a32, faction)
-        rider(add, STEEL, faction, STEEL)
-    }))
-    const weapon = part('weapon', [2.5, 17.2, 0], assemble(add => {
-        add(CYLINDER, STEEL, [0, -1.3, .6], [.55, 2.6, .55], [.5, 0, 0])
-        add(CYLINDER, WOOD, [0, -1.8, 5], [.28, 20, .28], [Math.PI / 2 - .12, 0, 0])
-        add(CONE, 0xd9e1e5, [0, -.6, 15.6], [.45, 2, .45], [Math.PI / 2 - .12, 0, 0])
-        add(BOX, faction, [0, -.2, 12.2], [.08, 1.3, 2.4])
-    }))
-    return {
-        parts: [body, part('mountFront', [0, 8.2, 3.8], mountLegs(0x6b4a32, DARK, 8.2, 1.4)),
-            part('mountBack', [0, 8.2, -3.9], mountLegs(0x6b4a32, DARK, 8.2, 1.4)), weapon],
-        scale: .44,
-    }
 }
 
 // ---- 魔王軍 ----
