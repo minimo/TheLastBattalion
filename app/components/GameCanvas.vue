@@ -87,26 +87,32 @@ const selectedTime = ref<StartTime>(gameStore.startTime)
 const mapSelectable = computed(() => selectedMode.value === 'field')
 /** 戦場に入る。deploy なら戦場で部隊編成をしてから開戦し、そうでなければ前回の編成ですぐ開戦する（Restart）。 */
 const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy, selectedTime.value) }
-/** 画面全体を暗くしてから戦場に入り、戦場が描かれてから明るくする（CSS の .screen-curtain と同じ長さ）。 */
-const CURTAIN_MS = 500
+const curtain = ref<HTMLElement | null>(null)
 const curtainClosed = ref(false)
 const curtainActive = ref(false)
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
-const startWithFade = async (seed?: string) => {
+/** 幕の暗転（明転）が終わるまで待つ。描画が詰まっても途中で切り替えないよう、時間ではなく transitionend で待つ（来なければ2秒で打ち切る）。 */
+const curtainSettled = () => new Promise<void>(resolve => {
+  const el = curtain.value
+  const done = () => { clearTimeout(timer); el?.removeEventListener('transitionend', done); resolve() }
+  const timer = setTimeout(done, 2000)
+  el?.addEventListener('transitionend', done)
+})
+/** 画面全体を暗くしてから change で画面を切り替え、描かれてから明るくする。 */
+const withCurtain = async (change: () => void) => {
   if (curtainActive.value) return
   curtainActive.value = true
   // 透明なまま一度描かせてから暗くしないと、トランジションがかからず一瞬で黒くなる。
   await nextTick()
   await nextFrame()
   curtainClosed.value = true
-  await wait(CURTAIN_MS)
-  start(seed)
+  await curtainSettled()
+  change()
   await nextTick()
   await nextFrame()
   await nextFrame()
   curtainClosed.value = false
-  await wait(CURTAIN_MS)
+  await curtainSettled()
   curtainActive.value = false
 }
 const resetView = () => scene?.resetCamera()
@@ -194,7 +200,7 @@ onUnmounted(() => {
       <Transition name="title-menu" @after-enter="focusOperationSheet">
         <div v-if="titlePhase === 'menu'" ref="titleContent" class="title-content">
           <h1 class="title-sr-only">THE LAST BATTALION</h1>
-          <form ref="operationSheet" class="operation-sheet" aria-labelledby="operation-title" @submit.prevent="startWithFade(seedEntry ? customSeed.trim() || undefined : undefined)">
+          <form ref="operationSheet" class="operation-sheet" aria-labelledby="operation-title" @submit.prevent="withCurtain(() => start(seedEntry ? customSeed.trim() || undefined : undefined))">
             <span class="board-corner top-left" aria-hidden="true"></span>
             <span class="board-corner top-right" aria-hidden="true"></span>
             <span class="board-corner bottom-right" aria-hidden="true"></span>
@@ -275,7 +281,7 @@ onUnmounted(() => {
         <ArmyStatus army="cpu" />
       </header>
       <DeploymentEditor v-if="deploying" :key="`${gameStore.mode}:${gameStore.seed}`" :mode="gameStore.mode" :mode-name="MODE_NAME[gameStore.mode]" :plan="gameStore.plans[gameStore.mode]" :unit-names="UNIT_NAME.player"
-        @change="plan => gameStore.previewPlan(plan)" @save="plan => gameStore.beginBattle(plan)" @close="title" />
+        @change="plan => gameStore.previewPlan(plan)" @save="plan => gameStore.beginBattle(plan)" @close="withCurtain(title)" />
       <SquadPanel v-else :selected-id="input.selectedSquadId.value" :selected-company-id="input.selectedCompanyId.value" :list-open="squadsOpen" @focus="focusSquad" @focus-company="focusCompany" />
       <CommandBar ref="commandBar" :input="input" :deploying="deploying" :menu-open="menuOpen" :squads-open="squadsOpen"
         @toggle-menu="menuOpen = !menuOpen" @toggle-squads="squadsOpen = !squadsOpen" @reset-view="resetView" />
@@ -294,7 +300,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-if="curtainActive" class="screen-curtain" :class="{ 'is-closed': curtainClosed }" aria-hidden="true"></div>
+    <div v-if="curtainActive" ref="curtain" class="screen-curtain" :class="{ 'is-closed': curtainClosed }" aria-hidden="true"></div>
 
     <!-- 長押しメニュー（no-life-kingと同じく表示中は一時停止） -->
     <div v-if="contextMenu.visible" ref="contextMenuRef" class="context-menu parchment-window" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
