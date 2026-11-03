@@ -22,7 +22,7 @@ interface Visual {
 }
 
 const cellKey = (gx: number, gy: number) => `${gx},${gy}`
-const GHOST_CAPACITY = 128
+const GHOST_CAPACITY = 256
 
 /**
  * 工兵の建設物（拠点・バリケード・橋）を描く。部材は建設の進み具合に合わせて順に現れ、

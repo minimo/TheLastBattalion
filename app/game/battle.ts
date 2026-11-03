@@ -399,7 +399,7 @@ function createSquad(battle: Battle, owner: Army, type: UnitType, size: number, 
         anchor: { ...formation.anchor }, facing: formation.facing, goalKey: '', targetSquadId: -1,
         center: { ...formation.anchor }, count: 0, size, leaderId: -1, arrows: 0, maxArrows: 0, resume: null,
         stamina: STAMINA.max, supplies: type === 'supply' ? SUPPLY_CHARGES : 0, maxSupplies: type === 'supply' ? SUPPLY_CHARGES : 0, servingId: -1,
-        constructionId: -1, depotId: -1, march: null, arriving: false, guidance: createGuidance(defaultGuideline([{ type, size }])),
+        constructionId: -1, depotId: -1, march: null, arriving: false, placed: null, guidance: createGuidance(defaultGuideline([{ type, size }])),
     }
     battle.squads.push(squad)
     battle.squadById.set(squad.id, squad)
@@ -408,7 +408,7 @@ function createSquad(battle: Battle, owner: Army, type: UnitType, size: number, 
 }
 
 /** 開戦時、全軍が編成の陣形で砦の正門前（攻め手は敵の砦から離れた陣）に布陣する。 */
-function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
+function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan, placed: Map<string, Point> = new Map()) {
     battle.formations[owner].type = plan.formation
     const created = plan.squads.map(({ type, size }) => createSquad(battle, owner, type, size, 'formation'))
     // 編成で組んだ中隊を作り、残りの小隊は陣で隣り合う同じ兵種の小隊と中隊にまとめる（工兵と補給兵は中隊に入れない）。
@@ -417,6 +417,8 @@ function deployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
     const rest = created.filter(sq => sq.companyId < 0 && joinsCompany(sq.type))
     const layout = layoutWithCompanies(battle, battle.formations[owner].type, created, true)
     for (const ids of groupCompanies(rest.map(memberOf), layout)) createCompany(battle, owner, ids.map(id => battle.squadById.get(id)!))
+    for (const company of battle.companies) if (company.owner === owner) company.placed = placed.get(placementKey(battle, company)) ?? null
+    for (const squad of created) if (squad.companyId < 0) squad.placed = placed.get(squadPlacementKey(squad)) ?? null
     const fort = fortOf(battle, owner)
     if (fort) battle.formations[owner].anchor = deployAnchor(battle, fort, created)
     const slots = formationSlots(battle, owner)
@@ -483,7 +485,7 @@ function layoutWithCompanies(battle: Battle, type: FormationType, squads: Squad[
 
 function createCompany(battle: Battle, owner: Army, squads: Squad[], planned = false): Company {
     const company: Company = {
-        id: battle.nextCompanyId++, owner, number: ++battle.companyNumbers[owner], squadIds: squads.map(sq => sq.id), planned, together: false, leaderSquadId: -1, layout: {},
+        id: battle.nextCompanyId++, owner, number: ++battle.companyNumbers[owner], squadIds: squads.map(sq => sq.id), planned, together: false, leaderSquadId: -1, layout: {}, placed: null,
         guidance: createGuidance(defaultGuideline(squads)),
     }
     for (const squad of squads) squad.companyId = company.id
@@ -517,10 +519,20 @@ function joinCompany(battle: Battle, squad: Squad) {
     layoutCompanyOf(battle, company)
 }
 
+/** 編成し直しても同じ小隊（中隊に入らない）と見なす目印（兵種と番号）。 */
+const squadPlacementKey = (squad: Squad) => `squad:${squad.type}:${squad.number}`
+/** 編成し直しても同じ中隊と見なす目印（番号と兵種の並び）。 */
+const placementKey = (battle: Battle, company: Company) => `${company.number}:${companySquads(battle, company.id).map(sq => sq.type).join(',')}`
+
 /** 開戦前（部隊編成の画面）に、軍の部隊を編成し直して布陣し直す。人数を割り当てた残りが砦の予備兵になる。 */
 export function redeployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
     const deployment = normalizeDeployment(plan, battle.mode, owner)
     if (!deployment.squads.length) return
+    // 陣形が同じなら、番号と兵種の並びが同じ中隊・小隊は配置した場所を引き継ぐ（人数や行動を変えただけで配置を失わない）。
+    const placed = new Map(deployment.formation !== battle.formations[owner].type ? [] : [
+        ...battle.companies.flatMap(c => c.owner === owner && c.placed ? [[placementKey(battle, c), c.placed] as const] : []),
+        ...battle.squads.flatMap(sq => sq.owner === owner && sq.placed ? [[squadPlacementKey(sq), sq.placed] as const] : []),
+    ])
     for (const squad of battle.squads.filter(sq => sq.owner === owner)) {
         battle.squadById.delete(squad.id)
         battle.members.delete(squad.id)
@@ -536,7 +548,7 @@ export function redeployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) 
     battle.formationCache[owner].key = ''
     const fort = fortOf(battle, owner)
     if (fort) fort.reserves = armyPool(battle.mode, owner) - deployedCount(deployment)
-    deployArmy(battle, owner, deployment)
+    deployArmy(battle, owner, deployment, placed)
     battle.hash.rebuild(battle.soldiers)
 }
 
@@ -571,12 +583,37 @@ function formationSlots(battle: Battle, owner: Army) {
 const BLOCK_SEARCH = Array.from({ length: 61 * 61 }, (_, i) => ({ x: (i % 61 - 30) * TILE_PX, y: (Math.floor(i / 61) - 30) * TILE_PX }))
     .sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))
 
+type BlockPost = { squad: Squad; anchor: Point; facing: number }
+
+/** 持ち場に並んだ小隊のかたまりの広がり。かたまりの向きの長方形（小隊の間も含む）の、半マスごとの点と、その外接する矩形。 */
+function blockShape(list: BlockPost[]) {
+    const { fx, fy, rx, ry } = axes(list[0]!.facing)
+    const corners = list.flatMap(post => blockCorners(post.anchor, post.facing, post.squad))
+    const forwards = corners.map(p => p.x * fx + p.y * fy), laterals = corners.map(p => p.x * rx + p.y * ry)
+    const minF = Math.min(...forwards), maxF = Math.max(...forwards), minL = Math.min(...laterals), maxL = Math.max(...laterals)
+    const cells: Point[] = []
+    for (let f = minF; ; f = Math.min(maxF, f + TILE_PX / 2)) {
+        for (let l = minL; ; l = Math.min(maxL, l + TILE_PX / 2)) {
+            cells.push({ x: fx * f + rx * l, y: fy * f + ry * l })
+            if (l >= maxL) break
+        }
+        if (f >= maxF) break
+    }
+    const xs = cells.map(p => p.x), ys = cells.map(p => p.y)
+    return { list, cells, minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+}
+type Box = { minX: number; maxX: number; minY: number; maxY: number }
+/** かたまりを move だけずらしたとき、矩形に margin より近いか。 */
+const blockTouches = (block: Box, move: Point, other: Box, margin: number) =>
+    block.minX + move.x < other.maxX + margin && block.maxX + move.x > other.minX - margin && block.minY + move.y < other.maxY + margin && block.maxY + move.y > other.minY - margin
+
 /**
  * 中隊のかたまりの広がりに柵・建物・川がかかったり砦の敷地に入ったりすると、中隊が分断される。
  * そのかたまりごと、並びを保ったまま、陣の位置から歩いて行ける最寄りの空き地へずらす（他のかたまりとは重ねず、陣の前線より前へは出さない）。
  * 空き地が見つからないかたまりは元の持ち場のまま。
+ * プレイヤーが配置した中隊は先にその場所へ置き、残りの中隊はそこを避ける（編成を変えて置けなくなっていれば、配置した場所は使わない）。
  */
-function keepBlocksClear(battle: Battle, formation: ArmyFormation, posts: { squad: Squad; anchor: Point; facing: number }[]) {
+function keepBlocksClear(battle: Battle, formation: ArmyFormation, posts: BlockPost[]) {
     // 中隊に入らない小隊（工兵・補給兵）はずらさず、ずらす先を空けるためにだけ数える。
     const groups = new Map<number, typeof posts>()
     for (const post of posts) {
@@ -585,30 +622,30 @@ function keepBlocksClear(battle: Battle, formation: ArmyFormation, posts: { squa
         groups.get(key)!.push(post)
     }
     const forts = battle.forts.map(fortFootprint)
-    const blocks = [...groups.values()].map(list => {
-        // かたまりの向きの長方形（小隊の間も含む）を、半マスごとの点で調べる。
-        const { fx, fy, rx, ry } = axes(list[0]!.facing)
-        const corners = list.flatMap(post => blockCorners(post.anchor, post.facing, post.squad))
-        const forwards = corners.map(p => p.x * fx + p.y * fy), laterals = corners.map(p => p.x * rx + p.y * ry)
-        const minF = Math.min(...forwards), maxF = Math.max(...forwards), minL = Math.min(...laterals), maxL = Math.max(...laterals)
-        const cells: Point[] = []
-        for (let f = minF; ; f = Math.min(maxF, f + TILE_PX / 2)) {
-            for (let l = minL; ; l = Math.min(maxL, l + TILE_PX / 2)) {
-                cells.push({ x: fx * f + rx * l, y: fy * f + ry * l })
-                if (l >= maxL) break
-            }
-            if (f >= maxF) break
-        }
-        const xs = cells.map(p => p.x), ys = cells.map(p => p.y)
-        return { list, cells, minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
-    })
+    const blocks = [...groups.values()].map(blockShape)
     type Block = typeof blocks[number]
-    const touches = (block: Block, move: Point, other: { minX: number; maxX: number; minY: number; maxY: number }, margin: number) =>
-        block.minX + move.x < other.maxX + margin && block.maxX + move.x > other.minX - margin && block.minY + move.y < other.maxY + margin && block.maxY + move.y > other.minY - margin
     const isOpen = (block: Block, move: Point) =>
-        !forts.some(area => touches(block, move, area, 0)) && block.cells.every(p => !blocked(battle, p.x + move.x, p.y + move.y))
+        !forts.some(area => blockTouches(block, move, area, 0)) && block.cells.every(p => !blocked(battle, p.x + move.x, p.y + move.y))
+    const shift = (block: Block, move: Point) => {
+        for (const post of block.list) post.anchor = { x: post.anchor.x + move.x, y: post.anchor.y + move.y }
+        for (const cell of block.cells) { cell.x += move.x; cell.y += move.y }
+        block.minX += move.x; block.maxX += move.x; block.minY += move.y; block.maxY += move.y
+    }
     const zero = { x: 0, y: 0 }
-    const settled = blocks.filter(block => block.list[0]!.squad.companyId < 0 || isOpen(block, zero))
+    const loose = (block: Block) => block.list[0]!.squad.companyId < 0
+    const placedPoint = (block: Block) => (battle.companyById.get(block.list[0]!.squad.companyId) ?? block.list[0]!.squad).placed
+    const fixed = blocks.filter(block => loose(block) && !placedPoint(block))
+    const placed: Block[] = []
+    for (const block of blocks) {
+        const point = placedPoint(block)
+        if (!point) continue
+        const move = { x: point.x - (block.minX + block.maxX) / 2, y: point.y - (block.minY + block.maxY) / 2 }
+        if (!isOpen(block, move) || [...fixed, ...placed].some(other => blockTouches(block, move, other, GAP_BETWEEN_BLOCKS))) continue
+        shift(block, move)
+        placed.push(block)
+    }
+    const settled = [...fixed, ...placed, ...blocks.filter(block => loose(block) && !fixed.includes(block) && !placed.includes(block))]
+    settled.push(...blocks.filter(block => !settled.includes(block) && isOpen(block, zero) && !placed.some(other => blockTouches(block, zero, other, GAP_BETWEEN_BLOCKS))))
     if (settled.length === blocks.length) return
     const center = formation.anchor
     const reachable = reachableCells(battle, snapToPassable(battle, center))
@@ -618,15 +655,158 @@ function keepBlocksClear(battle: Battle, formation: ArmyFormation, posts: { squa
     const frontLine = Math.max(...blocks.map(forwardOf))
     for (const block of blocks.filter(b => !settled.includes(b)).sort((a, b) => distance(a) - distance(b))) {
         const first = block.cells[0]!, forward = forwardOf(block)
-        const move = BLOCK_SEARCH.find(m => forward + m.x * fx + m.y * fy <= frontLine && !settled.some(other => touches(block, m, other, GAP_BETWEEN_BLOCKS)) && isOpen(block, m)
+        const move = BLOCK_SEARCH.find(m => forward + m.x * fx + m.y * fy <= frontLine && !settled.some(other => blockTouches(block, m, other, GAP_BETWEEN_BLOCKS)) && isOpen(block, m)
             && reachable.has(`${Math.round((first.x + m.x) / TILE_PX)},${Math.round((first.y + m.y) / TILE_PX)}`))
-        if (move) {
-            for (const post of block.list) post.anchor = { x: post.anchor.x + move.x, y: post.anchor.y + move.y }
-            for (const key of ['minX', 'maxX'] as const) block[key] += move.x
-            for (const key of ['minY', 'maxY'] as const) block[key] += move.y
-        }
+        if (move) shift(block, move)
         settled.push(block)
     }
+}
+
+// ---- 開戦前の中隊の配置 ----
+
+/** 中隊を置ける範囲: 開戦時の陣の広がりから、前・後ろ・左右へ広げる距離（px）。 */
+const PLACEMENT_RANGE = { forward: 80, back: 160, side: 160 }
+
+/** 中隊を置ける範囲（陣の位置からの前方・右手の位置）。全軍の陣の広がりを PLACEMENT_RANGE だけ広げた長方形。 */
+function placementBounds(battle: Battle, owner: Army) {
+    const squads = battle.squads.filter(sq => sq.owner === owner)
+    const layout = layoutWithCompanies(battle, battle.formations[owner].type, squads)
+    let front = -Infinity, back = Infinity, left = Infinity, right = -Infinity
+    for (const squad of squads) {
+        const slot = layout.get(squad.id)
+        if (!slot) continue
+        const { width, depth } = squadBlock(squad.type, squad.size)
+        front = Math.max(front, slot.forward); back = Math.min(back, slot.forward - depth)
+        left = Math.min(left, slot.lateral - width / 2); right = Math.max(right, slot.lateral + width / 2)
+    }
+    return { front: front + PLACEMENT_RANGE.forward, back: back - PLACEMENT_RANGE.back, left: left - PLACEMENT_RANGE.side, right: right + PLACEMENT_RANGE.side }
+}
+
+/** 中隊を置ける範囲の四隅（表示用）。 */
+export function placementArea(battle: Battle, owner: Army): Point[] {
+    const { anchor, facing } = battle.formations[owner]
+    const { front, back, left, right } = placementBounds(battle, owner)
+    return [[front, left], [front, right], [back, right], [back, left]].map(([f, l]) => toWorld(anchor, facing, f!, l!))
+}
+
+/** 陣の位置から歩いて行けるマス。開戦前は地形が変わらないので、陣の位置が同じ間は調べ直さない。 */
+const placementReach = new WeakMap<Battle, { key: string; cells: Set<string> }>()
+function reachableFromFormation(battle: Battle, owner: Army) {
+    const { anchor } = battle.formations[owner]
+    const key = `${owner}:${anchor.x},${anchor.y}`
+    let reach = placementReach.get(battle)
+    if (reach?.key !== key) {
+        reach = { key, cells: reachableCells(battle, snapToPassable(battle, anchor)) }
+        placementReach.set(battle, reach)
+    }
+    return reach.cells
+}
+
+/** 開戦前に置くもの: 中隊、または中隊に入らない小隊。 */
+export type PlacementTarget = { companyId: number } | { squadId: number }
+const placementUnit = (battle: Battle, target: PlacementTarget) => {
+    if ('companyId' in target) {
+        const company = battle.companyById.get(target.companyId)
+        return company ? { holder: company as { placed: Point | null }, owner: company.owner, squads: companySquads(battle, company.id) } : undefined
+    }
+    const squad = battle.squadById.get(target.squadId)
+    return squad && !battle.companyById.has(squad.companyId) ? { holder: squad as { placed: Point | null }, owner: squad.owner, squads: [squad] } : undefined
+}
+const blockOf = (squads: Squad[]) => blockShape(squads.map(squad => ({ squad, anchor: squad.anchor, facing: squad.facing })))
+
+/** 置くもののかたまりのまん中を地点に置けるか。置けないなら理由を返す。area は下見に描くマス。 */
+export function previewPlacement(battle: Battle, target: PlacementTarget, point: Point) {
+    const unit = placementUnit(battle, target)
+    if (!unit?.squads.length) return { valid: false, reason: '', area: [] as { gx: number; gy: number }[], walls: [] as { gx: number; gy: number }[] }
+    const { owner, squads } = unit
+    const block = blockOf(squads)
+    const move = { x: point.x - (block.minX + block.maxX) / 2, y: point.y - (block.minY + block.maxY) / 2 }
+    const cells = block.cells.map(p => ({ x: p.x + move.x, y: p.y + move.y }))
+    const { anchor, facing } = battle.formations[owner]
+    const { fx, fy, rx, ry } = axes(facing)
+    const bounds = placementBounds(battle, owner)
+    const inRange = cells.every(p => {
+        const forward = (p.x - anchor.x) * fx + (p.y - anchor.y) * fy, lateral = (p.x - anchor.x) * rx + (p.y - anchor.y) * ry
+        return forward <= bounds.front && forward >= bounds.back && lateral >= bounds.left && lateral <= bounds.right
+    })
+    let reason = ''
+    if (!inRange) reason = '陣から離れすぎています'
+    else if (battle.forts.some(fort => blockTouches(block, move, fortFootprint(fort), 0))) reason = '砦の敷地には置けません'
+    else if (cells.some(p => blocked(battle, p.x, p.y))) reason = '壁や川にかかっています'
+    else if (!reachableFromFormation(battle, owner).has(`${Math.round(cells[0]!.x / TILE_PX)},${Math.round(cells[0]!.y / TILE_PX)}`)) reason = '陣から歩いて行けない場所です'
+    else if (battle.squads.some(sq => {
+        if (squads.includes(sq)) return false
+        const corners = blockCorners(sq.anchor, sq.facing, sq)
+        const xs = corners.map(p => p.x), ys = corners.map(p => p.y)
+        return blockTouches(block, move, { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }, GAP_BETWEEN_BLOCKS)
+    })) reason = '他の部隊と重なっています'
+    const area = new Map(cells.map(p => { const gx = Math.round(p.x / TILE_PX), gy = Math.round(p.y / TILE_PX); return [`${gx},${gy}`, { gx, gy }] }))
+    return { valid: !reason, reason, area: [...area.values()], walls: [] as { gx: number; gy: number }[] }
+}
+
+/** 置ける範囲の中の、塗り分けるマス。blocked: 壁・川・砦の敷地・歩いて行けない所。unit: 他の部隊（中隊は小隊の間も含むかたまり）。 */
+export interface PlacementCell { gx: number; gy: number; kind: 'blocked' | 'unit' }
+export function placementMap(battle: Battle, target: PlacementTarget): PlacementCell[] {
+    const unit = placementUnit(battle, target)
+    if (!unit) return []
+    const { anchor, facing } = battle.formations[unit.owner]
+    const { fx, fy, rx, ry } = axes(facing)
+    const bounds = placementBounds(battle, unit.owner)
+    const reach = reachableFromFormation(battle, unit.owner)
+    const forts = battle.forts.map(fortFootprint)
+    const inside = (x: number, y: number) => {
+        const forward = (x - anchor.x) * fx + (y - anchor.y) * fy, lateral = (x - anchor.x) * rx + (y - anchor.y) * ry
+        return forward <= bounds.front && forward >= bounds.back && lateral >= bounds.left && lateral <= bounds.right
+    }
+    const cells = new Map<string, PlacementCell>()
+    const corners = placementArea(battle, unit.owner)
+    const toCell = (v: number) => Math.round(v / TILE_PX)
+    for (let gy = toCell(Math.min(...corners.map(p => p.y))); gy <= toCell(Math.max(...corners.map(p => p.y))); gy++) {
+        for (let gx = toCell(Math.min(...corners.map(p => p.x))); gx <= toCell(Math.max(...corners.map(p => p.x))); gx++) {
+            const x = gx * TILE_PX, y = gy * TILE_PX
+            if (!inside(x, y)) continue
+            if (blocked(battle, x, y) || !reach.has(`${gx},${gy}`) || forts.some(area => x >= area.minX && x <= area.maxX && y >= area.minY && y <= area.maxY)) cells.set(`${gx},${gy}`, { gx, gy, kind: 'blocked' })
+        }
+    }
+    const groups = new Map<number, Squad[]>()
+    for (const squad of battle.squads) {
+        if (unit.squads.includes(squad)) continue
+        const key = battle.companyById.has(squad.companyId) ? squad.companyId : -squad.id
+        if (!groups.has(key)) groups.set(key, [])
+        groups.get(key)!.push(squad)
+    }
+    for (const squads of groups.values()) for (const p of blockOf(squads).cells) {
+        const gx = toCell(p.x), gy = toCell(p.y)
+        if (inside(gx * TILE_PX, gy * TILE_PX)) cells.set(`${gx},${gy}`, { gx, gy, kind: 'unit' })
+    }
+    return [...cells.values()]
+}
+
+/** 開戦前に、置くもののかたまりのまん中を地点へ移して布陣する。置けない地点なら何もせず false。 */
+export function placeUnit(battle: Battle, target: PlacementTarget, point: Point) {
+    const unit = placementUnit(battle, target)
+    if (!unit || !previewPlacement(battle, target, point).valid) return false
+    const { holder, owner, squads } = unit
+    const block = blockOf(squads)
+    const move = { x: point.x - (block.minX + block.maxX) / 2, y: point.y - (block.minY + block.maxY) / 2 }
+    holder.placed = { ...point }
+    battle.formationCache[owner].key = ''
+    const slots = formationSlots(battle, owner)
+    // 配置を避けて持ち場の変わった中隊も、歩かせずにその場へ移す。他の工兵・補給兵は開戦まで今の場所のまま。
+    // 補給兵は陣の持ち場を持たない（補給の任務に就いている）ので、置いた分だけ動かす。
+    for (const squad of battle.squads) {
+        if (squad.owner !== owner) continue
+        const placing = squads.includes(squad)
+        if (!placing && !battle.companyById.has(squad.companyId)) continue
+        const next = slots.get(squad.id)?.anchor ?? (placing ? { x: squad.anchor.x + move.x, y: squad.anchor.y + move.y } : undefined)
+        if (!next) continue
+        const dx = next.x - squad.anchor.x, dy = next.y - squad.anchor.y
+        for (const s of battle.members.get(squad.id) ?? []) { s.x += dx; s.y += dy }
+        squad.center = { x: squad.center.x + dx, y: squad.center.y + dy }
+        squad.anchor = next
+    }
+    battle.hash.rebuild(battle.soldiers)
+    return true
 }
 
 /** 戦場（経路を探せる範囲）の端。 */

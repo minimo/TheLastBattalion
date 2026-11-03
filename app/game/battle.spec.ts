@@ -4,7 +4,7 @@ import { createMulberry32, hashString } from './random'
 import {
     cohesionRadius, companyLeader, companyPosition, companySquads, createBattle, isBlocked, moveFormation, orderArmy, orderAttack, orderBuild, orderCompany, orderCompanyAttack, orderCompanyMove, orderConstruct,
     canOccupy, orderDemolish, orderHold, orderMove, orderOccupy, orderResupply,
-    orderRetreat, previewCompanyRoute, previewConstruction, redeployArmy, setFormation, squadPosition, staminaFactor, summarize, updateBattle,
+    orderRetreat, placementArea, placementMap, placeUnit, previewCompanyRoute, previewConstruction, previewPlacement, redeployArmy, setFormation, squadPosition, staminaFactor, summarize, updateBattle,
 } from './battle'
 import { createCpuCommander } from './cpuCommander'
 import { axes, COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
@@ -1024,6 +1024,148 @@ describe('開戦時の編成', () => {
         const battle = makeBattle('123456', 'siege', undefined, plan)
         expect(battle.formations.player.type).toBe('arrow')
         expect(summarize(battle).player.total).toBe(plan.squads.reduce((sum, sq) => sum + sq.size, 0))
+    })
+})
+
+describe('開戦前の中隊の配置', () => {
+    const playerCompanies = (battle: ReturnType<typeof makeBattle>) => battle.companies.filter(c => c.owner === 'player')
+    const middle = (battle: ReturnType<typeof makeBattle>, id: number) => {
+        const corners = companySquads(battle, id).flatMap(sq => { const { width, depth } = squadBlock(sq.type, sq.size); return [toWorld(sq.anchor, sq.facing, 0, -width / 2), toWorld(sq.anchor, sq.facing, -depth, width / 2)] })
+        return { x: (Math.min(...corners.map(p => p.x)) + Math.max(...corners.map(p => p.x))) / 2, y: (Math.min(...corners.map(p => p.y)) + Math.max(...corners.map(p => p.y))) / 2 }
+    }
+    /** 中隊を置ける地点を、今の場所から遠い順に探す。 */
+    const openPoint = (battle: ReturnType<typeof makeBattle>, id: number) => {
+        const area = placementArea(battle, 'player'), from = middle(battle, id)
+        const xs = area.map(p => p.x), ys = area.map(p => p.y), points = []
+        for (let x = Math.min(...xs); x <= Math.max(...xs); x += 16) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 16) points.push({ x, y })
+        return points.sort((a, b) => Math.hypot(b.x - from.x, b.y - from.y) - Math.hypot(a.x - from.x, a.y - from.y)).find(p => previewPlacement(battle, { companyId: id }, p).valid)!
+    }
+
+    it('空いた場所へ中隊を移すと、兵も持ち場も移り、開戦しても動かない', () => {
+        const battle = makeBattle('123456')
+        const company = playerCompanies(battle)[0]!
+        const point = openPoint(battle, company.id)
+        const before = middle(battle, company.id)
+        const soldier = battle.members.get(company.squadIds[0]!)![0]!, x = soldier.x, y = soldier.y
+        expect(placeUnit(battle, { companyId: company.id }, point)).toBe(true)
+        const after = middle(battle, company.id)
+        expect(after.x).toBeCloseTo(point.x); expect(after.y).toBeCloseTo(point.y)
+        expect(soldier.x - x).toBeCloseTo(point.x - before.x); expect(soldier.y - y).toBeCloseTo(point.y - before.y)
+        updateBattle(battle, 1 / 30)
+        const started = middle(battle, company.id)
+        expect(started.x).toBeCloseTo(point.x); expect(started.y).toBeCloseTo(point.y)
+    })
+
+    it('他の中隊と重なる場所には置けない', () => {
+        const battle = makeBattle('123456')
+        const [company, other] = playerCompanies(battle)
+        const point = middle(battle, other!.id), before = middle(battle, company!.id)
+        expect(previewPlacement(battle, { companyId: company!.id }, point)).toMatchObject({ valid: false, reason: '他の部隊と重なっています' })
+        expect(placeUnit(battle, { companyId: company!.id }, point)).toBe(false)
+        expect(middle(battle, company!.id)).toEqual(before)
+        expect(company!.placed).toBeNull()
+    })
+
+    it('全体の初期位置から離れすぎる場所、砦の敷地には置けない', () => {
+        const battle = makeBattle('123456')
+        const company = playerCompanies(battle)[0]!
+        const { anchor } = battle.formations.player
+        expect(previewPlacement(battle, { companyId: company.id }, { x: anchor.x + 600, y: anchor.y })).toMatchObject({ valid: false, reason: '陣から離れすぎています' })
+        const fort = battle.forts.find(f => f.owner === 'player')!
+        expect(previewPlacement(battle, { companyId: company.id }, { x: fort.x + 60, y: fort.y }).valid).toBe(false)
+    })
+
+    it('置いた中隊の周りには他の中隊を置けず、残りの中隊は置いた場所に重ならない', () => {
+        const battle = makeBattle('123456')
+        const [company, other] = playerCompanies(battle)
+        expect(placeUnit(battle, { companyId: company!.id }, openPoint(battle, company!.id))).toBe(true)
+        expect(placeUnit(battle, { companyId: other!.id }, middle(battle, company!.id))).toBe(false)
+        const box = (id: number) => {
+            const points = companySquads(battle, id).flatMap(sq => { const { width, depth } = squadBlock(sq.type, sq.size); return [toWorld(sq.anchor, sq.facing, 0, -width / 2), toWorld(sq.anchor, sq.facing, -depth, width / 2)] })
+            return { minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)), minY: Math.min(...points.map(p => p.y)), maxY: Math.max(...points.map(p => p.y)) }
+        }
+        const a = box(company!.id)
+        for (const rest of playerCompanies(battle).slice(1)) {
+            const b = box(rest.id)
+            expect(a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY, `第${rest.number}中隊`).toBe(false)
+        }
+    })
+
+    it('人数を変えて編成し直しても配置は残り、陣形を変えると元の陣に戻る', () => {
+        const battle = makeBattle('123456')
+        const plan = defaultDeployment('field', 'player')
+        const first = playerCompanies(battle)[0]!
+        const point = openPoint(battle, first.id)
+        expect(placeUnit(battle, { companyId: first.id }, point)).toBe(true)
+        redeployArmy(battle, 'player', { ...plan, squads: plan.squads.map(sq => sq.type === 'supply' ? { ...sq, size: sq.size - 5 } : sq) })
+        const kept = playerCompanies(battle)[0]!
+        expect(kept.placed).toEqual(point)
+        expect(middle(battle, kept.id).x).toBeCloseTo(point.x)
+        redeployArmy(battle, 'player', { ...plan, formation: 'crane' })
+        expect(playerCompanies(battle).every(c => c.placed === null)).toBe(true)
+    })
+
+    it('中隊に入らない小隊も中隊と同じように置け、編成し直しても残る', () => {
+        const battle = makeBattle('123456')
+        for (const type of ['engineer', 'supply'] as UnitType[]) {
+            const squad = battle.squads.find(sq => sq.owner === 'player' && sq.type === type)!
+            const area = placementArea(battle, 'player'), xs = area.map(p => p.x), ys = area.map(p => p.y), points = []
+            for (let x = Math.min(...xs); x <= Math.max(...xs); x += 16) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 16) points.push({ x, y })
+            const point = points.find(p => previewPlacement(battle, { squadId: squad.id }, p).valid)!
+            const soldier = battle.members.get(squad.id)![0]!, x = soldier.x, anchor = { ...squad.anchor }
+            expect(placeUnit(battle, { squadId: squad.id }, point)).toBe(true)
+            expect(squad.placed).toEqual(point)
+            expect(squad.anchor).not.toEqual(anchor)
+            expect(soldier.x - x).toBeCloseTo(squad.anchor.x - anchor.x)
+            // 他の小隊・中隊の所には置けない。
+            const other = battle.companies.find(c => c.owner === 'player')!
+            expect(previewPlacement(battle, { squadId: squad.id }, middle(battle, other.id)).valid).toBe(false)
+        }
+        const engineer = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'engineer')!
+        const placed = { ...engineer.placed! }, posted = { ...engineer.anchor }
+        updateBattle(battle, 1 / 30)
+        expect(engineer.anchor.x).toBeCloseTo(posted.x); expect(engineer.anchor.y).toBeCloseTo(posted.y)
+        redeployArmy(battle, 'player', defaultDeployment('field', 'player'))
+        const again = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'engineer')!
+        expect(again.placed).toEqual(placed)
+    })
+
+    it('中隊に入っている小隊は、小隊だけでは置けない', () => {
+        const battle = makeBattle('123456')
+        const squad = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'infantry')!
+        expect(previewPlacement(battle, { squadId: squad.id }, squad.anchor).valid).toBe(false)
+        expect(placeUnit(battle, { squadId: squad.id }, squad.anchor)).toBe(false)
+    })
+
+    it('ドラッグ中に塗るマスは、砦と川などの置けない地形と、掴んだもの以外の部隊', () => {
+        const battle = makeBattle('123456')
+        const [company, other] = playerCompanies(battle)
+        const cells = placementMap(battle, { companyId: company!.id })
+        const kindAt = (p: { x: number; y: number }) => cells.find(c => c.gx === Math.round(p.x / TILE_PX) && c.gy === Math.round(p.y / TILE_PX))?.kind
+        expect(kindAt(middle(battle, other!.id))).toBe('unit')
+        expect(kindAt(middle(battle, company!.id))).toBeUndefined()
+        const fort = fortFootprint(battle.forts.find(f => f.owner === 'player')!)
+        expect(cells.some(c => c.kind === 'blocked' && c.gx * TILE_PX >= fort.minX && c.gx * TILE_PX <= fort.maxX && c.gy * TILE_PX >= fort.minY && c.gy * TILE_PX <= fort.maxY)).toBe(true)
+        // 塗っていないマスだけでできた場所には、置ける（色と判定が食い違わない）。
+        const painted = new Set(cells.map(c => `${c.gx},${c.gy}`))
+        const area = placementArea(battle, 'player'), xs = area.map(p => p.x), ys = area.map(p => p.y)
+        let checked = 0
+        for (let x = Math.min(...xs); x <= Math.max(...xs); x += 32) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 32) {
+            const plan = previewPlacement(battle, { companyId: company!.id }, { x, y })
+            if (plan.valid) { checked++; expect(plan.area.some(c => painted.has(`${c.gx},${c.gy}`)), `${x},${y}`).toBe(false) }
+        }
+        expect(checked).toBeGreaterThan(0)
+    })
+
+    it('開戦後に陣全体を動かすと、配置した中隊も陣の持ち場に戻る', () => {
+        const battle = makeBattle('123456')
+        const company = playerCompanies(battle)[0]!
+        const point = openPoint(battle, company.id)
+        expect(placeUnit(battle, { companyId: company.id }, point)).toBe(true)
+        const { anchor } = battle.formations.player
+        moveFormation(battle, 'player', { x: anchor.x + 40, y: anchor.y })
+        updateBattle(battle, 1 / 30)
+        expect(Math.hypot(middle(battle, company.id).x - point.x, middle(battle, company.id).y - point.y)).toBeGreaterThan(10)
     })
 })
 

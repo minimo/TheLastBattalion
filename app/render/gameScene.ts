@@ -6,11 +6,12 @@ import type { useGameStore } from '~/stores/game'
 import type { BattleInput } from '~/composables/useBattleInput'
 import type { Army, Company, Construction, Fort, Point, Squad, UnitType } from '~/types/game'
 import { CONSTRUCTION, STAMINA } from '~/game/battleConfig'
-import { companyLeader, companyPosition, companySquads, orderDestination, previewCompanyRoute, squadPosition, squadRoute, type Battle } from '~/game/battle'
+import { companyLeader, companyPosition, companySquads, orderDestination, placementArea, placementMap, previewCompanyRoute, squadPosition, squadRoute, type Battle } from '~/game/battle'
 import { createModelKit, FACTION, OCCLUDER_LAYER } from './three/models'
 import { createWorld } from './three/world'
 import { createAtmosphere } from './three/atmosphere'
 import { MAP_THEME, type MapTheme } from './three/mapTheme'
+import { createPlacementOverlay } from './three/placementOverlay'
 import { createPathOverlay } from './three/overlays'
 import { createFortCamp } from './three/fortCamp'
 import { createCastle } from './three/castle'
@@ -398,6 +399,18 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
 
     const pathOverlay = createPathOverlay(camera, canvasEl, (x, y) => world.field.surfaceAt(x, y), isOccluded)
     scene.add(pathOverlay.group)
+    const placementOverlay = createPlacementOverlay((x, y) => world.field.surfaceAt(x, y))
+    scene.add(placementOverlay.group)
+    /** 塗っているマスの持ち主（ドラッグしている間は他の部隊も地形も動かないので、掴んだときに1度だけ塗る）。 */
+    let placementKey = ''
+    const updatePlacementOverlay = () => {
+        const target = input.placementTarget()
+        const key = target ? JSON.stringify(target) : ''
+        if (key === placementKey) return
+        placementKey = key
+        if (target) placementOverlay.show(placementMap(gameStore.battle!, target))
+        else placementOverlay.clear()
+    }
     let pathKey = ''
     const updatePaths = () => {
         const battle = gameStore.battle!
@@ -417,7 +430,10 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         if (key === pathKey) return
         pathKey = key
         pathOverlay.clear()
-        if (draggingCompany) {
+        if (gameStore.status === 'deploying') {
+            // 開戦前は指示を出せないので、置ける範囲の枠だけを引く。
+            if (input.placementTarget()) { const area = placementArea(battle, 'player'); pathOverlay.add([...area, area[0]!], 'player', false) }
+        } else if (draggingCompany) {
             // 離したら出る指示で中隊長の小隊が進む経路を、指示を出したあとの矢印と同じく引く。
             const route = companyPreview && cursor.x > -9000 ? previewCompanyRoute(battle, draggingCompany.id, companyPreview) : undefined
             if (route) pathOverlay.add(route)
@@ -553,8 +569,16 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         if (event.button !== 0) return
         if (activePointer !== null) { input.reset(); activePointer = null; backgroundGesture = true; return }
         activePointer = event.pointerId
-        if (deploying) { backgroundGesture = true; setBackgroundGesture(true); return }
         const { squadId, companyId } = pointer(event)
+        if (deploying) {
+            // 自軍の旗（中隊の旗と小隊の旗）だけを掴める。それ以外は視点の操作。
+            const battle = gameStore.battle
+            const owner = companyId !== null ? battle?.companyById.get(companyId)?.owner : squadId !== null ? battle?.squadById.get(squadId)?.owner : undefined
+            if (owner !== 'player') { backgroundGesture = true; setBackgroundGesture(true); return }
+            if (companyId !== null) input.handleCompanyPointerDown(companyId, event)
+            else input.handleSquadPointerDown(squadId!, event)
+            return
+        }
         // Decide once, before OrbitControls receives pointerdown. Crossing a banner
         // during a background drag must never turn that gesture into an order.
         // 建設場所を選んでいる間は、旗の上を押しても部隊は掴まず、その地点に建てる。
@@ -566,7 +590,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         else if (squadId !== null) input.handleSquadPointerDown(squadId, event)
     }
     const move = (event: PointerEvent) => {
-        if (!canCommand() || backgroundGesture) return
+        if ((!canCommand() && gameStore.status !== 'deploying') || backgroundGesture) return
         input.handleGlobalPointerMove(event)
         if (canvasEl.contains(event.target as Node) || activePointer === event.pointerId) pointer(event)
         else bannerHover = null
@@ -735,11 +759,13 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             // 建設場所の下見（場所選び中、または工兵を川へドラッグ中の橋）。
             const buildPlan = input.buildPreview()
                 ?? (preview?.order === 'build' && preview.kind ? input.buildPreviewAt(preview.kind, input.worldMousePos.value) : null)
+                ?? input.placementPreview()
             constructions.preview(buildPlan)
             const ringed = new Set(input.selectedSquadId.value !== null ? [input.selectedSquadId.value] : selectedCompany !== null ? battle.companyById.get(selectedCompany)?.squadIds ?? [] : [])
             armyView.viewportHeight = canvasEl.clientHeight
             army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()), armyView)
             updatePaths()
+            updatePlacementOverlay()
         }
         pathOverlay.updateCamera()
         const renderStarted = performance.now()
@@ -771,7 +797,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         controls.dispose()
         camps.forEach(c => { c.camp.destroy(); c.label.remove() })
         removeSquadLabels(); removeCompanyLabels(); removeConstructionLabels()
-        pathOverlay.destroy(); army.destroy(); constructions.destroy()
+        pathOverlay.destroy(); placementOverlay.destroy(); army.destroy(); constructions.destroy()
         world.destroy(); kit.destroy(); sun.shadow.dispose(); atmosphere.destroy()
         environment.dispose(); renderer.dispose(); renderer.forceContextLoss()
         renderer.domElement.remove(); labels.remove()

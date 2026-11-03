@@ -5,8 +5,8 @@ import { mapTypeForMode } from '~/game/mapType'
 import { createMulberry32, hashString } from '~/game/random'
 import {
     createBattle, orderArmy, orderAttack, orderBuild, orderCharge, orderCompany, orderCompanyAttack, orderCompanyDemolish, orderCompanyMove, orderConstruct,
-    orderDemolish, orderFormation, orderHold, orderMove, orderOccupy, orderResupply, orderRetreat, orderSupport, redeployArmy, setFormation, summarize, updateBattle,
-    type ArmyOrder, type Battle, type CompanyOrder,
+    orderDemolish, orderFormation, orderHold, orderMove, orderOccupy, orderResupply, orderRetreat, orderSupport, placeUnit, redeployArmy, setFormation, summarize, updateBattle,
+    type ArmyOrder, type Battle, type CompanyOrder, type PlacementTarget,
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
 import { createGuidelineDirector, markCommanded, setGuideline, type GuidelineDirector } from '~/game/squadGuidelines'
@@ -168,6 +168,16 @@ export const useGameStore = defineStore('game', {
             if (this.status !== 'deploying' || !this.battle) return
             redeployArmy(this.battle, 'player', plan)
             this.refresh()
+        },
+
+        /** 部隊編成の間に、自軍の中隊か中隊に入らない小隊を地点へ置く。置けない地点なら false。 */
+        placeUnit(target: PlacementTarget, point: Point): boolean {
+            const battle = this.battle
+            const owner = 'companyId' in target ? battle?.companyById.get(target.companyId)?.owner : battle?.squadById.get(target.squadId)?.owner
+            if (this.status !== 'deploying' || !battle || owner !== 'player') return false
+            const placed = placeUnit(battle, target, point)
+            if (placed) this.refresh()
+            return placed
         },
 
         /** 編成を決めて開戦する。 */

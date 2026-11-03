@@ -114,6 +114,8 @@ export interface Guidance {
 
 /** 小隊（兵種ごとの部隊）。いくつかの小隊で中隊を組む。 */
 export interface Squad {
+    /** 開戦前にプレイヤーが置いた、小隊のまん中（中隊に入らない小隊だけ。置いていなければ null）。陣を動かすまでの持ち場に使う。 */
+    placed: Point | null
     id: number
     owner: Army
     type: UnitType
@@ -178,6 +180,8 @@ export interface Company {
     leaderSquadId: number
     /** 中隊の隊形での小隊の持ち場（小隊ID → 前方・右手の位置）。小隊どうしが離れてよい距離の元になる。組んだとき・加わったときに決める。 */
     layout: Record<number, { forward: number; lateral: number }>
+    /** 開戦前にプレイヤーが置いた、中隊のかたまりのまん中（置いていなければ null）。陣を動かすまでの持ち場に使う。 */
+    placed: Point | null
     /** 行動。 */
     guidance: Guidance
 }

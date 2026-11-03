@@ -73,7 +73,10 @@ const BUILD_HINT: Record<ConstructionKind, string> = {
 const DROP_NAME: Partial<Record<SquadOrder, string>> = { move: 'ここへ移動', attack: '攻撃', demolish: '建設物を破壊', occupy: '拠点を占領', support: '補給を届ける', retreat: '自陣へ退却', charge: '敵陣へ突撃' }
 /** その場で必要な操作だけを一言で示す。 */
 const hint = computed(() => {
-  if (props.deploying) return '右の編成で部隊を整えて開戦'
+  if (props.deploying) {
+    if (!props.input.placementTarget()) return '中隊・小隊の旗をドラッグして配置'
+    return props.input.placementPreview()?.reason || '離すとここに配置'
+  }
   const mode = buildMode.value
   if (mode) return `${BUILD_HINT[mode.kind]} · Esc で取り消し`
   const dragging = props.input.dragging.value
@@ -110,6 +113,7 @@ defineExpose({ closePopups: () => { armyOpen.value = false; guidelineOpen.value 
   <div ref="root" class="command-dock">
     <p class="command-hint parchment-window" role="status">
       <span :key="hint" class="hint-text">{{ hint }}</span>
+      <span v-if="deploying && input.placementTarget()" class="placement-legend"><i class="blocked"></i>置けない地形<i class="unit"></i>他の部隊</span>
       <span v-if="input.buildError.value" class="build-error">{{ input.buildError.value }}</span>
     </p>
     <div class="command-bar-wrap">
@@ -176,6 +180,10 @@ defineExpose({ closePopups: () => { armyOpen.value = false; guidelineOpen.value 
 .command-hint { box-sizing: border-box; max-width: 100%; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 2px 10px; border-width: 7px 9px 6px; border-image-width: 7px 9px 6px; color: #493522; font-size: 12px; line-height: 1.45; letter-spacing: .03em; text-align: center; text-wrap: pretty; filter: drop-shadow(0 2px 3px #0006); }
 .build-error { color: #90391f; font-size: 11px; font-weight: 600; }
 .hint-text { animation: hint-in .2s ease-out; }
+.placement-legend { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.placement-legend i { width: 10px; height: 10px; border-radius: 2px; }
+.placement-legend i.blocked { background: #d8352a; }
+.placement-legend i.unit { margin-left: 6px; background: #f4c430; }
 @keyframes hint-in { from { opacity: 0; } }
 /* The frame stays fixed while the controls inside can scroll horizontally. */
 .command-bar-wrap { position: relative; box-sizing: border-box; min-width: 0; max-width: 100%; border: 2px solid #96703e; border-top-color: #d0ae6a; border-bottom-color: #634522; border-radius: 5px; background: var(--ui-wood-surface); background-color: var(--ui-wood-base); background-blend-mode: normal, screen; box-shadow: inset 0 0 0 1px #e0b76d4d, inset 0 3px 5px #f6c57c22, inset 0 -3px 5px #24100655, 0 5px 14px #0009; }

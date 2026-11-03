@@ -1,6 +1,6 @@
 import { nextTick, ref } from 'vue'
 import type { CompanyCommand, SquadCommand, useGameStore } from '~/stores/game'
-import { canOccupy, companyPosition, companySquads, constructionNear, nearestCompanySquad, previewConstruction, squadPosition, type CompanyOrder } from '~/game/battle'
+import { canOccupy, companyPosition, companySquads, constructionNear, nearestCompanySquad, previewConstruction, previewPlacement, squadPosition, type CompanyOrder, type PlacementTarget } from '~/game/battle'
 import type { ConstructionAxis, ConstructionKind, Point, SquadOrder } from '~/types/game'
 
 type EntityPointerEvent = Pick<PointerEvent, 'clientX' | 'clientY'>
@@ -18,6 +18,7 @@ const CONSTRUCTION_DROP_RADIUS = 14
  * 部隊の旗からドラッグ → 地面で移動・敵部隊で攻撃・自陣で退却・敵陣で突撃。長押しでメニュー。
  * 中隊の旗からドラッグ → 中隊ごと移動（隊形を組む）・敵部隊で攻撃・自陣で退却・敵陣で突撃。長押しで中隊へのメニュー。
  * 工兵は建設物を選んでから地面をクリックして建設場所を決める（川へドラッグすると橋を架ける）。
+ * 開戦前（部隊編成の間）は、中隊の旗、中隊に入らない小隊の旗からドラッグ → 初期位置を移す。指示は出せない。
  */
 export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
     const contextMenuRef = ref<HTMLElement | null>(null)
@@ -47,6 +48,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         visible: false, x: 0, y: 0, type: null, squadId: null, companyId: null,
     })
     let longPressTimeout: ReturnType<typeof setTimeout> | null = null
+    const deploying = () => gameStore.status === 'deploying'
 
     const clearLongPress = () => {
         if (longPressTimeout) { clearTimeout(longPressTimeout); longPressTimeout = null }
@@ -94,6 +96,8 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         pointerDownPos.value = { x: e.clientX, y: e.clientY }
         if (squad.owner !== 'player') { clearLongPress(); pressed = null; return }
         pressed = { source: squadId }
+        buildError.value = ''
+        if (deploying()) return
         startLongPress(e, () => openContextMenu('squad', squadId, e.clientX, e.clientY))
     }
 
@@ -104,6 +108,8 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         pointerDownPos.value = { x: e.clientX, y: e.clientY }
         if (company.owner !== 'player') { clearLongPress(); pressed = null; return }
         pressed = { company: companyId }
+        buildError.value = ''
+        if (deploying()) return
         startLongPress(e, () => openContextMenu('company', companyId, e.clientX, e.clientY))
     }
 
@@ -222,7 +228,13 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (source === null && company === null) return
         if (Math.hypot(e.clientX - pointerDownPos.value.x, e.clientY - pointerDownPos.value.y) < CLICK_DISTANCE) return
         if (worldMousePos.value.x < -9000) return
-        if (company !== null) gameStore.orderCompany(company, companyDropCommand())
+        // 開戦前は置くだけ。置けなければ元の場所のまま、理由を示す。
+        if (deploying()) {
+            const target = company !== null ? { companyId: company } : { squadId: source! }
+            const plan = placementPreview(target)
+            if (plan && !plan.valid) buildError.value = plan.reason
+            else gameStore.placeUnit(target, { ...worldMousePos.value })
+        } else if (company !== null) gameStore.orderCompany(company, companyDropCommand())
         else if (source !== null) {
             const command = dropCommand(source)
             gameStore.orderSquad(source, command.order, command)
@@ -239,6 +251,19 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         selectedSquadId.value = null
         selectedCompanyId.value = null
         return true
+    }
+
+    /** 開戦前にドラッグしている中隊・小隊。 */
+    const placementTarget = (): PlacementTarget | null => {
+        if (!deploying()) return null
+        if (draggingCompany.value !== null) return { companyId: draggingCompany.value }
+        return typeof dragging.value === 'number' ? { squadId: dragging.value } : null
+    }
+    /** 開戦前に、ドラッグしているものを今のポインターの位置へ置いた場合の下見。 */
+    const placementPreview = (target = placementTarget()) => {
+        const battle = gameStore.battle
+        if (!battle || !target || !deploying() || worldMousePos.value.x < -9000) return null
+        return previewPlacement(battle, target, worldMousePos.value)
     }
 
     /** 小隊を選ぶ（中隊の選択は外す）。中隊の小隊なら、その中隊を選ぶ。 */
@@ -320,6 +345,8 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         confirmBuild,
         buildPreview,
         buildPreviewAt,
+        placementTarget,
+        placementPreview,
         setWorldPointer,
         handleSquadPointerDown,
         handleCompanyPointerDown,
@@ -333,16 +360,16 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         selectCompany,
         reset,
         /** ドラッグ中の指示の種類（プレビュー表示用）。 */
-        previewCommand: () => typeof dragging.value === 'number' ? dropCommand(dragging.value) : null,
+        previewCommand: () => typeof dragging.value === 'number' && !deploying() ? dropCommand(dragging.value) : null,
         /** 中隊の旗をドラッグ中の指示（プレビュー表示用）。 */
-        previewCompanyCommand: () => draggingCompany.value !== null ? companyDropCommand() : null,
+        previewCompanyCommand: () => draggingCompany.value !== null && !deploying() ? companyDropCommand() : null,
         /**
          * ドラッグ中に、離すと指示の相手になるものとして光らせる旗と建設物（表示用）。
          * 旗は敵・味方や指示の種類に関わらずポインターの下のもの、建設物は離すと対象になる近さのもの。
          */
         dropTarget: () => {
             const battle = gameStore.battle
-            if (!battle || (dragging.value === null && draggingCompany.value === null)) return null
+            if (!battle || deploying() || (dragging.value === null && draggingCompany.value === null)) return null
             return {
                 squadId: overBanner && hoverCompanyId.value === null ? hoverSquadId.value : null,
                 companyId: overBanner ? hoverCompanyId.value : null,
@@ -351,7 +378,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         },
         /** ドラッグ中に、離すとその小隊・中隊の所へ移動する味方の旗（表示用）。移動にならなければ null。 */
         dropAlly: () => {
-            const command = typeof dragging.value === 'number' ? dropCommand(dragging.value) : draggingCompany.value !== null ? companyDropCommand() : null
+            const command = deploying() ? null : typeof dragging.value === 'number' ? dropCommand(dragging.value) : draggingCompany.value !== null ? companyDropCommand() : null
             return command?.order === 'move' ? allyBanner() : null
         },
     }

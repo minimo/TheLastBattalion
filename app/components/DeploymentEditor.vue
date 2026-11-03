@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, SQUAD_SIZE } from '~/game/formation'
 import {
   armyPool, COMPANY_TEMPLATES, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, plannedCompanies, plannedGuideline, PLANNED_COMPANIES_MAX, presetDeployment, SQUAD_SIZE_MIN, SQUAD_SIZE_STEP,
@@ -71,11 +71,64 @@ const addSquad = (type: UnitType, company?: number) => {
 }
 const removeSquad = (index: number) => { draft.value.squads.splice(index, 1) }
 const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
+
+/**
+ * 巻物を巻いて編成を隠す（下の軸が上の軸まで巻き上がる）。
+ * 戦場の描画と同時でも滑らかに動くよう、動かすのは transform だけにして、高さは動き終えてから変える。
+ * 枠を上げた分だけ中の紙を下げるので、紙はその場に留まり、枠の下の端で隠れていく。下の軸は枠に付けた写しが代わりに上がる。
+ */
+const ROLL_MS = 300
+const ROLL_EASING = 'cubic-bezier(.4, 0, .2, 1)'
+const panel = ref<HTMLElement | null>(null)
+const scroll = ref<HTMLElement | null>(null)
+const rolled = ref(false)
+const rolling = ref(false)
+/** 巻く前のスクロール位置（開いたら戻す）。 */
+let openScroll = 0
+let rollAnimations: Animation[] = []
+const toggleRolled = () => {
+  const el = panel.value, frame = scroll.value
+  if (!el || !frame) return
+  rolled.value = !rolled.value
+  // 動いている途中なら、同じ動きを逆に戻す。
+  if (rollAnimations.length) { for (const animation of rollAnimations) animation.reverse(); return }
+  const style = getComputedStyle(el)
+  const closed = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+  if (rolled.value) openScroll = el.scrollTop
+  else {
+    el.style.height = ''
+    el.style.paddingBlock = ''
+    el.style.overflow = ''
+    el.scrollTop = openScroll
+  }
+  const distance = el.offsetHeight - closed
+  rolling.value = true
+  const timing = { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : ROLL_MS, easing: ROLL_EASING, fill: 'both' as const, direction: rolled.value ? 'normal' as const : 'reverse' as const }
+  rollAnimations = [
+    frame.animate({ transform: ['translateY(0)', `translateY(${-distance}px)`] }, timing),
+    el.animate({ transform: ['translateY(0)', `translateY(${distance}px)`] }, timing),
+  ]
+  rollAnimations[0]!.onfinish = () => {
+    if (rolled.value) {
+      el.style.height = `${closed}px`
+      el.style.paddingBlock = '0'
+      el.style.overflow = 'hidden'
+    }
+    for (const animation of rollAnimations) animation.cancel()
+    rollAnimations = []
+    rolling.value = false
+  }
+}
+onUnmounted(() => { for (const animation of rollAnimations) animation.cancel() })
 </script>
 
 <template>
   <div class="deploy-dock">
-    <section class="deploy-panel parchment-window parchment-scroll" role="dialog" aria-modal="true" aria-labelledby="deploy-title">
+    <div class="deploy-scroll">
+      <button class="roll-toggle" type="button" :aria-expanded="!rolled" aria-controls="deploy-panel" @click="toggleRolled">{{ rolled ? '編成を開く' : '編成を隠す' }}<span aria-hidden="true">{{ rolled ? '▼' : '▲' }}</span></button>
+      <div ref="scroll" class="deploy-clip" :class="{ rolling }">
+      <div v-show="rolling" class="roll-edge" aria-hidden="true"></div>
+      <section id="deploy-panel" ref="panel" class="deploy-panel parchment-window parchment-scroll" :inert="rolled" role="dialog" aria-modal="true" aria-labelledby="deploy-title">
       <header>
         <h2 id="deploy-title">部隊編成</h2>
         <span class="deploy-mode">{{ modeName }} · 人間軍</span>
@@ -176,13 +229,25 @@ const save = () => { if (draft.value.squads.length) emit('save', draft.value) }
           <button class="wood-control wood-primary" :disabled="!draft.squads.length" @click="save">開戦する →</button>
         </div>
       </footer>
-    </section>
+      </section>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .deploy-dock { position: absolute; z-index: 30; top: 96px; right: 20px; bottom: 20px; width: min(540px, calc(100% - 32px)); display: flex; align-items: flex-start; pointer-events: none; }
-.deploy-panel { pointer-events: auto; width: 100%; max-height: 100%; overflow-y: auto; box-sizing: border-box; padding: 8px 12px; color: #39291d; text-align: left; }
+.deploy-scroll { position: relative; width: 100%; max-height: 100%; display: flex; flex-direction: column; }
+.deploy-clip { position: relative; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.deploy-clip.rolling, .deploy-clip.rolling .deploy-panel { will-change: transform; }
+/* 巻いている間だけ、紙の下の軸（枠の下の端で隠れる）の代わりに枠といっしょに上がる写し。 */
+.roll-edge { position: absolute; z-index: 1; bottom: 0; left: 0; right: 0; box-sizing: border-box; height: 60px; border: solid transparent; border-width: 0 24px 60px; border-image: url('/images/ui/scroll-window-handrolled.png') 0 110 250 / 0 24px 60px / 0 stretch; pointer-events: none; }
+.deploy-panel { pointer-events: auto; width: 100%; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: 8px 12px; color: #39291d; text-align: left; }
+/* 動かない上の軸の上に載せる。 */
+.roll-toggle { position: absolute; z-index: 2; top: 16px; right: 44px; display: flex; align-items: center; gap: 6px; padding: 4px 10px; pointer-events: auto; border: 1px solid #94703d; border-top-color: #c9a767; border-radius: 3px; background: var(--ui-wood-surface); background-color: var(--ui-wood-base); background-blend-mode: normal, screen; box-shadow: 0 1px 3px #29150a80; color: #f0dfbd; font-size: 11px; letter-spacing: .08em; text-shadow: 0 1px 2px #160a03; }
+.roll-toggle:hover { filter: brightness(1.13); }
+.roll-toggle:focus-visible { outline: 2px solid #70491f; outline-offset: 2px; }
+.roll-toggle span { font-size: 9px; }
 header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 14px; margin-bottom: 14px; }
 h2 { margin: 0; font: 400 22px Georgia, serif; letter-spacing: .1em; color: #352315; }
 .deploy-mode { font-size: 12px; color: #69533d; letter-spacing: .08em; }

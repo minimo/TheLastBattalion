@@ -56,7 +56,7 @@ export function createPathOverlay(camera: THREE.Camera, canvas: HTMLElement, hei
         const p = point.clone().project(camera)
         return { x: (p.x + 1) * width / 2, y: (p.y + 1) * height / 2, z: p.z }
     }
-    return { group, clear, add(points: Point[], owner: Owner = 'player') {
+    return { group, clear, add(points: Point[], owner: Owner = 'player', arrow = true) {
         const vertices: THREE.Vector3[] = []
         for (let i = 1; i < points.length; i++) {
             const a = points[i - 1]!, b = points[i]!, distance = Math.hypot(b.x - a.x, b.y - a.y)
@@ -76,6 +76,8 @@ export function createPathOverlay(camera: THREE.Camera, canvas: HTMLElement, hei
             line.renderOrder = order
             group.add(line)
         }
+        // 矢印でない線（範囲の枠など）には三角を付けない。
+        if (!arrow) return
         const headGeometry = new THREE.BufferGeometry()
         headGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3))
         const [shown, hidden] = [mat.shown, mat.hidden].map(pass => {
