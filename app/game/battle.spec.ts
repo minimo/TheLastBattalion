@@ -7,8 +7,8 @@ import {
     orderRetreat, previewCompanyRoute, previewConstruction, redeployArmy, setFormation, squadPosition, staminaFactor, summarize, updateBattle,
 } from './battle'
 import { createCpuCommander } from './cpuCommander'
-import { axes, COMPANY_MAX_SQUADS, joinsCompany, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
-import { FORT_DEPTH, FORT_WIDTH, isBlockedLocal, localToGrid } from './fortLayout'
+import { axes, COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
+import { FORT_DEPTH, FORT_WIDTH, fortFootprint, isBlockedLocal, localToGrid } from './fortLayout'
 import { CASTLE_ASSAULT_CELLS, CASTLE_DEPTH, CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
 import { findPath } from './pathfinding'
 import { TILE_PX, TILE_VARIANT } from './constants'
@@ -17,7 +17,7 @@ import { TILE } from './constants'
 import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
-import { armyPool, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, type DeploymentPlan } from './deployment'
+import { armyPool, cpuDeployment, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, type DeploymentPlan } from './deployment'
 import type { BattleMode, MapType, Squad, UnitType } from '../types/game'
 
 const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType = mapTypeForMode(mode, 'standard'), plan?: DeploymentPlan) => {
@@ -244,13 +244,17 @@ describe('部隊', () => {
 
     it('陣形を変えて、陣全体を移動できる', () => {
         const battle = makeBattle('777777')
+        const centerX = () => {
+            const squads = battle.squads.filter(sq => sq.owner === 'player')
+            return squads.reduce((sum, sq) => sum + sq.center.x, 0) / squads.length
+        }
+        const start = centerX()
         setFormation(battle, 'player', 'crane')
         const before = { ...battle.formations.player.anchor }
         moveFormation(battle, 'player', { x: before.x + 120, y: before.y })
         run(battle, 25)
         const squads = battle.squads.filter(sq => sq.owner === 'player')
-        const cx = squads.reduce((sum, sq) => sum + sq.center.x, 0) / squads.length
-        expect(cx).toBeGreaterThan(before.x + 40)
+        expect(centerX()).toBeGreaterThan(start + 40)
         // 補給部隊は陣形を変えても補給任務を続ける
         expect(squads.every(sq => sq.order === (sq.type === 'supply' ? 'support' : 'formation'))).toBe(true)
     }, 60000)
@@ -1025,6 +1029,58 @@ describe('開戦時の編成', () => {
 
 describe('中隊', () => {
     const run = (battle: ReturnType<typeof makeBattle>, seconds: number) => { for (let t = 0; t < seconds; t += 1 / 30) updateBattle(battle, 1 / 30) }
+
+    /** 中隊のかたまりの長方形（小隊の間も含む）にかかる柵・川の点と、砦の敷地に入る点の数。 */
+    const companyObstacles = (battle: ReturnType<typeof makeBattle>, companyId: number) => {
+        const squads = companySquads(battle, companyId)
+        const { fx, fy, rx, ry } = axes(squads[0]!.facing)
+        const corners = squads.flatMap(sq => {
+            const { width, depth } = squadBlock(sq.type, sq.size)
+            return [[0, -.5], [0, .5], [-1, -.5], [-1, .5]].map(([f, l]) => toWorld(sq.anchor, sq.facing, f! * depth, l! * width))
+        })
+        const forwards = corners.map(p => p.x * fx + p.y * fy), laterals = corners.map(p => p.x * rx + p.y * ry)
+        let blockedPoints = 0, fortPoints = 0
+        for (let f = Math.min(...forwards); f <= Math.max(...forwards); f += 4) for (let l = Math.min(...laterals); l <= Math.max(...laterals); l += 4) {
+            const x = fx * f + rx * l, y = fy * f + ry * l
+            if (!battle.paths.passable(x, y)) blockedPoints++
+            if (battle.forts.some(fort => { const area = fortFootprint(fort); return x > area.minX && x < area.maxX && y > area.minY && y < area.maxY })) fortPoints++
+        }
+        return { blockedPoints, fortPoints }
+    }
+
+    it('開戦時、どの戦いのどの陣形でも、中隊は砦の壁や川で分断されず、敵に接しない', () => {
+        for (const mode of ['field', 'siege', 'defense'] as BattleMode[]) for (const key of ['pike', 'combined']) for (const { type } of FORMATIONS) {
+            const battle = makeBattle('123456', mode, undefined, { ...presetDeployment(key, mode, 'player'), formation: type })
+            for (const company of battle.companies) expect(companyObstacles(battle, company.id), `${mode}/${key}/${type}/${company.owner}${company.number}`).toEqual({ blockedPoints: 0, fortPoints: 0 })
+            const reach = (owner: string) => battle.soldiers.filter(s => s.owner === owner).map(s => s.x)
+            expect(Math.min(...reach('cpu')) - Math.max(...reach('player')), `${mode}/${key}/${type}`).toBeGreaterThan(100)
+        }
+    }, 120000)
+
+    it('魔王軍もランダムな陣形で初めから布陣し、中隊は砦の壁で分断されない', () => {
+        for (const { type } of FORMATIONS) {
+            const { mapGrid } = generateMap(createMulberry32(hashString('123456')), mapTypeForMode('field', 'standard'))
+            const battle = createBattle(mapGrid, createMulberry32(1), 'field', { cpu: cpuDeployment('field', () => FORMATIONS.findIndex(f => f.type === type) / FORMATIONS.length) })
+            expect(battle.formations.cpu.type).toBe(type)
+            for (const company of battle.companies) expect(companyObstacles(battle, company.id).fortPoints, `${type}/${company.owner}${company.number}`).toBe(0)
+        }
+    }, 60000)
+
+    it('開戦後に持ち場を組み直しても、中隊は壁や川にかからない', () => {
+        const battle = makeBattle('123456', 'field', undefined, { ...presetDeployment('pike', 'field', 'player'), formation: 'circle' })
+        updateBattle(battle, 1 / 30)
+        for (const company of battle.companies) expect(companyObstacles(battle, company.id)).toEqual({ blockedPoints: 0, fortPoints: 0 })
+    })
+
+    it('編成を奥行きのある陣に変えて戻すと、陣の位置も正門前に戻る', () => {
+        const battle = makeBattle('123456')
+        const anchor = { ...battle.formations.player.anchor }
+        redeployArmy(battle, 'player', { ...presetDeployment('pike', 'field', 'player'), formation: 'circle' })
+        expect(battle.formations.player.anchor.x).toBeGreaterThan(anchor.x)
+        for (const company of battle.companies) expect(companyObstacles(battle, company.id).fortPoints).toBe(0)
+        redeployArmy(battle, 'player', defaultDeployment('field', 'player'))
+        expect(battle.formations.player.anchor).toEqual(anchor)
+    })
 
     it('開戦時、歩兵・槍兵・弓兵・騎兵の小隊はみな同じ兵種の隣り合う小隊と中隊を組み、工兵と補給兵は中隊に入らない', () => {
         const battle = makeBattle('123456')

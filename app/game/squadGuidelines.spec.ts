@@ -93,7 +93,7 @@ describe('行動に沿って動く', () => {
         const battle = makeBattle('123456')
         const director = createGuidelineDirector(battle)
         const commander = createCpuCommander(battle)
-        for (let t = 0; t < 60 && !director.awake; t += 1) run(battle, 1, director, commander)
+        for (let t = 0; t < 120 && !director.awake; t += 1) run(battle, 1, director, commander)
         expect(director.awake).toBe(true)
         run(battle, 3, director, commander)
         const assault = playerCompanies(battle).filter(c => c.guidance.guideline === 'assault')

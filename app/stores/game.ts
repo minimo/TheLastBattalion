@@ -10,7 +10,7 @@ import {
 } from '~/game/battle'
 import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
 import { createGuidelineDirector, markCommanded, setGuideline, type GuidelineDirector } from '~/game/squadGuidelines'
-import { defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
+import { cpuDeployment, defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
 import { START_TIME_MINUTES } from '~/game/daynight'
 import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, Directive, FormationType, GameStatus, Guideline, MapType, Point, SquadOrder, StartTime, UnitType } from '~/types/game'
 
@@ -142,7 +142,7 @@ export const useGameStore = defineStore('game', {
             this.mapType = mapTypeForMode(this.mode, this.mapChoice)
             const { mapGrid } = generateMap(rnd, this.mapType)
             this.mapGrid = markRaw(mapGrid)
-            const battle = createBattle(mapGrid, rnd, this.mode, { player: this.plans[this.mode] })
+            const battle = createBattle(mapGrid, rnd, this.mode, { player: this.plans[this.mode], cpu: cpuDeployment(this.mode, rnd) })
             battle.dayTime = START_TIME_MINUTES[this.startTime]
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))

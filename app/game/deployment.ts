@@ -1,5 +1,5 @@
 import { ARMY_CAP, INITIAL_SQUADS, RESERVES, SIEGE_ATTACKER_POOL, SIEGE_ATTACKER_SQUADS, SIEGE_DEFENDER_RESERVES } from './battleConfig'
-import { COMPANY_MAX_SQUADS, joinsCompany, SQUAD_SIZE } from './formation'
+import { COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, SQUAD_SIZE } from './formation'
 import { defaultGuideline, guidelineOptions } from './guidelines'
 import type { Army, BattleMode, FormationType, Guideline, UnitType } from '../types/game'
 
@@ -35,6 +35,11 @@ const totalOf = (counts: Record<UnitType, number>) => UNIT_TYPES.reduce((sum, ty
 /** 既定の編成（横陣。砦を持つ軍は INITIAL_SQUADS、攻め手は SIEGE_ATTACKER_SQUADS）。 */
 export function defaultDeployment(mode: BattleMode, owner: Army): DeploymentPlan {
     return normalizeDeployment({ formation: 'line', squads: squadsOf(hasFort(mode, owner) ? INITIAL_SQUADS : SIEGE_ATTACKER_SQUADS) }, mode, owner)
+}
+
+/** 魔王軍の編成。既定の編成を、ランダムな陣形で布陣する。 */
+export function cpuDeployment(mode: BattleMode, random: () => number): DeploymentPlan {
+    return { ...defaultDeployment(mode, 'cpu'), formation: FORMATIONS[Math.floor(random() * FORMATIONS.length)]!.type }
 }
 
 /** 軍の兵の総数（開戦時に布陣する兵＋砦に残る予備兵）。既定の編成なら、残りが従来の予備兵の数になる。 */

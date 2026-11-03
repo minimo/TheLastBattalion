@@ -1,6 +1,5 @@
-import { orderArmy, orderAttack, orderCharge, orderFormation, orderRetreat, setFormation, type Battle } from './battle'
+import { orderArmy, orderAttack, orderCharge, orderFormation, orderRetreat, type Battle } from './battle'
 import { createEngineerDirector } from './engineers'
-import { FORMATIONS } from './formation'
 import type { Point, Squad } from '../types/game'
 
 const THINK_INTERVAL = 2.5
@@ -15,8 +14,6 @@ const PURSUIT_RADIUS = 420
  * 攻城戦で砦を守るときは打って出ず、陣や砦に迫った敵部隊を迎え撃つ。
  */
 export function createCpuCommander(battle: Battle) {
-    // 開戦時の陣形はランダム
-    setFormation(battle, 'cpu', FORMATIONS[Math.floor(battle.random() * FORMATIONS.length)]!.type)
     const defending = battle.mode === 'siege'
     let charged = false
     const chargeAt = 12 + battle.random() * 14
