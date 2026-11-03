@@ -326,7 +326,7 @@ function occupyOutpost(battle: Battle, site: Construction) {
     }
 }
 
-/** 工兵の作業で建設を進め（完成したら地形に反映）、完成後は修理する。手付かずの建設予定地は片付ける。敵の工兵が占領を進め、終えたら拠点を奪う。 */
+/** 工兵の作業で建設を進め（完成したら地形に反映）、完成後は修理する。進み具合が0%（表示は切り捨て）のまま工兵が目標にしなくなった建設物は片付ける。敵の工兵が占領を進め、終えたら拠点を奪う。 */
 function updateConstructions(battle: Battle, dt: number) {
     for (const site of [...battle.constructions]) {
         if (site.occupiers > 0) {
@@ -346,7 +346,7 @@ function updateConstructions(battle: Battle, dt: number) {
                 if (site.progress >= 1 - 1e-9) completeConstruction(battle, site)
             } else site.hp = Math.min(site.maxHp, site.hp + site.workers * REPAIR_RATE * dt)
         }
-        if (site.progress <= 0 && !battle.squads.some(sq => sq.constructionId === site.id && (sq.order === 'build' || sq.resume?.order === 'build'))) {
+        if (site.progress < .01 && !battle.squads.some(sq => sq.order === 'build' ? sq.constructionId === site.id : sq.order === 'resupply' && sq.resume?.order === 'build' && sq.resume.constructionId === site.id)) {
             destroyConstruction(battle, site)
         }
     }

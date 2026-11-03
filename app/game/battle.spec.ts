@@ -645,6 +645,58 @@ describe('工兵の建設物', () => {
         expect(deckCost().every(c => c === 1 / WATER_SPEED.foot)).toBe(true)
     }, 240000)
 
+    describe('進み具合が0%のまま工兵がいなくなった建設物', () => {
+        /** 工兵1部隊に拠点を置かせる（ほかの工兵は建設を手伝わないよう、持ち場へ移動させておく）。 */
+        const placeOutpost = () => {
+            const battle = makeBattle('777777')
+            orderArmy(battle, 'cpu', 'hold')
+            const [builder, ...others] = engineers(battle)
+            run(battle, .1)
+            for (const squad of [builder!, ...others]) leaveCompany(battle, squad)
+            for (const squad of others) orderMove(battle, squad.id, squad.center)
+            const point = { x: builder!.center.x + 60, y: builder!.center.y + 40 }
+            expect(orderConstruct(battle, builder!.id, 'outpost', point)).toBe(true)
+            return { battle, builder: builder!, site: battle.constructions[0]! }
+        }
+
+        it('手付かずのものは、工兵が別の指示を受けると消える', () => {
+            const { battle, builder, site } = placeOutpost()
+            run(battle, .1)
+            expect(battle.constructionById.has(site.id)).toBe(true)
+            orderMove(battle, builder.id, builder.center)
+            run(battle, .1)
+            expect(battle.constructionById.has(site.id)).toBe(false)
+        })
+
+        it('作業が始まっていても表示が0%のうちなら消え、1%以上なら残る', () => {
+            const started = placeOutpost()
+            started.site.progress = .009
+            orderMove(started.battle, started.builder.id, started.builder.center)
+            run(started.battle, .1)
+            expect(started.battle.constructionById.has(started.site.id)).toBe(false)
+
+            const advanced = placeOutpost()
+            advanced.site.progress = .01
+            orderMove(advanced.battle, advanced.builder.id, advanced.builder.center)
+            run(advanced.battle, .1)
+            expect(advanced.battle.constructionById.has(advanced.site.id)).toBe(true)
+        })
+
+        it('工兵が補給に戻っている間は残り、補給中に別の指示を受けると消える', () => {
+            const { battle, builder, site } = placeOutpost()
+            // 体力を減らして、補給がすぐには終わらないようにする
+            builder.stamina = 0
+            orderResupply(battle, builder.id)
+            run(battle, .1)
+            expect(builder.order).toBe('resupply')
+            expect(battle.constructionById.has(site.id)).toBe(true)
+            orderMove(battle, builder.id, builder.center)
+            builder.stamina = STAMINA.max
+            run(battle, .1)
+            expect(battle.constructionById.has(site.id)).toBe(false)
+        })
+    })
+
     it('拠点は時間をかけて建ち、完成すると補給に戻る部隊が拠点で補給する', () => {
         const battle = makeBattle('777777')
         orderArmy(battle, 'cpu', 'hold')
