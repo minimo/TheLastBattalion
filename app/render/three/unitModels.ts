@@ -29,6 +29,8 @@ export interface UnitPart {
     role: PartRole
     pivot: THREE.Vector3
     geometry: THREE.BufferGeometry
+    /** 影を落とさない遠景の兵士に使う簡略形状。無い部位は遠景では描かない。 */
+    farGeometry?: THREE.BufferGeometry
 }
 
 export interface UnitModel {

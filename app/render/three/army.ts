@@ -12,7 +12,7 @@ const TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply',
 /** 中隊長の幟の大きさ（小隊長の幟に対する倍率）。 */
 export const COMPANY_BANNER_SCALE = 1.4
 
-interface PartBatch { role: PartRole; pivot: THREE.Vector3; buffer: InstanceBuffer }
+interface PartBatch { role: PartRole; pivot: THREE.Vector3; buffer?: InstanceBuffer }
 interface UnitBatch { parts: PartBatch[]; count: number }
 
 export interface ArmyRenderStats {
@@ -42,7 +42,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
     const batches = Object.fromEntries(ARMIES.map(army => [army, Object.fromEntries(TYPES.map(type => {
         const model = models[army][type]
         const makeBatch = (shadow: boolean): UnitBatch => ({ count: 0, parts: model.parts.map(p =>
-            ({ role: p.role, pivot: p.pivot, buffer: buffer(p.geometry, material, shadow) })) })
+            ({ role: p.role, pivot: p.pivot, buffer: shadow ? buffer(p.geometry, material, true) : p.farGeometry && buffer(p.farGeometry, material, false) })) })
         // Any joint rotation preserves this radius. Include bob and the pikeman's thrust.
         const radius = Math.max(...model.parts.map(p => {
             p.geometry.computeBoundingSphere()
@@ -158,9 +158,11 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 const swing = s.swing > 0 ? Math.sin((1 - s.swing / .45) * Math.PI) : 0
                 for (let partIndex = 0; partIndex < batch.parts.length; partIndex++) {
                     const p = batch.parts[partIndex]!
+                    if (!p.buffer) continue
                     let rx = 0, dy = p.role === 'mountFront' || p.role === 'mountBack' ? 0 : bob
+                    // The distant model has only the carried pose, so that is never hidden.
                     const hide = s.type === 'archer' && (p.role === 'nock' ? !aiming || s.swing > .35
-                        : p.role === 'weapon' ? !aiming : p.role === 'carry' && aiming)
+                        : p.role === 'weapon' ? !aiming : p.role === 'carry' && aiming && shadow)
                     if (p.role === 'legL' || p.role === 'mountFront') rx = stride
                     else if (p.role === 'legR' || p.role === 'mountBack') rx = -stride
                     else if (p.role === 'nock') rx = bowPitch
@@ -220,7 +222,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 finish(banners[army].near, banners[army].nearCount)
                 finish(banners[army].far, banners[army].farCount)
             }
-            for (const batch of allBatches) for (const p of batch.parts) finish(p.buffer, batch.count)
+            for (const batch of allBatches) for (const p of batch.parts) if (p.buffer) finish(p.buffer, batch.count)
             // 飛んでいる矢: 放物線上の位置に置き、向きを軌道の接線に合わせる。
             for (let i = 0; i < arrows.length; i++) {
                 const arrow = arrows[i]!
@@ -253,8 +255,8 @@ export function createArmyRenderer(scene: THREE.Scene) {
             stats.updateMs = performance.now() - started
         },
         destroy() {
-            for (const batch of allBatches) for (const p of batch.parts) p.buffer.dispose()
-            for (const army of ARMIES) for (const type of TYPES) for (const p of models[army][type].parts) p.geometry.dispose()
+            for (const batch of allBatches) for (const p of batch.parts) p.buffer?.dispose()
+            for (const army of ARMIES) for (const type of TYPES) for (const p of models[army][type].parts) { p.geometry.dispose(); p.farGeometry?.dispose() }
             flying.dispose(); trails.dispose(); stuck.dispose(); arrowGeometry.dispose(); trailGeometry.dispose(); trailMaterial.dispose()
             rings.dispose(); ringGeometry.dispose(); ringMaterial.dispose()
             for (const army of ARMIES) { banners[army].near.dispose(); banners[army].far.dispose(); bannerGeometries[army].dispose() }

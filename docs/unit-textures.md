@@ -24,10 +24,19 @@
 
 弓兵の三角形数は画面に出る分。通常時の腕と弓（106三角形）は構えの部位と入れ替わるので数えない。
 
+## 遠景モデル
+
+影を落とさない遠景の兵士（距離がおよそ850を超えるか、高さが数pxの兵士）には、約150三角形（騎兵は約200）の簡略モデルを使う。`army.ts` の影なしバッチが `farGeometry` を描くので、描画回数は増えない。
+
+- 簡略モデルは `export-unit.py` が通常モデルをDecimateで自動的に減らして作り、同じJSONの `lod` に入れる。編集用の `.blend` は変更しない。
+- 陰影やUVも簡略モデルの形から作り直す。
+- 遠景の弓兵は携えた姿勢だけで、構えの部位（`weapon`、`nock`）を持たない。遠景では攻撃中も弓を構えて見えない。
+
 ## ファイル
 
 - `scripts/blender/unit_surfaces.py`：セルの配置、粗さ・金属度、共通パレット。色の調整はここで行う。
 - `scripts/blender/generate-unit-atlas.py`：テクスチャ2枚を生成する。同じ入力からは同じ画像ができる。
+- `scripts/blender/export-all.py`：全モデルをまとめて再書き出しする。三角形の上限と遠景モデルの目標もここに書く。
 - `scripts/blender/export-unit.py`：全兵種共通の書き出し。UV、角度で滑らかさを分けた法線、頂点に焼き込む陰影をメッシュから自動で作る。
 - `scripts/blender/unit_kit.py`：モデル生成の共通部品。
 - `scripts/blender/refine-units.py`：オーク・ゴブリン・オオカミ騎兵・人間の補給兵と工兵の生成。兵種ごとにシーンを追加し、開いているファイルは保存しない。編集用データは `assets/blender/units.blend`。
@@ -42,16 +51,10 @@
 Blender --background --python scripts/blender/generate-unit-atlas.py
 ```
 
-モデルの書き出し（`--max-triangles` は置き換え前の三角形数）：
+全モデルの再書き出し（`.blend` は保存されない）：
 
 ```sh
-Blender assets/blender/units.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Orc Infantry Study' --output orcInfantry --max-triangles 624
-Blender assets/blender/human-infantry.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Infantry Study' --output humanInfantry --max-triangles 608
-Blender assets/blender/human-pikeman.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Pikeman Study' --output humanPikeman --max-triangles 654
-Blender assets/blender/human-archer.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Archer Study' --output humanArcher --max-triangles 539
-Blender assets/blender/human-cavalry-textured.blend --background --python scripts/blender/export-unit.py -- --scene 'TLB Cavalry Study' --output humanCavalry --max-triangles 744
+Blender --background --factory-startup --python scripts/blender/export-all.py
 ```
 
-`units.blend` の他の兵種も、シーン名（`TLB Orc Pikeman Study` など）と出力名を変えて同じように書き出す。幟と矢（`TLB Banner Study`、`TLB Monster Banner Study`、`TLB Arrow Study`）は `--prop` を付ける。
-
-起動中のBlenderからは、`EXPORT_ARGV` に同じ引数のリストを渡して `export-unit.py` を `exec` する。
+起動中のBlenderからは、`EXPORT_ARGV` に `export-unit.py` の引数のリストを渡して `exec` する。

@@ -81,6 +81,28 @@ describe('army visibility and cached transforms', () => {
         expect(r.stats.matrixWrites).toBeGreaterThan(0)
     })
 
+    it('draws simplified models beyond shadow range, with archers staying in the carried pose', () => {
+        const r = renderer(), archer = soldier(1, { type: 'archer', moving: false, state: 'fight', aim: .3 })
+        const distant = view()
+        ;(distant.camera as THREE.PerspectiveCamera).position.set(0, 800, 1400)
+        distant.camera.lookAt(0, 0, 0); distant.camera.updateMatrixWorld()
+        update(r, [archer], { view: distant })
+        const meshes = activeMeshes(r)
+        expect(r.stats.shadowSoldiers).toBe(0)
+        expect(meshes.map(mesh => mesh.geometry.name.split(':')[1]).sort()).toEqual(['body', 'carry', 'legL', 'legR'])
+        expect(meshes.every(mesh => mesh.geometry.name.endsWith(':far'))).toBe(true)
+        // The archer is aiming, yet the carried arms stay visible because no aiming model exists at this range.
+        const matrix = new THREE.Matrix4()
+        meshes.find(mesh => mesh.geometry.name.includes('carry'))!.getMatrixAt(0, matrix)
+        expect(matrix.elements[0]).not.toBe(0)
+        // Coming back within range swaps to the detailed model, with the bow drawn.
+        update(r, [archer])
+        const near = activeMeshes(r)
+        expect(near).toHaveLength(6)
+        near.find(mesh => mesh.geometry.name.includes('carry'))!.getMatrixAt(0, matrix)
+        expect(matrix.elements[0]).toBe(0)
+    })
+
     it('repacks cached poses when another soldier disappears and handles reused IDs and capacity growth', () => {
         const r = renderer()
         const soldiers = Array.from({ length: 130 }, (_, i) => soldier(i, { x: i }))
