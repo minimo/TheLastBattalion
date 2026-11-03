@@ -90,7 +90,9 @@ export function createModelKit() {
         return geometry
     }
     const track = <T extends THREE.BufferGeometry>(geometry: T) => { geometries.add(geometry); return geometry }
-    return { box, rounded, cone, cylinder, sphere, surfaces, material, metal, cloth, part, bake, curveCloth, track, destroy() {
+    /** 作り直しを繰り返す形（下見など）を手放す。 */
+    const release = (geometry: THREE.BufferGeometry) => { geometries.delete(geometry); geometry.dispose() }
+    return { box, rounded, cone, cylinder, sphere, surfaces, material, metal, cloth, part, bake, curveCloth, track, release, destroy() {
         geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); occluderMaterial.dispose(); surfaces.destroy()
     } }
 }

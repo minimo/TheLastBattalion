@@ -759,13 +759,13 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             // 建設場所の下見（場所選び中、または工兵を川へドラッグ中の橋）。
             const buildPlan = input.buildPreview()
                 ?? (preview?.order === 'build' && preview.kind ? input.buildPreviewAt(preview.kind, input.worldMousePos.value) : null)
-                ?? input.placementPreview()
             constructions.preview(buildPlan)
             const ringed = new Set(input.selectedSquadId.value !== null ? [input.selectedSquadId.value] : selectedCompany !== null ? battle.companyById.get(selectedCompany)?.squadIds ?? [] : [])
             armyView.viewportHeight = canvasEl.clientHeight
             army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()), armyView)
             updatePaths()
             updatePlacementOverlay()
+            placementOverlay.preview(input.placementPreview())
         }
         pathOverlay.updateCamera()
         const renderStarted = performance.now()
