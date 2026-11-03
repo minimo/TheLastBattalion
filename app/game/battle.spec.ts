@@ -126,7 +126,8 @@ describe('戦闘', () => {
         const battle = makeBattle('123456')
         const commander = createCpuCommander(battle)
         orderArmy(battle, 'player', 'charge')
-        for (let t = 0; t < 80 && !battle.winner; t += 1 / 30) { updateBattle(battle, 1 / 30); commander.update(1 / 30) }
+        // 開戦から約2分は昼で魔王軍の足が遅いので、ぶつかるまでに時間がかかる。
+        for (let t = 0; t < 120 && !battle.winner; t += 1 / 30) { updateBattle(battle, 1 / 30); commander.update(1 / 30) }
         expect(battle.killed.player + battle.killed.cpu).toBeGreaterThan(100)
         for (const s of battle.soldiers) if (s.state !== 'dead') expect(isBlocked(battle.grid, s.x, s.y)).toBe(false)
     }, 120000)
@@ -205,7 +206,7 @@ describe('部隊', () => {
         expect(summarize(battle).cpu.deserted).toBe(battle.deserted.cpu)
         expect(battle.deserted.player).toBe(0)
         expect(battle.soldiers.some(s => s.owner === 'player' && s.desertion)).toBe(false)
-    })
+    }, 120000)
 
     it('突撃しても、兵は隊長から離れすぎない', () => {
         const battle = makeBattle('123456')
@@ -676,7 +677,8 @@ describe('工兵の建設物', () => {
         // 補給の間、砦の補給を受けられる距離には入らない。
         const home = battle.forts.find(f => f.owner === 'player')!
         let nearest = Infinity
-        for (let t = 0; t < 60 && archers.order === 'resupply'; t += 1) {
+        // 弓兵は山のふもとを列になって回り込むので、揃うまでに1分以上かかる。
+        for (let t = 0; t < 120 && archers.order === 'resupply'; t += 1) {
             run(battle, 1)
             nearest = Math.min(nearest, Math.hypot(archers.center.x - home.x, archers.center.y - home.y))
         }
@@ -739,6 +741,8 @@ describe('工兵の建設物', () => {
         site.progress = .999
         for (let t = 0; t < 60 && !site.complete; t += 1) run(battle, 1)
         expect(site.complete).toBe(true)
+        // 解体の途中で増援に倒されて人数が変わらないよう、砦の予備兵もなくしておく
+        for (const fort of battle.forts) if (fort.owner === 'player') fort.reserves = 0
         for (const s of battle.soldiers) if (s.owner === 'player') { s.state = 'dead'; s.deathTime = battle.time }
         /** 魔王軍の小隊1人あたり、1秒で壊す耐久。 */
         const rate = (type: UnitType) => {
