@@ -40,10 +40,30 @@ export function reliefAt(type: MapType, noise: Noise, x: number, y: number): num
     }
 }
 
+/** 隣の頂点との勾配が maxGrade を超えないように、高すぎる所を削る（低い所は変えない）。 */
+function limitGrade(heights: Float32Array, size: number, maxGrade: number) {
+    if (maxGrade === Infinity) return
+    const straight = maxGrade * MESH_STEP, diagonal = straight * Math.SQRT2
+    const relax = (j: number, i: number, fromJ: number, fromI: number, rise: number) => {
+        if (fromJ < 0 || fromJ >= size || fromI < 0 || fromI >= size) return
+        const limit = heights[fromJ * size + fromI]! + rise
+        if (heights[j * size + i]! > limit) heights[j * size + i] = limit
+    }
+    // 2回の走査で、低い所から広がる上限が全体に行き渡る。
+    for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+        relax(j, i, j, i - 1, straight); relax(j, i, j - 1, i, straight)
+        relax(j, i, j - 1, i - 1, diagonal); relax(j, i, j - 1, i + 1, diagonal)
+    }
+    for (let j = size - 1; j >= 0; j--) for (let i = size - 1; i >= 0; i--) {
+        relax(j, i, j, i + 1, straight); relax(j, i, j + 1, i, straight)
+        relax(j, i, j + 1, i + 1, diagonal); relax(j, i, j + 1, i - 1, diagonal)
+    }
+}
+
 /** Rendering-only elevation. Never modifies the map or movement costs. */
 export function createHeightfield(grid: number[][], bases: Base[], mapType: MapType = mapTypeOf(grid)) {
     const noise = createNoise2D(createMulberry32(hashString(JSON.stringify(grid))))
-    const { mountainScale } = TERRAIN_PROFILE[mapType]
+    const { mountainScale, maxGrade } = TERRAIN_PROFILE[mapType]
     const ridgeVariation = mapType === 'demonland' ? .3 : .12
     const waterAt = (gx: number, gy: number) => {
         const tile = grid[Math.max(0, Math.min(grid.length - 1, gy))]?.[Math.max(0, Math.min(grid.length - 1, gx))]
@@ -100,6 +120,7 @@ export function createHeightfield(grid: number[][], bases: Base[], mapType: MapT
         }
         heights[j * size + i] = h
     }
+    limitGrade(heights, size, maxGrade)
     const heightAt = (x: number, y: number) => {
         const gx = Math.max(0, Math.min(size - 1.000001, (x - MAP_MIN) / MESH_STEP))
         const gy = Math.max(0, Math.min(size - 1.000001, (y - MAP_MIN) / MESH_STEP))

@@ -28,30 +28,32 @@ export interface TerrainProfile {
     oases: [min: number, max: number]
     /** 山のマスの高さの倍率。 */
     mountainScale: number
+    /** 地面の勾配（高さの差÷水平距離）の上限。1で45度。超える所は削る。 */
+    maxGrade: number
     /** 戦場の外の山並みの高さ: 近く（base）と遠く（far）。 */
     outerMountain: { base: number; far: number; sharp: number }
 }
 
 export const TERRAIN_PROFILE: Record<MapType, TerrainProfile> = {
     standard: {
-        rivers: rnd => 1 + Math.floor(rnd() * 2), mountainAbove: .45, woodAbove: .3, oases: [0, 0], mountainScale: 1,
+        rivers: rnd => 1 + Math.floor(rnd() * 2), mountainAbove: .45, woodAbove: .3, oases: [0, 0], mountainScale: 1, maxGrade: 1.2,
         outerMountain: { base: 85, far: 320, sharp: 2 },
     },
     meadow: {
-        rivers: () => 0, mountainAbove: .6, woodAbove: .5, oases: [0, 0], mountainScale: .75,
+        rivers: () => 0, mountainAbove: .6, woodAbove: .5, oases: [0, 0], mountainScale: .75, maxGrade: Infinity,
         outerMountain: { base: 45, far: 220, sharp: 2 },
     },
     desert: {
-        rivers: () => 0, mountainAbove: .68, woodAbove: Infinity, oases: [1, 2], mountainScale: .8,
+        rivers: () => 0, mountainAbove: .68, woodAbove: Infinity, oases: [1, 2], mountainScale: .8, maxGrade: Infinity,
         outerMountain: { base: 20, far: 160, sharp: 3 },
     },
     wasteland: {
         // 4割ほどは川がなく、残りは1〜2本。
-        rivers: rnd => { const r = rnd(); return r < .4 ? 0 : r < .8 ? 1 : 2 }, mountainAbove: .56, woodAbove: .62, oases: [0, 0], mountainScale: .8,
+        rivers: rnd => { const r = rnd(); return r < .4 ? 0 : r < .8 ? 1 : 2 }, mountainAbove: .56, woodAbove: .62, oases: [0, 0], mountainScale: .8, maxGrade: Infinity,
         outerMountain: { base: 60, far: 260, sharp: 1 },
     },
     demonland: {
-        rivers: rnd => 1 + Math.floor(rnd() * 2), mountainAbove: .52, woodAbove: .6, oases: [0, 0], mountainScale: 1,
+        rivers: rnd => 1 + Math.floor(rnd() * 2), mountainAbove: .52, woodAbove: .6, oases: [0, 0], mountainScale: 1, maxGrade: Infinity,
         outerMountain: { base: 100, far: 280, sharp: 4 },
     },
 }

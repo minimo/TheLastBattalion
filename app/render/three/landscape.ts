@@ -20,7 +20,7 @@ export interface Foundation { minX: number; maxX: number; minY: number; maxY: nu
  */
 export function createLandscape(grid: number[][], field: Heightfield, foundations: Foundation[] = [], shape?: (x: number, y: number, h: number) => number) {
     const noise = createNoise2D(createMulberry32(hashString(JSON.stringify(grid)) ^ 0x62a5b39))
-    const { mapType } = field, outer = TERRAIN_PROFILE[mapType].outerMountain
+    const { mapType } = field, { outerMountain: outer, maxGrade } = TERRAIN_PROFILE[mapType]
     // 荒野の山は頂の平らな台地になる。
     const terrace = (h: number) => {
         const k = h / 36, f = k - Math.floor(k)
@@ -69,7 +69,9 @@ export function createLandscape(grid: number[][], field: Heightfield, foundation
             const width = mouth.width + Math.min(28, along * .012)
             const bank = Math.abs(across - meander) - width
             const riverbed = Math.max(-6, bank * .6)
-            h = Math.min(h, riverbed + h * smooth(4, 110, bank))
+            // 高い山を切る谷ほど幅を広げ、谷の斜面を上限の勾配に収める（smooth の傾きは最大で平均の1.5倍）。
+            const valley = Math.max(110, h * 1.5 / maxGrade)
+            h = Math.min(h, riverbed + h * smooth(4, valley, bank))
         }
         const boundary = field.heightAt(Math.max(MAP_MIN, Math.min(MAP_MAX, x)), Math.max(MAP_MIN, Math.min(MAP_MAX, y)))
         h = boundary + (h - boundary) * smooth(0, 200, distance)
