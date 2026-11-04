@@ -48,14 +48,22 @@ export function createForest(trees: Tree[], kit: ModelKit, style: MapTheme['tree
     }
 }
 
-function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['trees']>): { group: THREE.Group; parts: TreePart[]; destroy(): void } {
-    if (style.style === 'palm') return createPalms(trees, kit)
-    if (style.style === 'dead') return createDeadTrees(trees, kit, style.barkColor ?? 0x4d463e)
-    // 森林は木の数が桁違いに多いので、葉を大きく枚数を少なくし、枝を省く。
-    const light = style.style === 'woodland'
-    const sprays = light ? 44 : 170, sprayWidth = light ? 8.5 : 4.8, sprayHeight = light ? 10.5 : 6
-    const group = new THREE.Group()
-    // A branch spray with individual leaf silhouettes, shared by all crowns.
+/**
+ * 影を落とすためだけの、葉の板を間引いた樹冠。木の数が多い森林で、影に描く葉を3分の1に減らす。
+ * 通常の描画では画面の外へ飛ばして何も塗らず、影の描画では葉の絵の形どおりに描かれる。
+ */
+function createCrownShadows(leaves: THREE.InstancedMesh, geometry: THREE.BufferGeometry, leafMap: THREE.Texture) {
+    const material = new THREE.ShaderMaterial({ side: THREE.DoubleSide, colorWrite: false, depthWrite: false, vertexShader: 'void main() { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); }', fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }' })
+    const mesh = new THREE.InstancedMesh(geometry, material, leaves.count)
+    mesh.instanceMatrix.array.set(leaves.instanceMatrix.array)
+    const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leafMap, alphaTest: .25 })
+    mesh.customDepthMaterial = depth
+    mesh.castShadow = true
+    return { mesh, destroy() { mesh.dispose(); geometry.dispose(); material.dispose(); depth.dispose() } }
+}
+
+/** 葉のついた小枝の絵。根元が絵の下端にある。 */
+function createLeafMap() {
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = 128
     const ctx = canvas.getContext('2d')!
@@ -72,13 +80,121 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
     const leafMap = new THREE.CanvasTexture(canvas)
     leafMap.colorSpace = THREE.SRGBColorSpace
     leafMap.anisotropy = 4
+    return leafMap
+}
+
+/** 森林の木の寸法（木の大きさ1のとき）。太枝は下ほど長く水平に近く、上ほど短く立つ。 */
+const WOODLAND = {
+    trunk: { height: 22, base: .95, top: .12 },
+    boughs: 8,
+    bough: { lowest: 9, highest: 20, longest: 6, shortest: 2.5, flattest: 25, steepest: 50, base: .42, tip: .2 },
+    twig: { longest: 2.8, shortest: 1.8, spread: .75, base: .17 },
+    /** 葉の板の幅と長さ。絵の透明な余白は切り落とす。 */
+    leaf: { width: 13, length: 10, crop: { width: .5, top: .9375 } },
+}
+
+/**
+ * 森林の木の形を1本ぶん作る。幹から太枝、太枝から小枝が分かれ、葉の板は根元を枝につけて枝先の向きへ伸ばす。
+ * 三角形を増やさないよう、枝は先細りの三角錐にする。
+ */
+function buildWoodlandTree() {
+    const { trunk, boughs, bough, twig, leaf } = WOODLAND
+    const up = new THREE.Vector3(0, 1, 0)
+    const wood: THREE.BufferGeometry[] = [], plates: THREE.BufferGeometry[] = []
+    const limb = (start: THREE.Vector3, direction: THREE.Vector3, length: number, base: number, tip = 0, sides = 3) => {
+        const geometry = new THREE.CylinderGeometry(tip, base, length, sides, 1, true).translate(0, length / 2, 0)
+        geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, direction)).translate(start.x, start.y, start.z)
+        wood.push(geometry)
+    }
+    /** 根元を base に置いた葉の板。空へ面を向け、向きに合わせて少しひねる。 */
+    const plate = (base: THREE.Vector3, direction: THREE.Vector3, roll: number) => {
+        const { width, length, crop } = leaf
+        const h = length * crop.top
+        const geometry = new THREE.PlaneGeometry(width * crop.width, h).translate(0, h / 2, 0)
+        const uv = geometry.getAttribute('uv')
+        for (let j = 0; j < uv.count; j++) uv.setXY(j, .5 + (uv.getX(j) - .5) * crop.width, uv.getY(j) * crop.top)
+        const along = direction.clone().normalize()
+        const face = up.clone().addScaledVector(along, -up.dot(along)).normalize().applyAxisAngle(along, roll)
+        const side = along.clone().cross(face)
+        geometry.applyMatrix4(new THREE.Matrix4().makeBasis(side, along, face).setPosition(base))
+        plates.push(geometry)
+    }
+    /** 水平に turn だけ振り、rise だけ起こした向き。 */
+    const turned = (direction: THREE.Vector3, turn: number, rise: number) => direction.clone().applyAxisAngle(up, turn).setY(direction.y + rise).normalize()
+
+    limb(new THREE.Vector3(), up, trunk.height, trunk.base, trunk.top, 5)
+    for (let b = 0; b < boughs; b++) {
+        const t = b / (boughs - 1), angle = b * 2.399963
+        const elevation = (bough.flattest + (bough.steepest - bough.flattest) * t) * Math.PI / 180
+        const direction = new THREE.Vector3(Math.cos(angle) * Math.cos(elevation), Math.sin(elevation), Math.sin(angle) * Math.cos(elevation))
+        const start = new THREE.Vector3(0, bough.lowest + (bough.highest - bough.lowest) * t, 0)
+        const length = bough.longest + (bough.shortest - bough.longest) * t
+        limb(start, direction, length, bough.base + (bough.tip - bough.base) * t)
+        // 太枝の先の葉は、太枝の伸びる向きのまま少し垂らす。
+        const end = start.clone().addScaledVector(direction, length * .95)
+        plate(end, turned(direction, 0, -.25), Math.sin(b * 3.1) * .9)
+        for (const side of [-1, 1]) {
+            const twigStart = start.clone().addScaledVector(direction, length * (side < 0 ? .5 : .72))
+            const twigDirection = turned(direction, side * twig.spread, .05)
+            const twigLength = twig.longest + (twig.shortest - twig.longest) * t
+            limb(twigStart, twigDirection, twigLength, twig.base)
+            plate(twigStart.clone().addScaledVector(twigDirection, twigLength * .95), turned(twigDirection, 0, -.2), side * (.5 + .5 * Math.sin(b * 1.7)))
+            plate(twigStart.clone().addScaledVector(twigDirection, twigLength * .45), turned(twigDirection, side * .9, -.05), Math.cos(b * 2.1) * side)
+        }
+    }
+    // 幹の先を上から覆う葉。
+    for (let k = 0; k < 4; k++) {
+        const angle = k * Math.PI / 2 + .4
+        plate(new THREE.Vector3(0, trunk.height - .6, 0), new THREE.Vector3(Math.cos(angle), .4, Math.sin(angle)), k * .3)
+    }
+    const woodGeometry = mergeGeometries(wood)!, crownGeometry = mergeGeometries(plates)!
+    const shadowGeometry = mergeGeometries(plates.filter((_, i) => i % 3 === 0))!
+    wood.forEach(g => g.dispose()); plates.forEach(g => g.dispose())
+    return { woodGeometry, crownGeometry, shadowGeometry }
+}
+
+/** 森林の木。数が桁違いに多いので、1本の形を全部の木で共有し、向きと大きさだけを変える。 */
+function createWoodlandTrees(trees: Tree[], kit: ModelKit) {
+    const group = new THREE.Group()
+    const leafMap = createLeafMap()
+    const leafMaterial = new THREE.MeshLambertMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, color: 0xd6d8c2 })
+    const { woodGeometry, crownGeometry, shadowGeometry } = buildWoodlandTree()
+    const wood = new THREE.InstancedMesh(woodGeometry, kit.surfaces.bark, trees.length)
+    const leaves = new THREE.InstancedMesh(crownGeometry, leafMaterial, trees.length)
+    const dummy = new THREE.Object3D(), color = new THREE.Color()
+    trees.forEach((tree, i) => {
+        dummy.position.set(tree.x, tree.h - .3, tree.z)
+        dummy.rotation.set(0, i * 1.7, 0)
+        dummy.scale.set(tree.scale, tree.scale * (1 + .15 * Math.sin(i)), tree.scale)
+        dummy.updateMatrix()
+        wood.setMatrixAt(i, dummy.matrix); leaves.setMatrixAt(i, dummy.matrix)
+        leaves.setColorAt(i, color.setHSL(.22 + .03 * Math.sin(i), .22, .54 + .1 * Math.sin(i * 2.8)))
+    })
+    wood.castShadow = true
+    leaves.receiveShadow = true
+    const shadows = createCrownShadows(leaves, shadowGeometry, leafMap)
+    group.add(wood, leaves, shadows.mesh)
+    const parts: TreePart[] = [[wood, 1], [leaves, 1], [shadows.mesh, 1]]
+    return { group, parts, destroy() {
+        shadows.destroy(); wood.dispose(); leaves.dispose()
+        woodGeometry.dispose(); crownGeometry.dispose(); leafMaterial.dispose(); leafMap.dispose()
+    } }
+}
+
+function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['trees']>): { group: THREE.Group; parts: TreePart[]; destroy(): void } {
+    if (style.style === 'palm') return createPalms(trees, kit)
+    if (style.style === 'dead') return createDeadTrees(trees, kit, style.barkColor ?? 0x4d463e)
+    if (style.style === 'woodland') return createWoodlandTrees(trees, kit)
+    const group = new THREE.Group()
+    // A branch spray with individual leaf silhouettes, shared by all crowns.
+    const leafMap = createLeafMap()
     const leafMaterial = new THREE.MeshStandardMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .95, color: 0xced3b5 })
     const parts: THREE.BufferGeometry[] = []
     // Layer sprays throughout an irregular volume, rather than stacking cones.
-    for (let i = 0; i < sprays; i++) {
-        const a = i * 2.399963, v = 1 - 2 * (i + .5) / sprays
+    for (let i = 0; i < 170; i++) {
+        const a = i * 2.399963, v = 1 - 2 * (i + .5) / 170
         const r = Math.sqrt(1 - v * v), radius = .6 + .4 * (.5 + .5 * Math.sin(i * 13.7))
-        const geometry = new THREE.PlaneGeometry(sprayWidth, sprayHeight, 1, light ? 1 : 2)
+        const geometry = new THREE.PlaneGeometry(4.8, 6, 1, 2)
         const position = geometry.getAttribute('position')
         for (let j = 0; j < position.count; j++) position.setZ(j, Math.abs(position.getY(j)) * .18)
         geometry.rotateY(a + .8)
@@ -89,9 +205,9 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
     }
     const crownGeometry = mergeGeometries(parts)!
     parts.forEach(g => g.dispose())
-    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, light ? 5 : 12, 1, light)
+    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 12)
     const trunks = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, trees.length)
-    const branches = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, light ? 0 : trees.length * 5)
+    const branches = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, trees.length * 5)
     const leaves = new THREE.InstancedMesh(crownGeometry, leafMaterial, trees.length)
     const dummy = new THREE.Object3D(), color = new THREE.Color(), up = new THREE.Vector3(0, 1, 0)
     trees.forEach((tree, i) => {
@@ -99,7 +215,7 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
         dummy.position.set(tree.x, tree.h + 8 * tree.scale, tree.z)
         dummy.scale.set(.85 * tree.scale, 16 * tree.scale, .85 * tree.scale)
         dummy.updateMatrix(); trunks.setMatrixAt(i, dummy.matrix)
-        for (let j = 0; !light && j < 5; j++) {
+        for (let j = 0; j < 5; j++) {
             const angle = j * 2.4 + i
             const start = new THREE.Vector3(tree.x, tree.h + (7 + j * 1.2) * tree.scale, tree.z)
             const end = new THREE.Vector3(tree.x + Math.cos(angle) * 5 * tree.scale, tree.h + (16 + j * .6) * tree.scale, tree.z + Math.sin(angle) * 5 * tree.scale)
@@ -118,7 +234,7 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
     trunks.castShadow = branches.castShadow = leaves.castShadow = true
     leaves.receiveShadow = true
     group.add(trunks, branches, leaves)
-    return { group, parts: [[trunks, 1], [branches, light ? 0 : 5], [leaves, 1]], destroy() {
+    return { group, parts: [[trunks, 1], [branches, 5], [leaves, 1]], destroy() {
         trunks.dispose(); branches.dispose(); leaves.dispose()
         trunkGeometry.dispose(); crownGeometry.dispose(); leafMaterial.dispose(); leafMap.dispose()
     } }

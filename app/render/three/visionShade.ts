@@ -31,7 +31,8 @@ export function createVisionShade() {
     }
     const shaded = new WeakSet<THREE.Material>()
     const shade = (material: THREE.Material) => {
-        if (shaded.has(material) || !(material as THREE.MeshStandardMaterial).isMeshStandardMaterial) return
+        const lit = material as Partial<Pick<THREE.MeshStandardMaterial, 'isMeshStandardMaterial'> & Pick<THREE.MeshLambertMaterial, 'isMeshLambertMaterial'>>
+        if (shaded.has(material) || !(lit.isMeshStandardMaterial || lit.isMeshLambertMaterial)) return
         shaded.add(material)
         const before = material.onBeforeCompile.bind(material)
         const key = material.customProgramCacheKey()
