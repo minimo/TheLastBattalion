@@ -84,6 +84,8 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
         travel: new Map<number, number>(),
         /** 部隊ごとの隊長の歩く速さの倍率（遅れた兵がいると緩める、毎ティック算出）。 */
         pace: new Map<number, number>(),
+        /** 部隊ごとの、隊長が遅れた兵を待っている時間。COHESION.waitLimit を超えたら待たずに進む。 */
+        waited: new Map<number, number>(),
         /** 中隊で動いている小隊の、いちばん遅い小隊に歩みをそろえる速さの倍率（毎ティック算出。そろえなければ無い）。 */
         stride: new Map<number, number>(),
         /** ドラッグ中の矢印の下見のために登録した、経路の目標。 */
@@ -208,6 +210,13 @@ const impassable = (battle: Battle, x: number, y: number) => !battle.paths.walka
 function isClearLine(battle: Battle, x0: number, y0: number, x1: number, y1: number) {
     const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 6))
     for (let i = 1; i <= steps; i++) if (blocked(battle, x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)) return false
+    return true
+}
+
+/** 2点間の直線が柵にかからないか（川は渡れるので見ない）。 */
+function isWalkableLine(battle: Battle, x0: number, y0: number, x1: number, y1: number) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 6))
+    for (let i = 1; i <= steps; i++) if (impassable(battle, x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)) return false
     return true
 }
 
@@ -400,7 +409,7 @@ export function spawnSoldier(battle: Battle, squad: Squad, x: number, y: number,
         heading: squad.facing, moving: false,
         path: [], pathIndex: 0, pathGoal: '', targetId: -1,
         thinkTimer: battle.random() * .5, attackTimer: battle.random() * stats.cooldown, swing: 0, runTime: 0, fleeTimer: 0,
-        courage: .75 + battle.random() * .5, elapsedTime: battle.random() * 10, deathTime: 0, stuckTime: 0, detour: 0, lane, routeDirect: true, vx: 0, vy: 0, aim: 0, arrows, maxArrows: arrows,
+        courage: .75 + battle.random() * .5, elapsedTime: battle.random() * 10, deathTime: 0, stuckTime: 0, detour: 0, lane, routeDirect: true, slip: false, vx: 0, vy: 0, aim: 0, arrows, maxArrows: arrows,
         constructionId: -1, regroup: false, desertion: null, spottedUntil: 0,
     }
     battle.soldiers.push(soldier)
@@ -1453,7 +1462,7 @@ function moveToward(battle: Battle, s: Soldier, tx: number, ty: number, dt: numb
     const step = Math.min(distance, speed * dt)
     const nx = s.x + dx / distance * step, ny = s.y + dy / distance * step
     const ox = s.x, oy = s.y
-    if (!impassable(battle, nx, ny)) { s.x = nx; s.y = ny }
+    if (s.slip || !impassable(battle, nx, ny)) { s.x = nx; s.y = ny }
     else if (!impassable(battle, nx, s.y)) s.x = nx
     else if (!impassable(battle, s.x, ny)) s.y = ny
     const progress = Math.hypot(s.x - ox, s.y - oy)
@@ -1604,10 +1613,10 @@ function centerSlot(type: UnitType, count: number) {
 /**
  * 隊長が進んでいる間に兵が付く、隊長のまわりの持ち場（隊長を隊列のまん中に置いた位置）。
  * 隊長だけが部隊の経路をたどり、兵は隊列を保ったまま隊長に付いて歩くので、部隊は指示の矢印どおりにまとまって進む。
- * 隊長が持ち場に着いたら、また隊長自身・持ち場へ向かう槍兵・建設・帰り着く先の近くの退却と補給ではundefined。
+ * 隊長が持ち場に着いたら、また隊長自身・持ち場へ向かう槍兵・作業地点の近くの工兵・帰り着く先の近くの退却と補給ではundefined。
  */
 function escortPoint(battle: Battle, s: Soldier, squad: Squad): Point | undefined {
-    if (s.id === squad.leaderId || squad.march || worksAtSite(squad.order)) return undefined
+    if (s.id === squad.leaderId || squad.march || reachedWorkSite(battle, squad)) return undefined
     const leader = leaderOf(battle, squad)
     if (!leader) return undefined
     // 退却・補給は、帰り着く先の近くまで隊長に付いて行き、そこからは門や陣地の中へ散る。
@@ -1631,6 +1640,39 @@ function escortPoint(battle: Battle, s: Soldier, squad: Squad): Point | undefine
     return toWorld(leader, facing, mine.forward - middle.forward, mine.lateral - middle.lateral)
 }
 
+/** 工兵の隊長が自分の作業地点の近くまで来たか。そこまでは兵が隊長に付いて歩き、そこからはそれぞれの作業地点へ散る。 */
+function reachedWorkSite(battle: Battle, squad: Squad) {
+    if (!worksAtSite(squad.order)) return false
+    const leader = leaderOf(battle, squad), site = battle.constructionById.get(squad.constructionId)
+    if (!leader || !site) return false
+    const spot = site.workPoints[leader.slot % site.workPoints.length]!
+    return Math.hypot(spot.x - leader.x, spot.y - leader.y) < cohesionRadius(squad) * 1.5
+}
+
+/**
+ * 隊長のもとへ回り道で戻るときの経路の目的地。4マス単位に丸めて、隊長が少し動くたびに経路を取り直さない。
+ * 丸めた先と隊長の間に柵があれば、柵の反対側へ向かわないよう隊長のいるマスにする。
+ */
+function rallyGoal(battle: Battle, leader: Soldier) {
+    const gx = Math.round(leader.x / TILE_PX / 4) * 4, gy = Math.round(leader.y / TILE_PX / 4) * 4
+    const x = gx * TILE_PX, y = gy * TILE_PX
+    if (!blocked(battle, x, y) && isWalkableLine(battle, x, y, leader.x, leader.y)) return { goal: { x, y }, goalKey: `cell:${gx},${gy}` }
+    const cx = Math.round(leader.x / TILE_PX), cy = Math.round(leader.y / TILE_PX)
+    return { goal: { x: cx * TILE_PX, y: cy * TILE_PX }, goalKey: `cell:${cx},${cy}` }
+}
+
+/**
+ * 柵に閉ざされて、歩いては行けないか。その間は特例で柵をすり抜ける（s.slip）。
+ * 隊員は隊長と道がつながっていないとき。隊長は、閉ざされた所にいて行き先と道がつながっていないとき（外から閉ざされた敵へ向かう隊長は、これまでどおり柵を壊す）。
+ */
+function isCutOff(battle: Battle, s: Soldier, squad: Squad) {
+    const leader = leaderOf(battle, squad)
+    if (!leader) return false
+    if (s !== leader) return !reachedWorkSite(battle, squad) && !battle.paths.connected(s, leader)
+    const destination = orderDestination(battle, squad)
+    return !!destination && battle.paths.enclosed(s) && !battle.paths.connected(s, destination)
+}
+
 /** 隊長のまわりの持ち場へ付いて歩く。持ち場が川や柵の中なら、隊長のもとへ寄る。 */
 function followLeader(battle: Battle, s: Soldier, squad: Squad, escort: Point, dt: number) {
     const leader = leaderOf(battle, squad)!
@@ -1644,15 +1686,14 @@ function followLeader(battle: Battle, s: Soldier, squad: Squad, escort: Point, d
         return
     }
     s.state = 'advance'
-    if (s.routeDirect || distance < 30) {
+    if (s.routeDirect) {
         // 隊長が歩いていれば隊長と同じ速さに遅れの分を足して並び、止まっていれば近いほどゆっくり寄せる。
         const scale = leader.moving ? FOLLOW.leaderPace + distance / 8 : Math.max(.4, distance / 6)
         moveToward(battle, s, tx, ty, dt, Math.min(1, scale))
         if (distance < 6 && leader.moving) s.heading = facing
     } else {
-        const gx = Math.round(leader.x / TILE_PX / 4) * 4, gy = Math.round(leader.y / TILE_PX / 4) * 4
-        const goal = snapToPassable(battle, { x: gx * TILE_PX, y: gy * TILE_PX })
-        followPath(battle, s, goal, `cell:${gx},${gy}`, dt, 1, 0)
+        const { goal, goalKey } = rallyGoal(battle, leader)
+        followPath(battle, s, goal, goalKey, dt, 1, 0)
     }
 }
 
@@ -1695,10 +1736,10 @@ function marchLane(battle: Battle, s: Soldier, squad: Squad) {
 
 /**
  * 隊長から離れすぎた兵は、敵に構わず隊長のもとへ戻る。十分に近づいたら戦いに戻る。戻っている最中ならtrue。
- * 工兵の建設と、本拠地（補給先）に着いてからの退却・補給では、兵は決まった場所に散るので見ない。
+ * 作業地点の近くに着いてからの工兵と、本拠地（補給先）に着いてからの退却・補給では、兵は決まった場所に散るので見ない。
  */
 function regroup(battle: Battle, s: Soldier, squad: Squad, dt: number) {
-    const leader = s.id === squad.leaderId || worksAtSite(squad.order) ? undefined : leaderOf(battle, squad)
+    const leader = s.id === squad.leaderId || reachedWorkSite(battle, squad) ? undefined : leaderOf(battle, squad)
     const radius = cohesionRadius(squad)
     const depot = squad.order === 'resupply' ? depotOf(battle, squad) : squad.order === 'retreat' ? battle.homes[s.owner] : undefined
     if (!leader || (depot && Math.hypot(depot.x - s.x, depot.y - s.y) < radius)) { s.regroup = false; return false }
@@ -1718,22 +1759,28 @@ function regroup(battle: Battle, s: Soldier, squad: Squad, dt: number) {
     // 直進できるかは思考のときに調べておく。回り道の目的地は4マス単位に丸め、隊長が少し動くたびに経路を取り直さない。
     if (s.routeDirect) moveToward(battle, s, leader.x, leader.y, dt)
     else {
-        const gx = Math.round(leader.x / TILE_PX / 4) * 4, gy = Math.round(leader.y / TILE_PX / 4) * 4
-        const goal = snapToPassable(battle, { x: gx * TILE_PX, y: gy * TILE_PX })
-        followPath(battle, s, goal, `cell:${gx},${gy}`, dt, 1, 0)
+        const { goal, goalKey } = rallyGoal(battle, leader)
+        followPath(battle, s, goal, goalKey, dt, 1, 0)
     }
     return true
 }
 
-/** 隊長が足を止めて部隊を待つか（隊長のもとへ戻っている兵や遅れている兵が多いとき）。槍兵は隊列ごと遅れた兵を待つので見ない。 */
-function waitsForSquad(battle: Battle, s: Soldier, squad: Squad) {
+/**
+ * 隊長が足を止めて部隊を待つか（隊長のもとへ戻っている兵や遅れている兵が多いとき）。槍兵は隊列ごと遅れた兵を待つので見ない。
+ * 待つのは COHESION.waitLimit 秒までで、兵が追いつかなくても進み出す（どんな理由でも部隊が止まり続けないように）。
+ */
+function waitsForSquad(battle: Battle, s: Soldier, squad: Squad, dt: number) {
     if (s.id !== squad.leaderId || squad.type === 'pikeman') return false
+    if (reachedWorkSite(battle, squad)) { battle.waited.delete(squad.id); return false }
     const members = battle.members.get(squad.id) ?? []
     // 戻っている兵のほか、隊列から遅れている兵も数える。
     const far = cohesionRadius(squad) * .7
     let behind = 0
     for (const o of members) if (o.regroup || Math.hypot(o.x - s.x, o.y - s.y) > far) behind++
-    return behind > members.length * COHESION.waitShare
+    if (behind <= members.length * COHESION.waitShare) { battle.waited.delete(squad.id); return false }
+    const waited = (battle.waited.get(squad.id) ?? 0) + dt
+    battle.waited.set(squad.id, waited)
+    return waited < COHESION.waitLimit
 }
 
 const leashOf = (s: Soldier) => s.type === 'archer' ? UNIT_STATS[s.owner].archer.range + 5 : LEASH[s.type]
@@ -1835,7 +1882,7 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
     s.constructionId = site ? site.id : -1
     if (s.targetId !== previous || s.constructionId !== previousSite) { s.pathGoal = ''; s.detour = 0 }
     // 持ち場まで直進できるかを、ここで判定しておく（毎ティック調べると重い）。
-    if (goal) s.routeDirect = Math.hypot(goal.x - s.x, goal.y - s.y) < 60 || isClearLine(battle, s.x, s.y, goal.x, goal.y)
+    if (goal) s.routeDirect = Math.hypot(goal.x - s.x, goal.y - s.y) < 60 ? isWalkableLine(battle, s.x, s.y, goal.x, goal.y) : isClearLine(battle, s.x, s.y, goal.x, goal.y)
 }
 
 /** 兵が部隊を見捨てて逃げ出すか（魔王軍の忠誠の低い兵種だけ。幟を持つ隊長は逃げない）。臆病な個体ほど逃げやすい。 */
@@ -1978,9 +2025,19 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
     s.thinkTimer -= dt
     s.moving = false
     if (s.thinkTimer <= 0) {
+        s.slip = isCutOff(battle, s, squad)
         think(battle, s, squad, slot, escort ?? slot)
         s.thinkTimer = (.22 + battle.random() * .3) / s.courage
         if (s.desertion) return
+    }
+    if (s.slip && s.id !== squad.leaderId) {
+        // 閉じ込められた隊員は、敵に構わず柵をすり抜けて隊長のもとへ戻る。
+        const leader = leaderOf(battle, squad)
+        if (leader) {
+            s.state = 'advance'; s.regroup = false; s.targetId = -1; s.constructionId = -1
+            moveToward(battle, s, leader.x, leader.y, dt)
+            return
+        }
     }
     if (regroup(battle, s, squad, dt)) return
     // 敵が砦を持たなければ（攻城戦・防衛戦の守り手）、突撃は敵の野営地へ向かう。
@@ -2078,7 +2135,7 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         }
         return
     }
-    if (waitsForSquad(battle, s, squad)) { s.state = 'hold'; return }
+    if (waitsForSquad(battle, s, squad, dt)) { s.state = 'hold'; return }
     if (escort) { followLeader(battle, s, squad, escort, dt); return }
     if (slot) {
         // 持ち場へ向かい、着いたら部隊の向きで構える。
@@ -2345,7 +2402,7 @@ function updateSquads(battle: Battle, dt: number) {
         const list = battle.members.get(squad.id)
         if (list?.length) return true
         battle.squadById.delete(squad.id)
-        battle.travel.delete(squad.id); battle.pace.delete(squad.id)
+        battle.travel.delete(squad.id); battle.pace.delete(squad.id); battle.waited.delete(squad.id)
         if (squad.goalKey) battle.paths.dropGoal(squad.goalKey)
         const company = battle.companyById.get(squad.companyId)
         if (company) company.squadIds = company.squadIds.filter(id => id !== squad.id)
@@ -2401,7 +2458,7 @@ function updateSquads(battle: Battle, dt: number) {
         const own = slotOffset(squad.type, list.length, head.slot)
         const post = battle.posts.get(squad.id)
         const goal = post && slotPosition(battle, head, squad)
-        const arriving = goal && Math.hypot(goal.x - head.x, goal.y - head.y) < FOLLOW.settle
+        const arriving = reachedWorkSite(battle, squad) || (goal && Math.hypot(goal.x - head.x, goal.y - head.y) < FOLLOW.settle)
         let lag = 0
         for (const s of list) {
             if (arriving) break
@@ -2409,7 +2466,9 @@ function updateSquads(battle: Battle, dt: number) {
             const o = slotOffset(squad.type, list.length, s.slot)
             lag = Math.max(lag, Math.hypot(s.x - head.x, s.y - head.y) - Math.hypot(o.forward - own.forward, o.lateral - own.lateral))
         }
-        battle.pace.set(squad.id, FOLLOW.leaderPace * Math.max(FOLLOW.minPace, Math.min(1, 1 - (lag - FOLLOW.lagFree) / FOLLOW.lagStop)))
+        // 待ちきって進み出した隊長は、追いつかない兵に合わせて緩めない。
+        const overdue = (battle.waited.get(squad.id) ?? 0) >= COHESION.waitLimit
+        battle.pace.set(squad.id, FOLLOW.leaderPace * (overdue ? 1 : Math.max(FOLLOW.minPace, Math.min(1, 1 - (lag - FOLLOW.lagFree) / FOLLOW.lagStop))))
     }
     updateCompanies(battle)
     updateSupplies(battle, dt)

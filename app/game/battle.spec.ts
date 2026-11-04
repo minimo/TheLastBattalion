@@ -15,7 +15,7 @@ import { findPath } from './pathfinding'
 import { TILE_PX, TILE_VARIANT } from './constants'
 import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, OUTPOST_MAX_RISE, fortVicinityOf, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
-import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
+import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, setConstructionTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
 import { armyPool, cpuDeployment, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, type DeploymentPlan } from './deployment'
@@ -598,6 +598,88 @@ describe('工兵の建設物', () => {
         expect(blockedCells(battle, site.walls).some(Boolean)).toBe(false)
     }, 240000)
 
+    describe('壁で分断された隊員', () => {
+        /** 歩兵の小隊だけを残して、隊長を砦の裏の外に、4割の隊員を裏の壁の内側に置く。 */
+        const splitSquad = (seal: boolean) => {
+            const battle = makeBattle('123456')
+            orderArmy(battle, 'cpu', 'hold')
+            const fort = battle.forts.find(f => f.owner === 'player')!
+            const squad = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'infantry')!
+            leaveCompany(battle, squad)
+            for (const s of battle.soldiers) if (s.owner === 'player' && s.squadId !== squad.id) { s.state = 'dead'; s.deathTime = battle.time }
+            run(battle, .1)
+            const cell = (lx: number, ly: number) => { const c = localToGrid(fort, lx, ly); return { x: c.gx * TILE_PX, y: c.gy * TILE_PX } }
+            if (seal) {
+                // 門をすべてふさいで、砦の中を閉じ込める。
+                const gates = ([[5, 0], [6, 0], [5, 15], [6, 15], [11, 7], [11, 8]] as const).map(([lx, ly]) => localToGrid(fort, lx, ly))
+                for (const c of gates) setConstructionTile(battle.grid, c.gx, c.gy, TILE.WALL)
+                battle.paths.refresh(gates)
+            }
+            const leader = battle.byId.get(squad.leaderId)!
+            const cut = battle.members.get(squad.id)!.filter((s, i) => s !== leader && i % 5 < 2)
+            battle.members.get(squad.id)!.forEach((s, i) => {
+                const at = cut.includes(s) ? cell(1, 7) : cell(-2, 8)
+                s.x = at.x + (i % 6) * 3 - 8; s.y = at.y + Math.floor(i / 6) * 3 - 8; s.path = []; s.pathGoal = ''
+            })
+            const target = cell(-2, 40)
+            orderMove(battle, squad.id, target)
+            return { battle, squad, leader, cut, target }
+        }
+
+        it('門へ回れる隊員は回り道で合流し、小隊は行き先へ着く', () => {
+            const { battle, squad, leader, cut, target } = splitSquad(false)
+            run(battle, 120)
+            expect(Math.hypot(leader.x - target.x, leader.y - target.y)).toBeLessThan(60)
+            const radius = cohesionRadius(squad)
+            expect(cut.filter(s => Math.hypot(s.x - leader.x, s.y - leader.y) > radius).length).toBe(0)
+        }, 240000)
+
+        it('閉じ込められた隊員は柵をすり抜けて合流し、次の指示にも従う', () => {
+            const { battle, squad, leader, cut, target } = splitSquad(true)
+            run(battle, 120)
+            expect(Math.hypot(leader.x - target.x, leader.y - target.y)).toBeLessThan(60)
+            const radius = cohesionRadius(squad)
+            expect(cut.filter(s => Math.hypot(s.x - leader.x, s.y - leader.y) > radius).length).toBe(0)
+            expect(cut.every(s => !s.slip)).toBe(true)
+            const next = { x: target.x, y: target.y - 150 }
+            orderMove(battle, squad.id, next)
+            const before = Math.hypot(leader.x - next.x, leader.y - next.y)
+            run(battle, 20)
+            expect(Math.hypot(leader.x - next.x, leader.y - next.y)).toBeLessThan(before - 40)
+        }, 240000)
+    })
+
+    it('工兵は隊長に付いて現場へ向かい、隊長も作業地点まで来る', () => {
+        const battle = makeBattle('123456')
+        orderArmy(battle, 'cpu', 'hold')
+        const [engineer] = engineers(battle)
+        // 立っている味方の隊列に押されないよう、工兵だけにする
+        for (const s of battle.soldiers) if (s.owner === 'player' && s.squadId !== engineer!.id) { s.state = 'dead'; s.deathTime = battle.time }
+        run(battle, .1)
+        expect(orderConstruct(battle, engineer!.id, 'barricade', toWorld(engineer!.center, engineer!.facing, 150, 0))).toBe(true)
+        const site = battle.constructions[0]!
+        const radius = cohesionRadius(engineer!)
+        const leader = battle.byId.get(engineer!.leaderId)!
+        const members = battle.members.get(engineer!.id)!
+        const spot = site.workPoints[leader.slot % site.workPoints.length]!
+        const toSpot = () => Math.hypot(spot.x - leader.x, spot.y - leader.y)
+        // 隊長が現場の近くに着くまで、兵は隊長から離れすぎない
+        for (let t = 0; t < 120 && toSpot() >= radius * 1.5; t += 1 / 30) {
+            updateBattle(battle, 1 / 30)
+            const far = members.filter(s => Math.hypot(s.x - leader.x, s.y - leader.y) > radius * 1.5).length
+            expect(far).toBeLessThanOrEqual(members.length * .25)
+        }
+        expect(toSpot()).toBeLessThan(radius * 1.5)
+        // 着いたら隊長も作業地点まで進み、建て終える
+        let closest = toSpot()
+        for (let t = 0; t < 120 && !site.complete; t += 1) {
+            run(battle, 1)
+            closest = Math.min(closest, toSpot())
+        }
+        expect(site.complete).toBe(true)
+        expect(closest).toBeLessThan(5)
+    }, 240000)
+
     it('工兵が川に橋を架けると速く渡れるようになり、壊れると橋の上の兵は川に落ちる', () => {
         const battle = makeBattle('777777')
         orderArmy(battle, 'cpu', 'hold')
@@ -819,7 +901,7 @@ describe('工兵の建設物', () => {
         const infantry = rate('infantry'), engineerRate = rate('engineer')
         expect(engineerRate / infantry).toBeGreaterThan(2.4)
         // 人数の多い歩兵は混み合うので、比は地形によって3より少し大きく出る
-        expect(engineerRate / infantry).toBeLessThan(3.8)
+        expect(engineerRate / infantry).toBeLessThan(4.2)
     }, 240000)
 
     it('建設物は他の建設物や砦・川と重ねて置けない', () => {

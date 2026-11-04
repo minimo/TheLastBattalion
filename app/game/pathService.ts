@@ -48,6 +48,43 @@ export function createPathService(grid: number[][]) {
     for (let y = PLAYABLE_GRID_MIN; y <= PLAYABLE_GRID_MAX; y++) for (let x = PLAYABLE_GRID_MIN; x <= PLAYABLE_GRID_MAX; x++) readCell(x, y)
     /** 地形が変わるたびに増える版。古い版で作ったコスト場は、使うときに作り直す。 */
     let version = 0
+    /** 歩いて行き来できるマスのまとまりの番号（通れないマスは-1）と、いちばん大きいまとまり。地形が変わったら使うときに作り直す。 */
+    const regions = new Int32Array(W * W)
+    let mainRegion = -1, regionVersion = -1
+    const buildRegions = () => {
+        regions.fill(-1)
+        const open = tileCost.foot
+        let next = 0, largest = 0
+        for (let start = 0; start < W * W; start++) {
+            if (regions[start] !== -1 || !Number.isFinite(open[start]!)) continue
+            const stack = [start]
+            let size = 0
+            regions[start] = next
+            while (stack.length) {
+                const k = stack.pop()!
+                size++
+                const x = k % W + PLAYABLE_GRID_MIN, y = Math.floor(k / W) + PLAYABLE_GRID_MIN
+                for (const [dx, dy] of DIRS) {
+                    const nx = x + dx, ny = y + dy
+                    if (!inside(nx, ny)) continue
+                    const n = index(nx, ny)
+                    if (regions[n] !== -1 || !Number.isFinite(open[n]!)) continue
+                    // 斜めの歩みは角の通行不可セルを跨がない（経路と同じ規則）。
+                    if (dx !== 0 && dy !== 0 && (!Number.isFinite(open[index(nx, y)]!) || !Number.isFinite(open[index(x, ny)]!))) continue
+                    regions[n] = next
+                    stack.push(n)
+                }
+            }
+            if (size > largest) { largest = size; mainRegion = next }
+            next++
+        }
+        regionVersion = version
+    }
+    const regionAt = (p: Point) => {
+        if (regionVersion !== version) buildRegions()
+        const gx = Math.round(p.x / TILE_PX), gy = Math.round(p.y / TILE_PX)
+        return inside(gx, gy) ? regions[index(gx, gy)]! : -1
+    }
     /** from → to へ1歩進むコスト（findPathと同じ: 距離×地形×坂）。 */
     const stepCost = (route: Float32Array, from: number, to: number, base: number) =>
         base * route[to]! * getSlopeRouteMultiplier(height[to]! - height[from]!, base * TILE_PX)
@@ -174,6 +211,15 @@ export function createPathService(grid: number[][]) {
         walkable(x: number, y: number) {
             const gx = Math.round(x / TILE_PX), gy = Math.round(y / TILE_PX)
             return inside(gx, gy) && Number.isFinite(tileCost.foot[index(gx, gy)]!)
+        },
+        /** 2点の間を歩いて行き来できるか（柵を壊さずに道がつながっているか）。 */
+        connected(a: Point, b: Point) {
+            const region = regionAt(a)
+            return region !== -1 && region === regionAt(b)
+        },
+        /** 地点が戦場の大部分から柵で閉ざされた所（または柵の上）にあるか。 */
+        enclosed(p: Point) {
+            return regionAt(p) !== mainRegion
         },
         /**
          * 坂による移動速度の倍率（1以下）。(dx, dy) の向きへ進むときの地面の勾配から求める。
