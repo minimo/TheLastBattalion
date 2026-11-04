@@ -77,6 +77,8 @@ export interface Soldier {
     maxArrows: number
     /** 敵に見えている期限（ゲーム内の時刻）。これを過ぎた兵は敵から見えない。 */
     spottedUntil: number
+    /** 敵に一度でも発見されたか。 */
+    discovered: boolean
     /** 攻撃している敵の建設物（なければ-1）。 */
     constructionId: number
     /** 隊長から離れすぎて、隊長のもとへ戻っている最中か。 */
@@ -332,6 +334,8 @@ export type Home = Pick<Fort, 'owner' | 'front' | 'x' | 'y' | 'core' | 'assaultP
 /** deploying: 戦場に入って部隊編成をしている（開戦前で時間は進まない）。 */
 export type GameStatus = 'title' | 'deploying' | 'playing' | 'paused' | 'gameover'
 
+export type DiscoveredCount = Record<UnitType | 'total', number>
+
 export interface ArmySummary {
     infantry: number
     pikeman: number
@@ -348,4 +352,6 @@ export interface ArmySummary {
     reserves: number
     /** 砦を持っているか（攻城戦・防衛戦の攻め手は持たない）。 */
     hasFort: boolean
+    /** 敵に一度でも発見された、今も生きている自軍の兵の数（total が総数、ほかは兵種ごと）。 */
+    discovered: DiscoveredCount
 }

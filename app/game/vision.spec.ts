@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createBattle, orderAttack, updateBattle } from './battle'
+import { createBattle, orderAttack, summarize, updateBattle } from './battle'
 import { UNIT_VISION } from './battleConfig'
 import { TILE_PX } from './constants'
 import { generateMap } from './mapGenerator'
@@ -111,6 +111,40 @@ describe('視界', () => {
         for (const s of battle.soldiers) if (s.squadId === hunter.id) { s.x = anchor.x; s.y = anchor.y }
         updateBattle(battle, .01)
         expect(hunter.order).toBe('hold')
+    })
+
+    it('一度でも発見した敵の兵を兵種ごとに数え、見失っても減らさず、死んだら減らす', () => {
+        const battle = makeBattle()
+        const discovered = () => summarize(battle).cpu.discovered
+        flatten(battle)
+        const squad = battle.squads.find(sq => sq.owner === 'cpu')!
+        const place = (type: string, x: number) => {
+            const soldier = { state: 'hold', owner: 'cpu', type, squadId: squad.id, x, y: CENTER, spottedUntil: 0, discovered: false } as never as TestBattle['soldiers'][number]
+            battle.soldiers.push(soldier)
+            return soldier
+        }
+        const swordsman = place('infantry', CENTER + 64)
+        const archer = place('archer', CENTER + 2000)
+        // 編成の間は、今見えている兵だけを数える。
+        refreshVision(battle)
+        expect(discovered()).toMatchObject({ total: 1, infantry: 1, archer: 0 })
+        swordsman.x = CENTER + 2000
+        refreshVision(battle)
+        expect(discovered().total).toBe(0)
+        swordsman.x = CENTER + 64
+        refreshVision(battle)
+        expect(discovered().total).toBe(1)
+        battle.time = 1
+        // 同じ兵を何度見ても増えず、視界から消えても減らない。
+        refreshVision(battle)
+        swordsman.x = CENTER + 2000
+        refreshVision(battle)
+        expect(discovered()).toMatchObject({ total: 1, infantry: 1, archer: 0 })
+        archer.x = CENTER + 64
+        refreshVision(battle)
+        expect(discovered()).toMatchObject({ total: 2, infantry: 1, archer: 1 })
+        archer.state = 'dead'
+        expect(discovered()).toMatchObject({ total: 1, infantry: 1, archer: 0 })
     })
 
     it('敵の建設物は一度視界に入れば認識したままになる', () => {

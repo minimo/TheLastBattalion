@@ -35,8 +35,8 @@ const copySeed = async () => {
       <table>
         <thead><tr><th></th><th v-for="army in armies" :key="army" :class="army">{{ ARMY_NAME[army] }}</th></tr></thead>
         <tbody>
-          <tr><th>総数</th><td v-for="army in armies" :key="army">{{ secret(army) ? '？' : gameStore.summary[army].total }}</td></tr>
-          <tr v-for="type in UNIT_TYPES" :key="type"><th>{{ UNIT_NAME.player[type] }}</th><td v-for="army in armies" :key="army">{{ secret(army) ? '？' : gameStore.summary[army][type] }}</td></tr>
+          <tr><th>総数</th><td v-for="army in armies" :key="army">{{ secret(army) ? gameStore.summary[army].discovered.total : gameStore.summary[army].total }}</td></tr>
+          <tr v-for="type in UNIT_TYPES" :key="type"><th>{{ UNIT_NAME.player[type] }}</th><td v-for="army in armies" :key="army">{{ secret(army) ? gameStore.summary[army].discovered[type] : gameStore.summary[army][type] }}</td></tr>
           <tr><th>予備兵</th><td v-for="army in armies" :key="army">{{ !gameStore.summary[army].hasFort ? '—' : secret(army) ? '？' : gameStore.summary[army].reserves }}</td></tr>
           <tr><th>撃破</th><td v-for="army in armies" :key="army">{{ gameStore.summary[army].killed }}</td></tr>
           <tr><th>逃走</th><td v-for="army in armies" :key="army">{{ secret(army) ? '？' : gameStore.summary[army].deserted }}</td></tr>

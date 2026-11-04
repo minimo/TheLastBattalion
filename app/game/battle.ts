@@ -410,7 +410,7 @@ export function spawnSoldier(battle: Battle, squad: Squad, x: number, y: number,
         path: [], pathIndex: 0, pathGoal: '', targetId: -1,
         thinkTimer: battle.random() * .5, attackTimer: battle.random() * stats.cooldown, swing: 0, runTime: 0, fleeTimer: 0,
         courage: .75 + battle.random() * .5, elapsedTime: battle.random() * 10, deathTime: 0, stuckTime: 0, detour: 0, lane, routeDirect: true, slip: false, vx: 0, vy: 0, aim: 0, arrows, maxArrows: arrows,
-        constructionId: -1, regroup: false, desertion: null, spottedUntil: 0,
+        constructionId: -1, regroup: false, desertion: null, spottedUntil: 0, discovered: false,
     }
     battle.soldiers.push(soldier)
     battle.byId.set(soldier.id, soldier)
@@ -2713,13 +2713,16 @@ export function summarize(battle: Battle): Record<Army, ArmySummary> {
         const fort = fortOf(battle, army)
         return [army, {
             infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: fort?.hp ?? 0, fortMaxHp: fort?.maxHp ?? 1,
-            killed: battle.killed[army], deserted: battle.deserted[army], reserves: fort?.reserves ?? 0, hasFort: !!fort,
+            killed: battle.killed[army], deserted: battle.deserted[army], reserves: fort?.reserves ?? 0, hasFort: !!fort, discovered: { infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0 },
         }]
     })) as Record<Army, ArmySummary>
     for (const s of battle.soldiers) {
         if (s.state === 'dead' || s.desertion) continue
         result[s.owner][s.type]++
         result[s.owner].total++
+        if (!s.discovered) continue
+        result[s.owner].discovered[s.type]++
+        result[s.owner].discovered.total++
     }
     return result
 }

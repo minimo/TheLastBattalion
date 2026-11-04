@@ -188,6 +188,9 @@ function finishCycle(battle: Battle, instant: boolean) {
         if (s.state === 'dead') continue
         const c = cellOf(s.x, s.y)
         const seen = c >= 0 && vision.masks[s.owner === 'player' ? 'cpu' : 'player'][c] === 1
+        // 編成の間（時間が進む前）は配置を変えられるので、今見えている兵だけを発見済みとする。
+        if (seen) s.discovered = true
+        else if (time === 0) s.discovered = false
         if (seen) s.spottedUntil = time + VISION.linger
         else if (instant) s.spottedUntil = 0
         const squad = s.spottedUntil > time ? battle.squadById.get(s.squadId) : undefined

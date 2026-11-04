@@ -39,7 +39,7 @@ function loadPlans(): Record<BattleMode, DeploymentPlan> {
     })) as Record<BattleMode, DeploymentPlan>
 }
 
-const emptySummary = (): ArmySummary => ({ infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: 0, fortMaxHp: 1, killed: 0, deserted: 0, reserves: 0, hasFort: true })
+const emptySummary = (): ArmySummary => ({ infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: 0, fortMaxHp: 1, killed: 0, deserted: 0, reserves: 0, hasFort: true, discovered: { infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0 } })
 
 export interface SquadSummary {
     id: number
@@ -334,7 +334,11 @@ export const useGameStore = defineStore('game', {
             // 開戦前は時間が進まないので、配置の変更に合わせて視界を計算し直す。
             if (this.status === 'deploying' && this.battle) {
                 this.visionTimer -= realDeltaSeconds
-                if (this.visionTimer <= 0) { this.visionTimer = VISION.interval; refreshVision(this.battle) }
+                if (this.visionTimer <= 0) {
+                    this.visionTimer = VISION.interval
+                    refreshVision(this.battle)
+                    this.summary = summarize(this.battle)
+                }
             }
             // 画面の集計は速度に関係なく実時間で一定間隔に更新する。
             this.summaryTimer -= realDeltaSeconds
