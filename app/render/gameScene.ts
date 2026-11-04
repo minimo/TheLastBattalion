@@ -683,6 +683,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             camera.lookAt(controls.target)
         }
         camera.updateMatrixWorld()
+        world.updateTrees(camera.position)
         atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2, gameStore.dayTime)
         const visible = gameStore.status !== 'title'
         labels.hidden = !visible

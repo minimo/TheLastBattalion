@@ -122,7 +122,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     }
     const water = new THREE.Mesh(waterGeometry, waterMaterial)
     group.add(water)
-    return { group, field, mapType, theme, pickables: [terrain, surroundings, water, ...bridges], fellTrees: forest.fell, regrowTrees: forest.regrow, update(time: number) {
+    return { group, field, mapType, theme, pickables: [terrain, surroundings, water, ...bridges], fellTrees: forest.fell, regrowTrees: forest.regrow, updateTrees: forest.update, update(time: number) {
         const shader = waterMaterial.userData.shader
         if (shader) shader.uniforms.time.value = time
     }, destroy() {
