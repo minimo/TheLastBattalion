@@ -64,10 +64,11 @@ const squadStatus = (squad: SquadSummary) => {
     <div v-if="selected" class="squad-card parchment-window" role="status">
       <div class="card-head">
         <span class="unit-name" :class="selected.owner">{{ ARMY_NAME[selected.owner] }} · {{ squadName(selected) }}</span>
-        <span class="card-order">{{ ORDER_NAME[selected.order] }}</span>
+        <span v-if="selected.owner === 'player'" class="card-order">{{ ORDER_NAME[selected.order] }}</span>
       </div>
       <span v-if="selected.owner === 'player' && !parentCompany" class="card-types">{{ guidelineLabel(selected) }}</span>
       <button v-if="parentCompany" class="card-parent" :aria-label="`${companyName(parentCompany)}を選ぶ`" @click="emit('focusCompany', parentCompany.id)">{{ companyName(parentCompany) }} · {{ companyTypes(parentCompany) }} ›</button>
+      <template v-if="selected.owner === 'player'">
       <div class="meter">
         <span>人数</span><div class="bar"><span :style="{ width: percent(selected.count, selected.size) }"></span></div><b>{{ selected.count }}/{{ selected.size }}</b>
       </div>
@@ -85,14 +86,16 @@ const squadStatus = (squad: SquadSummary) => {
         <div class="bar build"><span :style="{ width: `${constructionMeter(selected)}%` }"></span></div>
         <b>{{ constructionMeter(selected) }}%</b>
       </div>
+      </template>
     </div>
     <div v-else-if="selectedCompany" class="squad-card parchment-window" role="status">
       <div class="card-head">
         <span class="unit-name" :class="selectedCompany.owner">{{ ARMY_NAME[selectedCompany.owner] }} · {{ companyName(selectedCompany) }}</span>
-        <span class="card-order">{{ companyOrder(squadsOf(selectedCompany)) }}</span>
+        <span v-if="selectedCompany.owner === 'player'" class="card-order">{{ companyOrder(squadsOf(selectedCompany)) }}</span>
       </div>
+      <template v-if="selectedCompany.owner === 'player'">
       <span class="card-types">{{ companyTypes(selectedCompany) }} · {{ selectedCompany.squadIds.length }}小隊</span>
-      <span v-if="selectedCompany.owner === 'player'" class="card-types">{{ guidelineLabel(selectedCompany) }}</span>
+      <span class="card-types">{{ guidelineLabel(selectedCompany) }}</span>
       <div class="meter">
         <span>人数</span><div class="bar"><span :style="{ width: percent(selectedCompany.count, selectedCompany.size) }"></span></div><b>{{ selectedCompany.count }}/{{ selectedCompany.size }}</b>
       </div>
@@ -103,6 +106,7 @@ const squadStatus = (squad: SquadSummary) => {
           </div>
         </li>
       </ul>
+      </template>
     </div>
     <div v-if="listOpen" class="squad-list parchment-window parchment-scroll">
       <p v-if="!groups.length && !loose.length" class="empty">部隊がいません</p>

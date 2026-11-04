@@ -35,6 +35,40 @@ export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
     },
 }
 
+/** 昼と夜の視界の広さ（px）。朝夕はこの間を少しずつ変わる。 */
+export interface VisionRange { day: number; night: number }
+/**
+ * 部隊の視界。敵味方で同じ値から始めるが、後で別々に調整できるよう軍ごと・兵種ごとに持つ。
+ * 兵が敵を狙い始める距離は UNIT_STATS の sight で、これとは別（視界の中の敵だけを狙う）。
+ */
+export const UNIT_VISION: Record<Army, Record<UnitType, VisionRange>> = {
+    player: {
+        infantry: { day: 600, night: 150 }, pikeman: { day: 600, night: 150 }, archer: { day: 600, night: 150 },
+        cavalry: { day: 600, night: 150 }, supply: { day: 600, night: 150 }, engineer: { day: 600, night: 150 },
+    },
+    cpu: {
+        infantry: { day: 600, night: 150 }, pikeman: { day: 600, night: 150 }, archer: { day: 600, night: 150 },
+        cavalry: { day: 600, night: 150 }, supply: { day: 600, night: 150 }, engineer: { day: 600, night: 150 },
+    },
+}
+/** 砦の視界。本陣守備の指針が砦から300px以内の敵に反応するので、夜も広めに見る。 */
+export const FORT_VISION: Record<Army, VisionRange> = { player: { day: 600, night: 300 }, cpu: { day: 600, night: 300 } }
+/** 完成した拠点の視界。 */
+export const OUTPOST_VISION: Record<Army, VisionRange> = { player: { day: 600, night: 150 }, cpu: { day: 600, night: 150 } }
+/**
+ * 視線の計算。高さは見た目の模型とは別の、遮り方を決める値（目の高さより低いと視線が上を通ってしまう）。
+ * eye: 部隊の目の高さ / structureEye: 砦と拠点の見張りの高さ / target: 見られる側の高さ
+ * treeHeight: 木の高さ / woodDepth: 見通せる森の深さ（疎らな木のマスは1、密なマスは2を数え、これを超えると奥は見えない）
+ * fenceHeight: 柵の高さ / fencePeek: 柵の奥が見える距離（px）/ wallHeight: 城壁・建物・櫓の高さ
+ * proximityCells: 兵が常に気づける範囲（周りのマス数、約30px）
+ * interval: 視界を計算し直す間隔（ゲーム内の秒）/ linger: 見失ってからも表示を残す秒数（ちらつき防止）
+ * giveUp: 攻撃目標を見失ってから、着かなくても諦めて構えるまでの秒数 / arrive: 最後に見えた地点に着いたとみなす距離（px）
+ */
+export const VISION = {
+    eye: 20, structureEye: 36, target: 15, treeHeight: 30, woodDepth: 3, fenceHeight: 24, fencePeek: 32, wallHeight: 40,
+    proximityCells: 1, interval: .25, linger: .75, giveUp: 30, arrive: 50,
+}
+
 /** 開戦時に砦の前へ布陣する部隊数（片軍）。定員は formation.ts の SQUAD_SIZE。 */
 export const INITIAL_SQUADS: Record<UnitType, number> = { infantry: 6, pikeman: 3, archer: 5, cavalry: 4, supply: 2, engineer: 2 }
 /** 持ち場を守る兵が敵を追う範囲（持ち場からの距離）。弓兵は射程まで。槍兵は隊列を崩さないよう、ほとんど追わない。 */

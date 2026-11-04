@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { PLAYABLE_MAX, PLAYABLE_MIN } from '../../game/playableArea'
 import { createMulberry32, hashString } from '../../game/random'
 import { createLandscape } from './landscape'
 import type { ModelKit } from './models'
@@ -16,7 +17,8 @@ export function createScenery(grid: number[][], reserved: (x: number, y: number)
         const slope = Math.hypot(heightAt(x + 3, y) - heightAt(x - 3, y), heightAt(x, y + 3) - heightAt(x, y - 3)) / 6
         if (slope > .85) continue
         const patch = landscape.noise(x * .011, y * .011)
-        if (outside > 4 && outside < 650 && patch > .1 && trees.length < theme.trees.outsideCount) trees.push({ x, z: y, h: h - .5, scale: .85 + random() * .7 })
+        const inPlayable = x > PLAYABLE_MIN && x < PLAYABLE_MAX && y > PLAYABLE_MIN && y < PLAYABLE_MAX
+        if (outside > 4 && outside < 650 && patch > .1 && !(theme.trees.style === 'woodland' && inPlayable) && trees.length < theme.trees.outsideCount) trees.push({ x, z: y, h: h - .5, scale: .85 + random() * .7 })
         if (h > theme.rocks.above && patch < -.3 && rocks.length < theme.rocks.count) rocks.push({ x, y, h, size: (outside > 100 ? 5 : 1.8) + random() * (outside > 100 ? 12 : 3) })
         if (h < 100 && outside < 350 && grass.length < theme.grass.count) grass.push({ x, y, h, size: .6 + random() * 1.2 })
     }

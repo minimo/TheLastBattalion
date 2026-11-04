@@ -12,6 +12,8 @@ import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
 import { createGuidelineDirector, markCommanded, setGuideline, type GuidelineDirector } from '~/game/squadGuidelines'
 import { cpuDeployment, defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
 import { START_TIME_MINUTES } from '~/game/daynight'
+import { VISION } from '~/game/battleConfig'
+import { refreshVision } from '~/game/vision'
 import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, Directive, FormationType, GameStatus, Guideline, MapType, Point, SquadOrder, StartTime, UnitType } from '~/types/game'
 
 /** 1倍速のときの実時間に対するゲーム内時間の倍率。 */
@@ -120,6 +122,9 @@ export const useGameStore = defineStore('game', {
         /** まだ進めていないゲーム内時間（MIN_STEP に満たない分）。 */
         pendingTime: 0,
         gameSpeed: 1 as GameSpeed,
+        visionTimer: 0,
+        /** 開発時の確認用: 敵をすべて表示する（ゲームの進行には影響しない）。 */
+        revealEnemies: false,
         /** 人間軍の開戦時の編成（戦場の種類ごと）。 */
         plans: loadPlans(),
     }),
@@ -144,6 +149,7 @@ export const useGameStore = defineStore('game', {
             this.mapGrid = markRaw(mapGrid)
             const battle = createBattle(mapGrid, rnd, this.mode, { player: this.plans[this.mode], cpu: cpuDeployment(this.mode, rnd) })
             battle.dayTime = START_TIME_MINUTES[this.startTime]
+            refreshVision(battle)
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))
             this.director = markRaw(createGuidelineDirector(battle, 'player'))
@@ -325,6 +331,11 @@ export const useGameStore = defineStore('game', {
                 this.step(step)
             }
             this.pendingTime = this.status === 'playing' ? remaining : 0
+            // 開戦前は時間が進まないので、配置の変更に合わせて視界を計算し直す。
+            if (this.status === 'deploying' && this.battle) {
+                this.visionTimer -= realDeltaSeconds
+                if (this.visionTimer <= 0) { this.visionTimer = VISION.interval; refreshVision(this.battle) }
+            }
             // 画面の集計は速度に関係なく実時間で一定間隔に更新する。
             this.summaryTimer -= realDeltaSeconds
             if (this.status === 'playing' && this.summaryTimer <= 0) {

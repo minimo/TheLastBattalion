@@ -22,6 +22,11 @@ export function reliefAt(type: MapType, noise: Noise, x: number, y: number): num
     switch (type) {
         case 'meadow':
             return 26 + noise(x * .0012, y * .0012) * 16 + noise(x * .003, y * .003) * 12 + noise(x * .011, y * .011) * 1.5
+        case 'forest': {
+            // 草原に近いゆるい起伏に、頂の平らな高台が混じる。
+            const hill = ease(Math.max(0, Math.min(1, (noise(x * .0042 + 30, y * .0042 - 20) - .25) / .3)))
+            return 24 + noise(x * .0012, y * .0012) * 10 + noise(x * .003, y * .003) * 6 + hill * 34 + noise(x * .011, y * .011) * 1.5
+        }
         case 'desert': {
             const warp = noise(x * .0018 + 40, y * .0018) * 70 + noise(x * .004, y * .004 + 90) * 18
             const phase = (x + warp) * .0036 + noise(x * .0025, y * .0025 + 80) * .6

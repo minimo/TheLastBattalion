@@ -2,13 +2,16 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getNightAlpha } from '~/game/daynight'
+import { isSiteKnown, isSpotted, isSquadSeen, isVisibleAt, siteInView } from '~/game/vision'
 import type { useGameStore } from '~/stores/game'
 import type { BattleInput } from '~/composables/useBattleInput'
-import type { Army, Company, Construction, Fort, Point, Squad, UnitType } from '~/types/game'
+import type { Army, Company, Construction, Fort, Point, Soldier, Squad, UnitType } from '~/types/game'
 import { CONSTRUCTION, STAMINA } from '~/game/battleConfig'
 import { companyLeader, companyPosition, companySquads, orderDestination, placementArea, placementMap, previewCompanyRoute, squadPosition, squadRoute, type Battle } from '~/game/battle'
 import { createModelKit, FACTION, OCCLUDER_LAYER } from './three/models'
 import { createWorld } from './three/world'
+import { createVisionShade } from './three/visionShade'
+import { felledCells } from '../game/construction'
 import { createAtmosphere } from './three/atmosphere'
 import { MAP_THEME, type MapTheme } from './three/mapTheme'
 import { createPlacementOverlay } from './three/placementOverlay'
@@ -253,6 +256,22 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     applyTheme(world.theme)
     let mapReference = gameStore.mapGrid
     scene.add(world.group)
+    const visionShade = createVisionShade()
+    visionShade.apply(world.group)
+    /** 敵をすべて表示するか（戦闘が終わったあとと、開発時の確認用）。 */
+    const revealAll = () => gameStore.isGameOver || gameStore.revealEnemies
+    /** プレイヤーから部隊が見えるか。 */
+    const squadShown = (squad: Squad) => squad.owner === 'player' || revealAll() || isSquadSeen(squad)
+    const armyFog = {
+        soldier: (s: Soldier) => {
+            const battle = gameStore.battle!
+            if (s.owner === 'player' || revealAll()) return true
+            return s.state === 'dead' ? isVisibleAt(battle.vision, 'player', s.x, s.y) : isSpotted(battle, s)
+        },
+        at: (x: number, y: number) => revealAll() || isVisibleAt(gameStore.battle!.vision, 'player', x, y),
+    }
+    const toggleReveal = (event: KeyboardEvent) => { if (event.key === 'v' && !event.repeat) gameStore.revealEnemies = !gameStore.revealEnemies }
+    if (import.meta.dev) window.addEventListener('keydown', toggleReveal)
     const army = createArmyRenderer(scene)
     const armyView = { camera, light: sun, viewportHeight: canvasEl.clientHeight }
     const renderTimings = { frameCpuMs: 0, simulationMs: 0, renderSubmitMs: 0 }
@@ -261,6 +280,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
     }) })
     const constructions = createConstructionRenderer(kit, (x, y) => world.field.surfaceAt(x, y))
+    /** 木を切り払った戦闘（戦い直したら木を戻す）。 */
+    let fellingBattle: unknown
     scene.add(constructions.group)
     /** 地面の高さ（完成した橋の上では床の高さ）。 */
     const surfaceAt = (x: number, y: number) => constructions.surfaceAt(x, y) ?? world.field.surfaceAt(x, y)
@@ -320,6 +341,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             label.style.setProperty('--faction', factionColor(fort.owner))
             labels.appendChild(label)
             scene.add(camp.group)
+            visionShade.apply(camp.group)
             return { fort, camp, label }
         })
     }
@@ -368,6 +390,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         // ドラッグ中、離すと指示の相手になる建設物（敵・味方や指示の種類に関わらず）。
         const target = input.dropTarget()?.constructionId ?? null
         for (const site of sites) {
+            // 敵の建設物の名前と進み具合・耐久は、視界の中にあるときだけ出す。
+            if (site.owner !== 'player' && !revealAll() && !siteInView(gameStore.battle!, site, 'player')) continue
             alive.add(site.id)
             let visual = constructionLabels.get(site.id)
             // 占領されて持ち主が変わったら、その軍の色で作り直す。
@@ -514,7 +538,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         let best: number | null = null, bestDistance = Infinity
         for (const squad of battle.squads) {
             const leader = battle.byId.get(squad.leaderId)
-            if (!leader || leader.state === 'dead') continue
+            if (!leader || leader.state === 'dead' || !armyFog.soldier(leader)) continue
             const [low, high] = bannerSpan(squad.type, heads.has(leader.id))
             const a = project(leader.x, leader.y, low), b = project(leader.x, leader.y, high)
             if (!a.visible || !b.visible) continue
@@ -545,7 +569,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             battle.hash.forEachNear(point.x, point.y, bestDistance, s => {
                 const d = Math.hypot(s.x - point.x, s.y - point.y)
                 // 部隊を離れて逃げ出した兵は選べない。
-                if (d < bestDistance && s.squadId >= 0) { bestDistance = d; best = s.squadId }
+                if (d < bestDistance && s.squadId >= 0 && armyFog.soldier(s)) { bestDistance = d; best = s.squadId }
             })
         }
         // 中隊の小隊のユニットなら、その中隊を選ぶ。
@@ -627,7 +651,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const observer = new ResizeObserver(resize)
     observer.observe(canvasEl)
     resize()
-    let lastTime = 0, animationTime = 0, frame = 0, destroyed = false
+    let lastTime = 0, animationTime = 0, frame = 0, destroyed = false, shadedPieces = -1
     const animate = (now: number) => {
         if (destroyed) return
         const frameStarted = performance.now()
@@ -642,6 +666,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             applyTheme(world.theme)
             mapReference = gameStore.mapGrid
             scene.add(world.group)
+            visionShade.apply(world.group)
             buildCamps()
             resetCamera()
         }
@@ -677,6 +702,12 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             sun.color.copy(night > .5 ? sunNight : sunDay)
             world.update(animationTime)
             const battle = gameStore.battle!
+            visionShade.update(battle.vision.masks.player, battle.vision.version, delta, night, revealAll())
+            // 見えなくなった敵の部隊は選択を外す。
+            const pickedSquad = input.selectedSquadId.value !== null ? battle.squadById.get(input.selectedSquadId.value) : undefined
+            if (pickedSquad && !squadShown(pickedSquad)) input.selectSquad(null)
+            const pickedCompany = input.selectedCompanyId.value !== null ? battle.companyById.get(input.selectedCompanyId.value) : undefined
+            if (pickedCompany && !companySquads(battle, pickedCompany.id).some(squadShown)) input.selectCompany(null)
             const heads = companyHeads(battle)
             for (const c of camps) {
                 c.camp.update(animationTime)
@@ -704,7 +735,10 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             for (const squad of battle.squads) {
                 alive.add(squad.id)
                 const visual = squadLabels.get(squad.id) ?? makeSquadLabel(squad)
-                const count = String(squad.count)
+                if (!squadShown(squad)) { visual.label.hidden = true; continue }
+                // 敵の人数・矢・疲れは分からない（戦闘が終われば公開する）。
+                const secret = squad.owner !== 'player' && !revealAll()
+                const count = secret ? '' : String(squad.count)
                 if (visual.count.textContent !== count) visual.count.textContent = count
                 visual.label.classList.toggle('is-selected', input.selectedSquadId.value === squad.id)
                 // 中隊の小隊の旗は、押すとその中隊を選ぶ。
@@ -718,12 +752,14 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 const ammoText = squad.order === 'resupply' ? '補給中'
                     : [squad.maxArrows > 0 ? `矢${Math.round(squad.arrows / squad.maxArrows * 100)}%` : '', squad.maxSupplies > 0 ? `残${squad.supplies}回` : '',
                         site ? (squad.order === 'occupy' ? `占領${Math.floor(site.occupation * 100)}%` : site.complete ? '修理中' : `建設${Math.floor(site.progress * 100)}%`) : '', tired ? '疲労' : ''].filter(Boolean).join(' ')
-                if (visual.ammo.textContent !== ammoText) visual.ammo.textContent = ammoText
-                visual.label.classList.toggle('low-ammo', squad.order === 'resupply' || tired || (squad.maxArrows > 0 && squad.arrows < squad.maxArrows * .25) || (squad.maxSupplies > 0 && squad.supplies === 0))
-                visual.label.setAttribute('aria-label', `${squad.owner === 'player' ? '自軍' : '敵軍'} 第${squad.number}${TYPE_NAME[squad.type]}小隊 ${count}人${ammoText ? ` ${ammoText}` : ''}`)
+                const shownAmmo = secret ? '' : ammoText
+                if (visual.ammo.textContent !== shownAmmo) visual.ammo.textContent = shownAmmo
+                visual.label.classList.toggle('low-ammo', !secret && (squad.order === 'resupply' || tired || (squad.maxArrows > 0 && squad.arrows < squad.maxArrows * .25) || (squad.maxSupplies > 0 && squad.supplies === 0)))
+                visual.label.setAttribute('aria-label', `${squad.owner === 'player' ? '自軍' : '敵軍'} 第${squad.number}${TYPE_NAME[squad.type]}小隊${secret ? '' : ` ${count}人${ammoText ? ` ${ammoText}` : ''}`}`)
                 // 隊長の背の幟の少し上に掲げる。隊長が決まる前（開戦前の部隊編成の間）は部隊の兵の中心の上。
                 const leader = battle.byId.get(squad.leaderId)
-                const at = leader && leader.state !== 'dead' ? leader : membersCenter(battle.members.get(squad.id)) ?? squad.center
+                // 敵の隊長が隠れていれば、見えている兵のところに掲げる。
+                const at = leader && leader.state !== 'dead' && armyFog.soldier(leader) ? leader : secret && squad.lastSeen ? squad.lastSeen : membersCenter(battle.members.get(squad.id)) ?? squad.center
                 placeLabel(visual.label, at.x, at.y, bannerSpan(squad.type, !!leader && heads.has(leader.id))[1] + 2)
                 // 遠い中隊の小隊の旗を隠す（中隊の旗が代わりに立つ）。中隊に入らない小隊（工兵・補給兵）の旗は残す。
                 if (locked && farCompanies.has(squad.companyId) && dragging !== squad.id && (selectedCompany === null || squad.companyId !== selectedCompany)) visual.label.hidden = true
@@ -736,33 +772,44 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
                 if (!squads.length) continue
                 aliveCompanies.add(company.id)
                 const visual = companyLabels.get(company.id) ?? makeCompanyLabel(company)
+                const shownSquads = squads.filter(squadShown)
+                if (!shownSquads.length) { visual.label.hidden = true; continue }
+                // 敵の中隊の兵種と人数は分からない（戦闘が終われば公開する）。
+                const secret = company.owner !== 'player' && !revealAll()
                 const types = new Set(squads.map(sq => sq.type))
                 const marks = TYPE_ORDER.filter(t => types.has(t)).map(t => TYPE_MARK[t]).join('')
-                const name = `${company.number}中${marks}`
+                const name = secret ? `${company.number}中` : `${company.number}中${marks}`
                 if (visual.name.textContent !== name) visual.name.textContent = name
                 const total = squads.reduce((sum, sq) => sum + sq.count, 0)
-                const count = String(total)
+                const count = secret ? '' : String(total)
                 if (visual.count.textContent !== count) visual.count.textContent = count
                 visual.label.classList.toggle('is-selected', selectedCompany === company.id)
                 visual.label.classList.toggle('is-source', input.draggingCompany.value === company.id)
                 visual.label.classList.toggle('is-hover', bannerCompanyHover === company.id)
                 visual.label.classList.toggle('is-target', (input.hoverCompanyId.value === company.id && targeting) || (drop?.companyId === company.id && input.draggingCompany.value !== company.id))
                 visual.label.classList.toggle('compact', !farCompanies.has(company.id))
-                visual.label.setAttribute('aria-label', `${company.owner === 'player' ? '自軍' : '敵軍'} 第${company.number}中隊（${TYPE_ORDER.filter(t => types.has(t)).map(t => TYPE_NAME[t]).join('・')}） ${squads.length}小隊 ${total}人`)
-                // 中隊長の幟の上に掲げる（中隊長が決まる前は小隊の幟の真ん中の上）。
-                const at = companyPosition(battle, company)
+                visual.label.setAttribute('aria-label', secret ? `敵軍 第${company.number}中隊` : `${company.owner === 'player' ? '自軍' : '敵軍'} 第${company.number}中隊（${TYPE_ORDER.filter(t => types.has(t)).map(t => TYPE_NAME[t]).join('・')}） ${squads.length}小隊 ${total}人`)
+                // 中隊長の幟の上に掲げる（中隊長が決まる前は小隊の幟の真ん中の上）。敵の中隊長が隠れていれば、見えている小隊のところに掲げる。
+                const head = companyLeader(battle, company)
+                const seenAt = shownSquads[0]!.lastSeen
+                const at = secret && !(head && armyFog.soldier(head)) && seenAt ? seenAt : companyPosition(battle, company)
                 placeLabel(visual.label, at.x, at.y, COMPANY_LABEL_HEIGHT)
             }
             companyLabels.forEach((v, id) => { if (!aliveCompanies.has(id)) { v.label.remove(); companyLabels.delete(id) } })
-            constructions.update(battle.constructions)
-            updateConstructionLabels(battle.constructions)
+            // 敵の建設物は、一度認識したものだけを描く。
+            const knownSites = revealAll() ? battle.constructions : battle.constructions.filter(site => isSiteKnown(site, 'player'))
+            constructions.update(knownSites)
+            if (fellingBattle !== battle) { world.regrowTrees(); fellingBattle = battle }
+            for (const site of knownSites) world.fellTrees(felledCells(site))
+            if (constructions.group.children.length !== shadedPieces) { shadedPieces = constructions.group.children.length; visionShade.apply(constructions.group) }
+            updateConstructionLabels(knownSites)
             // 建設場所の下見（場所選び中、または工兵を川へドラッグ中の橋）。
             const buildPlan = input.buildPreview()
                 ?? (preview?.order === 'build' && preview.kind ? input.buildPreviewAt(preview.kind, input.worldMousePos.value) : null)
             constructions.preview(buildPlan)
             const ringed = new Set(input.selectedSquadId.value !== null ? [input.selectedSquadId.value] : selectedCompany !== null ? battle.companyById.get(selectedCompany)?.squadIds ?? [] : [])
             armyView.viewportHeight = canvasEl.clientHeight
-            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()), armyView)
+            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()), armyView, armyFog)
             updatePaths()
             updatePlacementOverlay()
             placementOverlay.preview(input.placementPreview())
@@ -798,7 +845,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         camps.forEach(c => { c.camp.destroy(); c.label.remove() })
         removeSquadLabels(); removeCompanyLabels(); removeConstructionLabels()
         pathOverlay.destroy(); placementOverlay.destroy(); army.destroy(); constructions.destroy()
-        world.destroy(); kit.destroy(); sun.shadow.dispose(); atmosphere.destroy()
+        if (import.meta.dev) window.removeEventListener('keydown', toggleReveal)
+        world.destroy(); kit.destroy(); visionShade.destroy(); sun.shadow.dispose(); atmosphere.destroy()
         environment.dispose(); renderer.dispose(); renderer.forceContextLoss()
         renderer.domElement.remove(); labels.remove()
     } }

@@ -75,6 +75,8 @@ export interface Soldier {
     /** 所持している矢（弓兵のみ。他の兵種は0）。 */
     arrows: number
     maxArrows: number
+    /** 敵に見えている期限（ゲーム内の時刻）。これを過ぎた兵は敵から見えない。 */
+    spottedUntil: number
     /** 攻撃している敵の建設物（なければ-1）。 */
     constructionId: number
     /** 隊長から離れすぎて、隊長のもとへ戻っている最中か。 */
@@ -114,6 +116,11 @@ export interface Guidance {
 
 /** 小隊（兵種ごとの部隊）。いくつかの小隊で中隊を組む。 */
 export interface Squad {
+    /** 敵に見えている兵の数（0なら敵からこの部隊は見えない）。 */
+    seenCount: number
+    /** 敵が最後にこの部隊を見た地点と時刻（まだ見られていなければ null と 0）。 */
+    lastSeen: Point | null
+    lastSeenTime: number
     /** 開戦前にプレイヤーが置いた、小隊のまん中（中隊に入らない小隊だけ。置いていなければ null）。陣を動かすまでの持ち場に使う。 */
     placed: Point | null
     id: number
@@ -225,6 +232,8 @@ export interface Construction extends ConstructionPlan {
     interior: Point[]
     /** 今のティックで作業している工兵の数（表示用）。 */
     workers: number
+    /** 軍ごとの、この建設物を認識しているか（一度認識したら以後も表示する）。 */
+    seenBy: Record<Army, boolean>
     /** 敵の工兵による占領の進み具合（0〜1）。1で拠点が敵のものになる。 */
     occupation: number
     /** 今のティックで占領の作業をしている敵の工兵の数。 */
@@ -309,8 +318,8 @@ export interface Fort {
  */
 export type BattleMode = 'field' | 'siege' | 'defense'
 
-/** 地形の種類。standard: 標準 / meadow: 草原 / desert: 砂漠 / wasteland: 荒野 / demonland: 魔王城付近。 */
-export type MapType = 'standard' | 'meadow' | 'desert' | 'wasteland' | 'demonland'
+/** 地形の種類。standard: 標準 / meadow: 草原 / forest: 森林 / desert: 砂漠 / wasteland: 荒野 / demonland: 魔王城付近。 */
+export type MapType = 'standard' | 'meadow' | 'forest' | 'desert' | 'wasteland' | 'demonland'
 
 /** 開戦の時刻。dawn: 夜明け / noon: 昼 / dusk: 日没 / midnight: 深夜。 */
 export type StartTime = 'dawn' | 'noon' | 'dusk' | 'midnight'

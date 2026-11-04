@@ -1,5 +1,6 @@
 import { orderArmy, orderAttack, orderCharge, orderFormation, orderRetreat, type Battle } from './battle'
 import { createEngineerDirector } from './engineers'
+import { knownSquadPosition, seenEnemySquads } from './vision'
 import type { Point, Squad } from '../types/game'
 
 const THINK_INTERVAL = 2.5
@@ -27,12 +28,12 @@ export function createCpuCommander(battle: Battle) {
         const fort = battle.homes.cpu
         const near = (p: Point, radius: number) =>
             Math.hypot(p.x - formation.anchor.x, p.y - formation.anchor.y) < radius || Math.hypot(p.x - fort.x, p.y - fort.y) < radius
-        const threats = battle.squads.filter(sq => sq.owner === 'player' && near(sq.center, DEFEND_RADIUS))
+        const threats = seenEnemySquads(battle, 'cpu').filter(sq => near(sq.center, DEFEND_RADIUS))
         for (const squad of battle.squads) {
             if (squad.owner !== 'cpu' || squad.type === 'supply' || squad.type === 'engineer' || squad.order === 'resupply') continue
             if (squad.order === 'attack') {
                 const target = battle.squadById.get(squad.targetSquadId)
-                if (!target || !near(target.center, PURSUIT_RADIUS)) orderFormation(battle, squad.id)
+                if (!target || !near(knownSquadPosition(target), PURSUIT_RADIUS)) orderFormation(battle, squad.id)
                 continue
             }
             if (squad.order !== 'formation' && squad.order !== 'hold') continue
@@ -56,7 +57,7 @@ export function createCpuCommander(battle: Battle) {
             if (defending) { defend(); return }
             if (!charged) {
                 // 敵が陣に迫るか、時間が来たら突撃する。
-                const threatened = battle.soldiers.some(s => s.owner === 'player' && s.state !== 'dead'
+                const threatened = battle.soldiers.some(s => s.owner === 'player' && s.state !== 'dead' && s.spottedUntil > battle.time
                     && Math.hypot(s.x - formation.anchor.x, s.y - formation.anchor.y) < 260)
                 if (threatened || battle.time >= chargeAt) { orderArmy(battle, 'cpu', 'charge'); charged = true }
                 return

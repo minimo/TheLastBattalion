@@ -3,6 +3,7 @@ import {
 } from './battle'
 import { createEngineerDirector, directRepairs } from './engineers'
 import { squadBlock, toWorld } from './formation'
+import { knownSquadPosition, seenEnemySquads } from './vision'
 import type { Army, Company, Directive, Guidance, Guideline, Point, Squad } from '../types/game'
 
 const THINK_INTERVAL = 2.5
@@ -79,7 +80,8 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
     // 前線の目安の周りに建てる場所がなければ（川や山など）、手前・先と左右にも広く探す。
     const fortify = createEngineerDirector(battle, owner, { reaches: [.45, .38, .52, .58, .31], laterals: [0, 40, -40, 80, -80, 120, -120, 160, -160, 200, -200] })
 
-    const enemies = () => battle.squads.filter(sq => sq.owner !== owner && sq.count > 0)
+    /** 見えている敵の小隊（視界の外の敵は判断に使わない）。 */
+    const enemies = () => seenEnemySquads(battle, owner)
     const nearest = (from: Point, list: Squad[], radius = Infinity) => {
         let best: Squad | undefined, bestDistance = radius
         for (const sq of list) {
@@ -126,7 +128,7 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         const threat = nearest(post, enemies(), GUARD_RADIUS)
         const engaged = fighters.filter(sq => sq.order === 'attack')
         if (threat) {
-            if (!engaged.length || engaged.some(sq => { const t = targetOf(sq); return !t || distance(t.center, post) > GUARD_PURSUIT })) attack(unit, threat)
+            if (!engaged.length || engaged.some(sq => { const t = targetOf(sq); return !t || distance(knownSquadPosition(t), post) > GUARD_PURSUIT })) attack(unit, threat)
             return
         }
         const away = distance(positionOf(unit), post) > ARRIVE * 2
@@ -166,7 +168,7 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         const depth = Math.max(...companySquads(battle, ally.id).map(sq => squadBlock(sq.type, Math.max(1, sq.count)).depth))
         const point = toWorld(at, facing, -(depth / 2 + ESCORT_BEHIND), 0)
         const engaged = fighters.filter(sq => sq.order === 'attack')
-        const chasing = engaged.some(sq => { const t = targetOf(sq); return !t || distance(t.center, at) > ESCORT_PURSUIT })
+        const chasing = engaged.some(sq => { const t = targetOf(sq); return !t || distance(knownSquadPosition(t), at) > ESCORT_PURSUIT })
         const last = escorts.get(unit.guidance)
         const shifted = !last || last.companyId !== ally.id || distance(last.point, point) > ESCORT_SHIFT
         if (chasing || (!engaged.length && (shifted || !fighters.every(sq => sq.order === 'move')))) {
@@ -201,7 +203,7 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         const home = battle.homes[owner], anchor = battle.formations[owner].anchor
         const near = (p: Point, radius: number) => distance(p, anchor) < radius || distance(p, home) < radius
         const engaged = fighters.filter(sq => sq.order === 'attack')
-        if (engaged.length && engaged.every(sq => { const t = targetOf(sq); return t && near(t.center, HOME_PURSUIT) })) return
+        if (engaged.length && engaged.every(sq => { const t = targetOf(sq); return t && near(knownSquadPosition(t), HOME_PURSUIT) })) return
         const threat = nearest(positionOf(unit), enemies().filter(sq => near(sq.center, HOME_RADIUS)))
         if (threat) attack(unit, threat)
         else if (!fighters.every(sq => sq.order === 'formation')) orderCompany(battle, unit.company!.id, 'formation')

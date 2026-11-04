@@ -1,4 +1,5 @@
 import { canOccupy, enemyOf, orderBuild, orderConstruct, orderOccupy, previewConstruction, type Battle } from './battle'
+import { isSiteKnown } from './vision'
 import { fortVicinityOf } from './battleConfig'
 import { toWorld } from './formation'
 import type { Army, Point, Squad } from '../types/game'
@@ -42,7 +43,7 @@ export function createEngineerDirector(battle: Battle, owner: Army, search: { re
             const pending = own.find(c => !c.complete || c.hp < c.maxHp * .6)
             if (pending) { orderBuild(battle, squad.id, pending.id); continue }
             // 近くの、敵の工兵がいない拠点を占領する。
-            const target = battle.constructions.find(c => canOccupy(battle, owner, c) && Math.hypot(c.center.x - squad.center.x, c.center.y - squad.center.y) < OCCUPY_RADIUS)
+            const target = battle.constructions.find(c => isSiteKnown(c, owner) && canOccupy(battle, owner, c) && Math.hypot(c.center.x - squad.center.x, c.center.y - squad.center.y) < OCCUPY_RADIUS)
             if (target) { orderOccupy(battle, squad.id, target.id); continue }
             const outpost = own.find(c => c.kind === 'outpost')
             const front = frontline(reaches[0]!)

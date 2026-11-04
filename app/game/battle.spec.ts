@@ -7,6 +7,7 @@ import {
     orderRetreat, placementArea, placementMap, placeUnit, previewCompanyRoute, previewConstruction, previewPlacement, redeployArmy, setFormation, squadPosition, staminaFactor, summarize, updateBattle,
 } from './battle'
 import { createCpuCommander } from './cpuCommander'
+import { isSquadSeen } from './vision'
 import { axes, COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, slotOffset, squadBlock, SQUAD_SIZE, toWorld } from './formation'
 import { FORT_DEPTH, FORT_WIDTH, fortFootprint, isBlockedLocal, localToGrid } from './fortLayout'
 import { CASTLE_ASSAULT_CELLS, CASTLE_DEPTH, CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
@@ -1331,15 +1332,21 @@ describe('中隊', () => {
         }
     }, 60000)
 
-    it('中隊での攻撃は、敵の中隊のうち各小隊に最も近い小隊を狙う', () => {
+    it('中隊での攻撃は、敵の中隊のうち各小隊に最も近い見えている小隊を狙う', () => {
         const battle = makeBattle('123456')
         run(battle, .1)
         const own = battle.companies.find(c => c.owner === 'player' && companySquads(battle, c.id)[0]!.type === 'infantry')!
         const enemy = battle.companies.find(c => c.owner === 'cpu' && companySquads(battle, c.id)[0]!.type === 'infantry')!
+        const byDistance = (squads: Squad[], from: Squad) => [...squads].sort((a, b) => Math.hypot(a.center.x - from.center.x, a.center.y - from.center.y) - Math.hypot(b.center.x - from.center.x, b.center.y - from.center.y))
+        // 先頭の小隊に最も近い敵だけを視界の外にする。
+        const head = companySquads(battle, own.id)[0]!
+        const hidden = byDistance(companySquads(battle, enemy.id), head)[0]!
+        for (const squad of companySquads(battle, enemy.id)) squad.seenCount = squad === hidden ? 0 : 1
         orderCompanyAttack(battle, own.id, { companyId: enemy.id })
+        expect(head.targetSquadId).not.toBe(hidden.id)
         for (const squad of companySquads(battle, own.id)) {
             expect(squad.order).toBe('attack')
-            const nearest = companySquads(battle, enemy.id).sort((a, b) => Math.hypot(a.center.x - squad.center.x, a.center.y - squad.center.y) - Math.hypot(b.center.x - squad.center.x, b.center.y - squad.center.y))[0]!
+            const nearest = byDistance(companySquads(battle, enemy.id).filter(isSquadSeen), squad)[0]!
             expect(squad.targetSquadId).toBe(nearest.id)
         }
     })

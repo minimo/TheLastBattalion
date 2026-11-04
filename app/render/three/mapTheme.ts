@@ -1,6 +1,6 @@
 import type { MapType } from '../../types/game'
 
-export type TreeStyle = 'broadleaf' | 'palm' | 'dead'
+export type TreeStyle = 'broadleaf' | 'woodland' | 'palm' | 'dead'
 
 /** 地形の種類ごとの見た目。地形の形は game/mapType.ts の TERRAIN_PROFILE が決める。 */
 export interface MapTheme {
@@ -16,7 +16,7 @@ export interface MapTheme {
     grass: { color: number; count: number }
     /** 岩の色（HSLの色相・彩度・明度の下限）、数の上限、置き始める高さ。 */
     rocks: { hue: number; saturation: number; lightness: number; count: number; above: number }
-    /** 木の形、戦場の外に植える数の上限、（枯れ木の）幹の色。 */
+    /** 木の形、戦場の外に植える数の上限、（枯れ木の）幹の色。woodland は部隊の動ける範囲に林のマスの木が立つので、飾りの木はその外だけに植える。 */
     trees: { style: TreeStyle; outsideCount: number; barkColor?: number }
     /** 水面の色と不透明度。roughness・metalness が小さいほど空を強く映す。 */
     water: { color: number; opacity: number; roughness: number; metalness: number }
@@ -53,6 +53,18 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
             dayCloud: 0xdde6e6, nightCloud: 0x626c81, cloudAmount: .28, fog: .00024,
         },
         light: { sky: 0xcfe8e2, ground: 0x5b6d47, sun: 0xffe2b8, nightSun: 0xa1bbff, sunScale: 1.05 },
+    },
+    forest: {
+        ground: { base: 0x4f6a3e, patch: 0x75824f, patchAmount: .4, rock: 0x77766a, shore: 0x8e8a63 },
+        grass: { color: 0x6a8049, count: 3200 },
+        rocks: { hue: .12, saturation: .07, lightness: .55, count: 60, above: 40 },
+        trees: { style: 'woodland', outsideCount: 500 },
+        water: { color: 0x466e73, opacity: .87, roughness: .2, metalness: .45 },
+        sky: {
+            dayZenith: 0x72a7d8, dayHorizon: 0xbcd3d6, nightZenith: 0x1c2948, nightHorizon: 0x202d43,
+            dayCloud: 0xdde6e6, nightCloud: 0x626c81, cloudAmount: .28, fog: .00024,
+        },
+        light: { sky: 0xcfe8e2, ground: 0x566a44, sun: 0xffe2b8, nightSun: 0xa1bbff, sunScale: 1 },
     },
     desert: {
         ground: { base: 0xc2a06a, patch: 0xa9844f, patchAmount: .4, rock: 0x9a7552, shore: 0x8d8456,

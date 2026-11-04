@@ -1,12 +1,13 @@
 import type { BattleMode, MapType } from '../types/game'
 
-export const MAP_TYPES: MapType[] = ['standard', 'meadow', 'desert', 'wasteland', 'demonland']
+export const MAP_TYPES: MapType[] = ['standard', 'meadow', 'forest', 'desert', 'wasteland', 'demonland']
 export const MAP_TYPE_NAME: Record<MapType, string> = {
-    standard: '標準', meadow: '草原', desert: '砂漠', wasteland: '荒野', demonland: '魔王城付近',
+    standard: '標準', meadow: '草原', forest: '森林', desert: '砂漠', wasteland: '荒野', demonland: '魔王城付近',
 }
 export const MAP_TYPE_DESCRIPTION: Record<MapType, string> = {
     standard: '森と山と川のある戦場',
     meadow: 'なだらかな丘の続く草原。川はない',
+    forest: '木の茂る丘陵。高台に登らないと見通しが効かない。陣地の周りは伐採してある',
     desert: '砂丘の連なる砂漠。川はなく、オアシスがある',
     wasteland: '起伏の少ない荒野。川のあることもある',
     demonland: '荒れ果てた魔王城の周り。赤い空に赤い月が昇る',
@@ -42,6 +43,11 @@ export const TERRAIN_PROFILE: Record<MapType, TerrainProfile> = {
     meadow: {
         rivers: () => 0, mountainAbove: .6, woodAbove: .5, oases: [0, 0], mountainScale: .75, maxGrade: Infinity,
         outerMountain: { base: 45, far: 220, sharp: 2 },
+    },
+    forest: {
+        // 山のマスはなく、丘と高台は地面の起伏（reliefAt）で作る。
+        rivers: () => 0, mountainAbove: Infinity, woodAbove: -.35, oases: [0, 0], mountainScale: 1, maxGrade: 1.2,
+        outerMountain: { base: 8, far: 200, sharp: 2 },
     },
     desert: {
         rivers: () => 0, mountainAbove: .68, woodAbove: Infinity, oases: [1, 2], mountainScale: .8, maxGrade: Infinity,

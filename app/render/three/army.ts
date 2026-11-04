@@ -28,6 +28,9 @@ export interface ArmyRenderStats {
 }
 
 /** 兵士の可視判定後、陣営・兵種・影の有無・部位ごとに一括描画する。 */
+/** 視界の外のものを描かないための判定。 */
+export interface ArmyFog { soldier(soldier: Soldier): boolean; at(x: number, y: number): boolean }
+
 export function createArmyRenderer(scene: THREE.Scene) {
     const group = new THREE.Group()
     group.name = 'army'
@@ -99,7 +102,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
         group,
         stats,
         update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number,
-            selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>, companyLeaderIds: ReadonlySet<number> = new Set(), view?: ArmyView) {
+            selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>, companyLeaderIds: ReadonlySet<number> = new Set(), view?: ArmyView, fog?: ArmyFog) {
             const started = performance.now()
             stats.totalSoldiers = soldiers.length
             stats.renderedSoldiers = stats.culledSoldiers = stats.shadowSoldiers = 0
@@ -113,6 +116,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
             for (let soldierIndex = 0; soldierIndex < soldiers.length; soldierIndex++) {
                 const s = soldiers[soldierIndex]!
                 const model = batches[s.owner][s.type]
+                if (fog && !fog.soldier(s)) { stats.culledSoldiers++; continue }
                 const classification = visibility.classify(s, soldierIndex, radiusOf(s), model.height)
                 if (!classification) { stats.culledSoldiers++; continue }
                 stats.renderedSoldiers++
@@ -223,35 +227,39 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 finish(banners[army].far, banners[army].farCount)
             }
             for (const batch of allBatches) for (const p of batch.parts) if (p.buffer) finish(p.buffer, batch.count)
-            // 飛んでいる矢: 放物線上の位置に置き、向きを軌道の接線に合わせる。
+            // 飛んでいる矢: 放物線上の位置に置き、向きを軌道の接線に合わせる。視界の外の矢は描かない。
+            let flyingCount = 0
             for (let i = 0; i < arrows.length; i++) {
                 const arrow = arrows[i]!
                 const t = Math.min(1, arrow.time / arrow.duration)
                 const dx = arrow.toX - arrow.fromX, dy = arrow.toY - arrow.fromY
+                if (fog && !fog.at(arrow.fromX + dx * t, arrow.fromY + dy * t)) continue
                 const startZ = heightAt(arrow.fromX, arrow.fromY) + arrow.fromZ, endZ = heightAt(arrow.toX, arrow.toY) + 3
                 from.set(arrow.fromX + dx * t, startZ + (endZ - startZ) * t + arrow.peak * 4 * t * (1 - t), arrow.fromY + dy * t)
                 tangent.set(dx, endZ - startZ + arrow.peak * 4 * (1 - 2 * t), dy).normalize()
                 // Matrix4.lookAt orients +Z toward the eye argument.
                 to.copy(from).add(tangent)
                 out.lookAt(to, from, up).setPosition(from)
-                write(flying, i, out.elements)
+                write(flying, flyingCount, out.elements)
                 // 軌跡は放った直後と着弾直前で短くする。
                 const trail = 9 * Math.min(1, t * 6, (1 - t) * 6 + .3)
                 out.multiply(trailScale.makeScale(1, 1, Math.max(.01, trail)))
-                write(trails, i, out.elements)
+                write(trails, flyingCount++, out.elements)
             }
-            finish(flying, arrows.length); finish(trails, arrows.length)
+            finish(flying, flyingCount); finish(trails, flyingCount)
             // 地面に刺さった矢: 矢じりを少し埋め、消える前にゆっくり沈める。
+            let stuckCount = 0
             for (let i = 0; i < spentArrows.length; i++) {
                 const spent = spentArrows[i]!
+                if (fog && !fog.at(spent.x, spent.y)) continue
                 const age = battleTime - spent.time
                 tangent.set(Math.sin(spent.yaw) * Math.cos(spent.pitch), -Math.sin(spent.pitch), Math.cos(spent.yaw) * Math.cos(spent.pitch))
                 from.set(spent.x, heightAt(spent.x, spent.y) - Math.max(0, age - 1.8) * 4, spent.y).addScaledVector(tangent, -1.9)
                 to.copy(from).add(tangent)
                 out.lookAt(to, from, up).setPosition(from)
-                write(stuck, i, out.elements)
+                write(stuck, stuckCount++, out.elements)
             }
-            finish(stuck, spentArrows.length)
+            finish(stuck, stuckCount)
             stats.updateMs = performance.now() - started
         },
         destroy() {

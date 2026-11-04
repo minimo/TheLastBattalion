@@ -10,6 +10,17 @@ interface Site { grid: number[][]; forts: Fort[]; constructions: Construction[] 
 
 const key = (c: FortCell) => `${c.gx},${c.gy}`
 export const cellPoint = (c: FortCell): Point => ({ x: c.gx * TILE_PX, y: c.gy * TILE_PX })
+
+/** 拠点の建設で、敷地の木を切り払い終える進み具合。 */
+const FELLED_BY = .9
+
+/** 拠点の敷地のうち、今の進み具合までに木を切り払ったマス。マスごとに順番を散らし、進むほど増える。 */
+export function felledCells(site: Pick<Construction, 'kind' | 'area' | 'progress'>): FortCell[] {
+    if (site.kind !== 'outpost') return []
+    const count = Math.floor(site.progress / FELLED_BY * site.area.length)
+    const order = (c: FortCell) => ((c.gx * 73856093 ^ c.gy * 19349663) >>> 0) % 1009
+    return [...site.area].sort((a, b) => order(a) - order(b)).slice(0, count)
+}
 const insideGrid = (gx: number, gy: number) => gx > PLAYABLE_GRID_MIN && gx < PLAYABLE_GRID_MAX && gy > PLAYABLE_GRID_MIN && gy < PLAYABLE_GRID_MAX
 
 /**

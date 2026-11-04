@@ -1,6 +1,7 @@
 import { nextTick, ref } from 'vue'
 import type { CompanyCommand, SquadCommand, useGameStore } from '~/stores/game'
 import { canOccupy, companyPosition, companySquads, constructionNear, nearestCompanySquad, previewConstruction, previewPlacement, squadPosition, type CompanyOrder, type PlacementTarget } from '~/game/battle'
+import { isSquadSeen } from '~/game/vision'
 import type { ConstructionAxis, ConstructionKind, Point, SquadOrder } from '~/types/game'
 
 type EntityPointerEvent = Pick<PointerEvent, 'clientX' | 'clientY'>
@@ -113,6 +114,17 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         startLongPress(e, () => openContextMenu('company', companyId, e.clientX, e.clientY))
     }
 
+    let lastAim: { squadId: number | null; companyId: number | null; point: Point } | null = null
+    /** 狙っていた敵が離す前に見えなくなっていたら、その敵。 */
+    const lostAim = () => {
+        const battle = gameStore.battle
+        if (!battle || !lastAim) return null
+        const company = lastAim.companyId !== null ? battle.companyById.get(lastAim.companyId) : undefined
+        const squad = lastAim.squadId !== null ? battle.squadById.get(lastAim.squadId) : undefined
+        if (company) return companySquads(battle, company.id).some(isSquadSeen) ? null : { company, squad: undefined }
+        return squad && !isSquadSeen(squad) ? { company: undefined, squad } : null
+    }
+
     /** 描画側が地面上のポインター位置と、ポインター下の部隊（小隊の旗・幟、中隊の旗）を渡す。 */
     const setWorldPointer = (point: Point, squadId: number | null, companyId: number | null = null) => {
         worldMousePos.value = point
@@ -123,12 +135,18 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (hover === null && companyId === null && battle) {
             let best = DROP_RADIUS
             for (const squad of battle.squads) {
+                // 視界の外の敵の部隊は、指示の相手にならない。
+                if (squad.owner !== 'player' && !isSquadSeen(squad)) continue
                 const at = squadPosition(battle, squad)
                 const d = Math.hypot(at.x - point.x, at.y - point.y)
                 if (d < best) { best = d; hover = squad.id }
             }
         }
         hoverSquadId.value = hover
+        // ドラッグ中に狙った敵を覚えておく（離す前に見えなくなっても、最後に見えた地点への攻撃にする）。
+        const aimed = battle && (companyId !== null ? battle.companyById.get(companyId)?.owner !== 'player' : hover !== null && battle.squadById.get(hover)?.owner !== 'player')
+        if (aimed) lastAim = { squadId: companyId !== null ? null : hover, companyId, point: { ...point } }
+        else if (lastAim && Math.hypot(lastAim.point.x - point.x, lastAim.point.y - point.y) > DROP_RADIUS) lastAim = null
     }
 
     const handleGlobalPointerMove = (e: PointerEvent) => {
@@ -175,9 +193,12 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (nearest) return { order: 'attack', targetSquadId: nearest.id }
         const target = hoverSquadId.value !== null ? battle.squadById.get(hoverSquadId.value) : undefined
         if (target && target.owner !== 'player') return { order: 'attack', targetSquadId: target.id }
+        const lost = lostAim()
+        const lostTarget = lost?.squad ?? (lost?.company && source ? nearestCompanySquad(battle, lost.company.id, source.center) : undefined)
+        if (lostTarget) return { order: 'attack', targetSquadId: lostTarget.id }
         // 敵の建設物へ落とすと壊しに行く。工兵を敵の工兵がいない敵の拠点へ落とすと占領する。
         // 工兵を自軍の建設中・傷んだ建設物へ落とすと、続きを建てる・直す。
-        const site = constructionNear(battle, point, CONSTRUCTION_DROP_RADIUS)
+        const site = constructionNear(battle, point, CONSTRUCTION_DROP_RADIUS, 'player')
         if (source?.type === 'engineer' && site && canOccupy(battle, 'player', site)) return { order: 'occupy', constructionId: site.id }
         if (site && site.owner !== 'player') return { order: 'demolish', constructionId: site.id }
         if (source?.type === 'engineer' && site && (!site.complete || site.hp < site.maxHp)) return { order: 'build', constructionId: site.id }
@@ -208,7 +229,10 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         if (company && company.owner !== 'player') return { order: 'attack', targetCompanyId: company.id }
         const target = hoverSquadId.value !== null ? battle.squadById.get(hoverSquadId.value) : undefined
         if (target && target.owner !== 'player') return { order: 'attack', targetSquadId: target.id }
-        const site = constructionNear(battle, point, CONSTRUCTION_DROP_RADIUS)
+        const lost = lostAim()
+        if (lost?.company) return { order: 'attack', targetCompanyId: lost.company.id }
+        if (lost?.squad) return { order: 'attack', targetSquadId: lost.squad.id }
+        const site = constructionNear(battle, point, CONSTRUCTION_DROP_RADIUS, 'player')
         if (site && site.owner !== 'player') return { order: 'demolish', constructionId: site.id }
         const home = battle.homes.player, enemy = battle.homes.cpu
         if (Math.hypot(home.x - point.x, home.y - point.y) < FORT_DROP_RADIUS) return { order: 'retreat' }
@@ -373,7 +397,7 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
             return {
                 squadId: overBanner && hoverCompanyId.value === null ? hoverSquadId.value : null,
                 companyId: overBanner ? hoverCompanyId.value : null,
-                constructionId: constructionNear(battle, worldMousePos.value, CONSTRUCTION_DROP_RADIUS)?.id ?? null,
+                constructionId: constructionNear(battle, worldMousePos.value, CONSTRUCTION_DROP_RADIUS, 'player')?.id ?? null,
             }
         },
         /** ドラッグ中に、離すとその小隊・中隊の所へ移動する味方の旗（表示用）。移動にならなければ null。 */

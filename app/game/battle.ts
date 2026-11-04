@@ -1,11 +1,12 @@
 import { TILE, TILE_PX, TILE_VARIANT } from './constants'
 import { getTimeDecayMultiplier, getTimeSpeedMultiplier } from './daynight'
 import { getTerrainSpeedMultiplier, getTileCost, mobilityOf } from './terrain'
-import { BATTLEFIELD_MAX, BATTLEFIELD_MIN, clearConstructionTiles, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
-import { cellPoint, constructionWorkSite, planConstruction } from './construction'
+import { BATTLEFIELD_MAX, BATTLEFIELD_MIN, clearConstructionTiles, fellTree, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
+import { cellPoint, constructionWorkSite, felledCells, planConstruction } from './construction'
 import { createFortGeometry, fortCenter, fortDims, fortFootprint, localToWorld } from './fortLayout'
 import { CASTLE_CORE_RADIUS } from './castleLayout'
 import { createSpatialHash } from './spatialHash'
+import { clearVisionWalls, clearVisionWood, createVisionMap, isSiteKnown, isSquadSeen, knownSquadPosition, refreshVision, setVisionWalls, updateVision } from './vision'
 import { createPathService } from './pathService'
 import { axes, COMPANY_MAX_SQUADS, groupCompanies, joinsCompany, layoutCompany, layoutFormationWithCompanies, slotOffset, squadBlock, SQUAD_SIZE, toWorld, type FormationMember } from './formation'
 import { armyPool, defaultDeployment, defenderOf, deployedCount, normalizeDeployment, plannedCompanies, plannedGuideline, type DeploymentPlan } from './deployment'
@@ -16,7 +17,7 @@ import {
     REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, SPENT_ARROW_LIMIT, VELOCITY_CAP, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
     FORT_REFILL_RATE, RESUPPLY_THRESHOLD, STAMINA, SUPPLY_CHARGES, SUPPLY_DURATION, SUPPORT_RANGE, SUPPORT_THRESHOLD, SHIELD, SPENT_ARROW_SECONDS, TOWER, UNIT_STATS,
     BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_GUARD_RANGE, OUTPOST_OCCUPY_WORK, OUTPOST_REFILL_RANGE, OUTPOST_SIZE, REPAIR_RATE,
-    SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN, DESERTION, COMPANY,
+    SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN, DESERTION, COMPANY, VISION,
 } from './battleConfig'
 import type {
     Army, ArmyFormation, ArmySummary, Arrow, BattleMode, Company, Construction, Home, ConstructionAxis, ConstructionKind, FormationType, Fort, Point, Soldier, SpentArrow, Squad, SquadOrder, UnitType,
@@ -115,6 +116,8 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
         deserted: { player: 0, cpu: 0 } as Record<Army, number>,
         hash: createSpatialHash(),
         paths: createPathService(grid),
+        /** 遮蔽と、軍ごとの今見えているマス。 */
+        vision: createVisionMap(grid, forts),
         /** 自陣の周りに侵入している敵兵（守備隊の判断に使う）。 */
         intruders: { player: [] as Soldier[], cpu: [] as Soldier[] } as Record<Army, Soldier[]>,
         random,
@@ -122,6 +125,7 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
     if (defender) deploySiege(battle, forts[0]!)
     for (const home of Object.values(homes)) home.assaultPoints.forEach((p, i) => battle.paths.addGoal(fortGoalKey(home.owner, i), p))
     for (const army of ARMIES) deployArmy(battle, army, deployments[army])
+    refreshVision(battle)
     return battle
 }
 export type Battle = ReturnType<typeof createBattle>
@@ -263,13 +267,21 @@ function nearestCell(site: Construction, point: Point, all = false): Point {
     return best
 }
 
+/** 拠点の進み具合に合わせて敷地の木を切り払う。経路の読み直しは重いので、完成か破壊のときにまとめて行う。 */
+function fellSiteTrees(battle: Battle, site: Construction) {
+    const cells = felledCells(site)
+    for (const c of cells) fellTree(battle.grid, c.gx, c.gy)
+    clearVisionWood(battle.vision, cells)
+}
+
 /** 完成した建設物を地形に反映する（柵は通行不可、橋は渡れる）。柵の上にいた兵は外へ出す。 */
 function completeConstruction(battle: Battle, site: Construction) {
     site.complete = true
     site.progress = 1
     for (const c of site.walls) setConstructionTile(battle.grid, c.gx, c.gy, TILE.WALL)
+    setVisionWalls(battle.vision, site.walls, site.owner)
     for (const c of site.deck) setConstructionTile(battle.grid, c.gx, c.gy, TILE.BRIDGE)
-    battle.paths.refresh([...site.walls, ...site.deck])
+    battle.paths.refresh(site.area)
     battle.shoreShift.clear()
     for (const s of battle.soldiers) {
         if (s.state === 'dead') continue
@@ -285,8 +297,12 @@ function destroyConstruction(battle: Battle, site: Construction) {
     battle.constructionById.delete(site.id)
     battle.paths.dropGoal(buildGoalKey(site))
     battle.paths.dropGoal(depotGoalKey(site))
-    if (!site.complete) return
+    if (!site.complete) {
+        if (felledCells(site).length) battle.paths.refresh(site.area)
+        return
+    }
     for (const c of [...site.walls, ...site.deck]) setConstructionTile(battle.grid, c.gx, c.gy, undefined)
+    clearVisionWalls(battle.vision, site.walls)
     battle.paths.refresh([...site.walls, ...site.deck])
     battle.shoreShift.clear()
     const deck = new Set(site.deck.map(c => `${c.gx},${c.gy}`))
@@ -321,6 +337,8 @@ export function canOccupy(battle: Battle, army: Army, site: Construction) {
 function occupyOutpost(battle: Battle, site: Construction) {
     site.owner = enemyOf(site.owner)
     site.occupation = 0
+    site.seenBy[site.owner] = true
+    setVisionWalls(battle.vision, site.walls, site.owner)
     for (const squad of battle.squads) {
         if (squad.owner !== site.owner && squad.depotId === site.id) squad.depotId = nearestDepot(battle, squad.owner, squad.center)
     }
@@ -343,6 +361,7 @@ function updateConstructions(battle: Battle, dt: number) {
                 const done = Math.min(1 - site.progress, site.workers * dt / site.work)
                 site.progress += done
                 site.hp = Math.min(site.maxHp, site.hp + site.maxHp * .9 * done)
+                fellSiteTrees(battle, site)
                 if (site.progress >= 1 - 1e-9) completeConstruction(battle, site)
             } else site.hp = Math.min(site.maxHp, site.hp + site.workers * REPAIR_RATE * dt)
         }
@@ -382,7 +401,7 @@ export function spawnSoldier(battle: Battle, squad: Squad, x: number, y: number,
         path: [], pathIndex: 0, pathGoal: '', targetId: -1,
         thinkTimer: battle.random() * .5, attackTimer: battle.random() * stats.cooldown, swing: 0, runTime: 0, fleeTimer: 0,
         courage: .75 + battle.random() * .5, elapsedTime: battle.random() * 10, deathTime: 0, stuckTime: 0, detour: 0, lane, routeDirect: true, vx: 0, vy: 0, aim: 0, arrows, maxArrows: arrows,
-        constructionId: -1, regroup: false, desertion: null,
+        constructionId: -1, regroup: false, desertion: null, spottedUntil: 0,
     }
     battle.soldiers.push(soldier)
     battle.byId.set(soldier.id, soldier)
@@ -395,7 +414,7 @@ export function spawnSoldier(battle: Battle, squad: Squad, x: number, y: number,
 function createSquad(battle: Battle, owner: Army, type: UnitType, size: number, order: SquadOrder): Squad {
     const formation = battle.formations[owner]
     const squad: Squad = {
-        id: battle.nextSquadId++, owner, type, number: ++battle.squadNumbers[owner][type], companyId: -1, order,
+        id: battle.nextSquadId++, owner, type, number: ++battle.squadNumbers[owner][type], companyId: -1, order, seenCount: 0, lastSeen: null, lastSeenTime: 0,
         anchor: { ...formation.anchor }, facing: formation.facing, goalKey: '', targetSquadId: -1,
         center: { ...formation.anchor }, count: 0, size, leaderId: -1, arrows: 0, maxArrows: 0, resume: null,
         stamina: STAMINA.max, supplies: type === 'supply' ? SUPPLY_CHARGES : 0, maxSupplies: type === 'supply' ? SUPPLY_CHARGES : 0, servingId: -1,
@@ -868,7 +887,8 @@ function movePlan(battle: Battle, squad: Squad, point: Point, facing?: number): 
 }
 
 function attackPlan(battle: Battle, target: Squad): OrderPlan {
-    const anchor = snapToPassable(battle, target.center)
+    // 見失った相手へは、最後に見えた地点へ向かう。
+    const anchor = snapToPassable(battle, knownSquadPosition(target))
     return { order: 'attack', targetSquadId: target.id, anchor, goal: anchor }
 }
 
@@ -986,6 +1006,7 @@ export function orderConstruct(battle: Battle, squadId: number, kind: Constructi
     const site: Construction = {
         ...plan, id: battle.nextConstructionId++, progress: 0, work: CONSTRUCTION[kind].work * (kind === 'bridge' ? plan.deck.length : 1),
         hp: CONSTRUCTION[kind].hp * .1, maxHp: CONSTRUCTION[kind].hp, complete: false, workers: 0, occupation: 0, occupiers: 0,
+        seenBy: { player: squad.owner === 'player', cpu: squad.owner === 'cpu' },
         ...constructionWorkSite(plan, squad.center, (x, y) => battle.paths.passable(x, y)),
     }
     battle.constructions.push(site)
@@ -1003,9 +1024,11 @@ export function orderDemolish(battle: Battle, squadId: number, constructionId: n
 }
 
 /** 地点の近く（radius以内）にある建設物。 */
-export function constructionNear(battle: Battle, point: Point, radius: number) {
+export function constructionNear(battle: Battle, point: Point, radius: number, army?: Army) {
     let best: Construction | undefined, bestDistance = radius
     for (const site of battle.constructions) {
+        // army を渡すと、その軍が認識している建設物だけを選ぶ。
+        if (army && !isSiteKnown(site, army)) continue
         const p = nearestCell(site, point, true)
         const d = Math.hypot(p.x - point.x, p.y - point.y)
         if (d < bestDistance) { bestDistance = d; best = site }
@@ -1067,7 +1090,7 @@ export function moveFormation(battle: Battle, owner: Army, point: Point) {
     const formation = battle.formations[owner]
     const target = snapToPassable(battle, point)
     let ex = 0, ey = 0, n = 0
-    for (const s of battle.soldiers) if (s.owner !== owner && s.state !== 'dead') { ex += s.x; ey += s.y; n++ }
+    for (const s of battle.soldiers) if (s.owner !== owner && s.state !== 'dead' && s.spottedUntil > battle.time) { ex += s.x; ey += s.y; n++ }
     const enemy = n ? { x: ex / n, y: ey / n } : battle.homes[enemyOf(owner)].core
     const previous = formationGoalKey(battle, owner)
     formation.anchor = target
@@ -1111,10 +1134,12 @@ function keepTogether(battle: Battle, company: Company, squads: Squad[]) {
         if (sq.order !== 'attack') continue
         const target = battle.squadById.get(sq.targetSquadId)
         const reach = Math.max(...battle.tether.get(sq.id)!.map(t => t.limit)) + COMPANY.chase
-        if (!target || Math.hypot(target.center.x - center.x, target.center.y - center.y) <= reach) continue
+        if (!target) continue
+        const known = knownSquadPosition(target)
+        if (Math.hypot(known.x - center.x, known.y - center.y) <= reach) continue
         let closer: Squad | undefined, closest = reach
         for (const enemy of battle.squads) {
-            if (enemy.owner === sq.owner || !enemy.count) continue
+            if (enemy.owner === sq.owner || !enemy.count || !isSquadSeen(enemy)) continue
             const d = Math.hypot(enemy.center.x - center.x, enemy.center.y - center.y)
             if (d < closest) { closest = d; closer = enemy }
         }
@@ -1237,7 +1262,9 @@ function chooseCompanyLeader(battle: Battle, company: Company, squads: Squad[]) 
 /** 中隊の小隊のうち、地点に最も近い小隊（中隊を狙う指示で、各小隊が向かう相手）。 */
 export function nearestCompanySquad(battle: Battle, companyId: number, from: Point): Squad | undefined {
     let best: Squad | undefined, bestDistance = Infinity
-    for (const squad of companySquads(battle, companyId)) {
+    // 敵の中隊は、見えている小隊の中から選ぶ（どれも見えていなければ全小隊から）。
+    const squads = companySquads(battle, companyId), seen = squads.filter(isSquadSeen)
+    for (const squad of seen.length ? seen : squads) {
         const d = Math.hypot(squad.center.x - from.x, squad.center.y - from.y)
         if (d < bestDistance) { bestDistance = d; best = squad }
     }
@@ -1482,7 +1509,11 @@ export function squadRoute(battle: Battle, squad: Squad, destination: Point): Po
 
 /** 小隊の今の指示の行き先（矢印の先。指示を出したあとの矢印と、ドラッグ中の下見で共通）。 */
 export function orderDestination(battle: Battle, squad: Squad): Point | undefined {
-    if (squad.order === 'attack') { const target = battle.squadById.get(squad.targetSquadId); return target && squadPosition(battle, target) }
+    if (squad.order === 'attack') {
+        const target = battle.squadById.get(squad.targetSquadId)
+        // 見失っている間は、最後に見えた地点（持ち場）へ向かう。
+        return target && (isSquadSeen(target) ? squadPosition(battle, target) : squad.anchor)
+    }
     if (squad.order === 'charge') return battle.homes[enemyOf(squad.owner)].core
     if (squad.order === 'resupply') {
         const depot = depotOf(battle, squad)
@@ -1720,7 +1751,7 @@ function constructionTarget(battle: Battle, s: Soldier, squad: Squad, slot: Poin
         }
     }
     for (const site of battle.constructions) {
-        if (site.owner === s.owner || !site.complete || !site.walls.length) continue
+        if (site.owner === s.owner || !site.complete || !site.walls.length || !isSiteKnown(site, s.owner)) continue
         if (Math.hypot(site.center.x - s.x, site.center.y - s.y) > 90) continue
         const p = nearestCell(site, s)
         if (Math.hypot(p.x - s.x, p.y - s.y) - TILE_PX / 2 > CONSTRUCTION_AUTO_ATTACK) continue
@@ -1759,6 +1790,8 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         if (d2 > sight2) return
         // 逃げ出した兵は味方に数えない。
         if (o.owner === s.owner) { if (!o.desertion) allies++; return }
+        // 視界の外の敵は、いないのと同じ。
+        if (o.spottedUntil <= battle.time) return
         enemies++; ex += o.x; ey += o.y
         const isOrderedTarget = squad.order === 'attack' && o.squadId === squad.targetSquadId
         if (!isOrderedTarget && d2 > stats.sight * stats.sight) return
@@ -2156,11 +2189,11 @@ function separate(battle: Battle, s: Soldier) {
     if (!impassable(battle, nx, ny)) { s.x = nx; s.y = ny }
 }
 
-function nearestEnemy(battle: Battle, owner: Army, x: number, y: number, radius: number) {
+function nearestEnemy(battle: Battle, owner: Army, x: number, y: number, radius: number, seenOnly = false) {
     let best: Soldier | undefined
     let bestD = radius * radius
     battle.hash.forEachNear(x, y, radius, o => {
-        if (o.owner === owner) return
+        if (o.owner === owner || seenOnly && o.spottedUntil <= battle.time) return
         const d = (o.x - x) ** 2 + (o.y - y) ** 2
         if (d < bestD) { bestD = d; best = o }
     })
@@ -2384,7 +2417,10 @@ function updateSquads(battle: Battle, dt: number) {
         if (squad.order === 'attack') {
             const target = battle.squadById.get(squad.targetSquadId)
             if (!target) orderHold(battle, squad.id)
-            else if (Math.hypot(target.center.x - squad.anchor.x, target.center.y - squad.anchor.y) > 40) {
+            else if (!isSquadSeen(target)) {
+                // 見失ったら最後に見えた地点へ進み、着いても見つからなければ（行き着けなければ時間が来たら）構える。
+                if (Math.hypot(squad.anchor.x - squad.center.x, squad.anchor.y - squad.center.y) < VISION.arrive || battle.time - target.lastSeenTime > VISION.giveUp) orderHold(battle, squad.id)
+            } else if (Math.hypot(target.center.x - squad.anchor.x, target.center.y - squad.anchor.y) > 40) {
                 squad.anchor = snapToPassable(battle, target.center)
                 squad.goalKey = goalFor(battle, `squad:${squad.id}`, squad.anchor, squad.goalKey)
             }
@@ -2534,7 +2570,7 @@ function updateForts(battle: Battle, dt: number, alive: Record<Army, number>) {
         for (const tower of fort.towers) {
             tower.cooldown -= dt
             if (tower.cooldown > 0) continue
-            const target = nearestEnemy(battle, fort.owner, tower.x, tower.y, TOWER.range)
+            const target = nearestEnemy(battle, fort.owner, tower.x, tower.y, TOWER.range, true)
             tower.cooldown = TOWER.cooldown * (.8 + battle.random() * .4)
             if (!target) continue
             launchArrow(battle, fort.owner, tower.x, tower.y, 20, target, TOWER.damage, .03)
@@ -2563,6 +2599,7 @@ export function updateBattle(battle: Battle, dt: number) {
     battle.time += dt
     battle.dayTime = (battle.dayTime + dt * DAY_MINUTES_PER_SECOND) % 1440
     battle.hash.rebuild(battle.soldiers)
+    updateVision(battle, dt)
     battle.paths.process(PATH_BUDGET_PER_TICK)
     for (const site of battle.constructions) { site.workers = 0; site.occupiers = 0 }
     updateSquads(battle, dt)
@@ -2573,7 +2610,7 @@ export function updateBattle(battle: Battle, dt: number) {
         if (s.state === 'dead' || s.desertion) continue
         alive[s.owner]++
         const enemyFort = fortOf(battle, enemyOf(s.owner))
-        if (enemyFort && Math.hypot(s.x - enemyFort.x, s.y - enemyFort.y) < fortVicinityOf(enemyFort.kind)) battle.intruders[enemyFort.owner].push(s)
+        if (enemyFort && s.spottedUntil > battle.time && Math.hypot(s.x - enemyFort.x, s.y - enemyFort.y) < fortVicinityOf(enemyFort.kind)) battle.intruders[enemyFort.owner].push(s)
     }
     for (const s of battle.soldiers) {
         if (s.state === 'dead') continue

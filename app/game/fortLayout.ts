@@ -136,6 +136,17 @@ export function fortTileAt(fort: FortFrame, gx: number, gy: number): 'wall' | 'o
     return isBlockedLocal(lx, ly) ? 'wall' : 'open'
 }
 
+/** 森林で陣地の周りを伐採する幅（敷地の外側からのマス数）。 */
+const CLEARING = 3
+
+/** そのマスが、森林の陣地のごく近くの伐採地か。縁は少し不揃いにする。 */
+export function inForestClearing(fort: FortFrame, gx: number, gy: number): boolean {
+    const { lx, ly } = gridToLocal(fort, gx, gy)
+    const { depth, width, back, front, side } = fortDims(fort.kind)
+    const outside = Math.hypot(Math.max(-back - lx, lx - (depth - 1 + front), 0), Math.max(-side - ly, ly - (width - 1 + side), 0))
+    return outside <= CLEARING + .5 * (Math.sin(gx * .7 + gy * 1.3) + Math.sin(gx * .31 - gy * .47))
+}
+
 /** キャンプの敷地の外で、元の地形へなだらかにつなぐ幅（px）。 */
 const CAMP_APRON = 36
 

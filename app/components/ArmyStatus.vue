@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useGameStore } from '~/stores/game'
 import type { Army } from '~/types/game'
 import { ARMY_NAME, UNIT_NAME, UNIT_TYPES } from './battleUi'
@@ -8,6 +8,8 @@ import { ARMY_NAME, UNIT_NAME, UNIT_TYPES } from './battleUi'
 const props = defineProps<{ army: Army }>()
 const gameStore = useGameStore()
 const open = ref(false)
+/** 敵の兵の数は分からない（戦闘が終われば公開する）。 */
+const secret = computed(() => props.army === 'cpu' && !gameStore.isGameOver)
 const percent = (value: number, max: number) => `${Math.max(0, Math.min(100, value / max * 100))}%`
 </script>
 
@@ -15,17 +17,17 @@ const percent = (value: number, max: number) => `${Math.max(0, Math.min(100, val
   <div class="army-status" :class="[army, { open }]" @click="open = !open">
     <div class="army-head">
       <span class="army-name">{{ ARMY_NAME[army] }}</span>
-      <b class="army-total">{{ gameStore.summary[army].total.toLocaleString() }}</b>
+      <b class="army-total">{{ secret ? '？' : gameStore.summary[army].total.toLocaleString() }}</b>
     </div>
     <div v-if="gameStore.summary[army].hasFort" class="fort-bar" role="meter" :aria-label="`${ARMY_NAME[army]}の本陣耐久`" :aria-valuenow="Math.max(0, Math.ceil(gameStore.summary[army].fortHp))" :aria-valuemin="0" :aria-valuemax="gameStore.summary[army].fortMaxHp" :title="`本陣の耐久 ${Math.ceil(gameStore.summary[army].fortHp)} / ${gameStore.summary[army].fortMaxHp}`">
       <span :style="{ width: percent(gameStore.summary[army].fortHp, gameStore.summary[army].fortMaxHp) }"></span>
     </div>
     <p v-else class="no-fort">砦なし · 全滅で敗北</p>
     <dl class="army-details parchment-window">
-      <template v-for="type in UNIT_TYPES" :key="type"><dt>{{ UNIT_NAME[props.army][type] }}</dt><dd>{{ gameStore.summary[army][type] }}</dd></template>
-      <template v-if="gameStore.summary[army].hasFort"><dt>予備兵</dt><dd>{{ gameStore.summary[army].reserves }}</dd></template>
+      <template v-for="type in UNIT_TYPES" :key="type"><dt>{{ UNIT_NAME[props.army][type] }}</dt><dd>{{ secret ? '？' : gameStore.summary[army][type] }}</dd></template>
+      <template v-if="gameStore.summary[army].hasFort"><dt>予備兵</dt><dd>{{ secret ? '？' : gameStore.summary[army].reserves }}</dd></template>
       <dt>撃破</dt><dd>{{ gameStore.summary[army].killed }}</dd>
-      <template v-if="gameStore.summary[army].deserted"><dt>逃走</dt><dd>{{ gameStore.summary[army].deserted }}</dd></template>
+      <template v-if="gameStore.summary[army].deserted && !secret"><dt>逃走</dt><dd>{{ gameStore.summary[army].deserted }}</dd></template>
     </dl>
   </div>
 </template>

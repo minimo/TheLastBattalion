@@ -2,12 +2,58 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ModelKit } from './models'
 import type { MapTheme } from './mapTheme'
+import { TILE_PX } from '../../game/constants'
+import type { FortCell } from '../../types/game'
 
 type Tree = { x: number; z: number; h: number; scale: number }
+/** 木の部品のメッシュと、木1本あたりのインスタンス数。 */
+type TreePart = [THREE.InstancedMesh, number]
 
+/** 木を描き、マスを指定して消せるようにする（拠点の建設で切り払う）。切り株は残さない。 */
 export function createForest(trees: Tree[], kit: ModelKit, style: MapTheme['trees'] = { style: 'broadleaf', outsideCount: 0 }) {
+    const { group, parts, destroy } = createTrees(trees, kit, style)
+    const treesInCell = new Map<string, number[]>()
+    trees.forEach((tree, i) => {
+        const key = `${Math.round(tree.x / TILE_PX)},${Math.round(tree.z / TILE_PX)}`
+        treesInCell.set(key, [...treesInCell.get(key) ?? [], i])
+    })
+    const felled = new Set<string>()
+    const hidden = new THREE.Matrix4().makeScale(0, 0, 0)
+    const originals: { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4 }[] = []
+    return {
+        group, destroy,
+        fell(cells: FortCell[]) {
+            for (const { gx, gy } of cells) {
+                const key = `${gx},${gy}`
+                if (felled.has(key)) continue
+                felled.add(key)
+                for (const tree of treesInCell.get(key) ?? []) for (const [mesh, perTree] of parts) for (let k = 0; k < perTree; k++) {
+                    const index = tree * perTree + k, matrix = new THREE.Matrix4()
+                    mesh.getMatrixAt(index, matrix)
+                    originals.push({ mesh, index, matrix })
+                    mesh.setMatrixAt(index, hidden)
+                    mesh.instanceMatrix.needsUpdate = true
+                }
+            }
+        },
+        /** 切り払った木を元に戻す（同じ地図で戦い直すとき）。 */
+        regrow() {
+            for (const { mesh, index, matrix } of originals) {
+                mesh.setMatrixAt(index, matrix)
+                mesh.instanceMatrix.needsUpdate = true
+            }
+            originals.length = 0
+            felled.clear()
+        },
+    }
+}
+
+function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['trees']>): { group: THREE.Group; parts: TreePart[]; destroy(): void } {
     if (style.style === 'palm') return createPalms(trees, kit)
     if (style.style === 'dead') return createDeadTrees(trees, kit, style.barkColor ?? 0x4d463e)
+    // 森林は木の数が桁違いに多いので、葉を大きく枚数を少なくし、枝を省く。
+    const light = style.style === 'woodland'
+    const sprays = light ? 44 : 170, sprayWidth = light ? 8.5 : 4.8, sprayHeight = light ? 10.5 : 6
     const group = new THREE.Group()
     // A branch spray with individual leaf silhouettes, shared by all crowns.
     const canvas = document.createElement('canvas')
@@ -29,10 +75,10 @@ export function createForest(trees: Tree[], kit: ModelKit, style: MapTheme['tree
     const leafMaterial = new THREE.MeshStandardMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .95, color: 0xced3b5 })
     const parts: THREE.BufferGeometry[] = []
     // Layer sprays throughout an irregular volume, rather than stacking cones.
-    for (let i = 0; i < 170; i++) {
-        const a = i * 2.399963, v = 1 - 2 * (i + .5) / 170
+    for (let i = 0; i < sprays; i++) {
+        const a = i * 2.399963, v = 1 - 2 * (i + .5) / sprays
         const r = Math.sqrt(1 - v * v), radius = .6 + .4 * (.5 + .5 * Math.sin(i * 13.7))
-        const geometry = new THREE.PlaneGeometry(4.8, 6, 1, 2)
+        const geometry = new THREE.PlaneGeometry(sprayWidth, sprayHeight, 1, light ? 1 : 2)
         const position = geometry.getAttribute('position')
         for (let j = 0; j < position.count; j++) position.setZ(j, Math.abs(position.getY(j)) * .18)
         geometry.rotateY(a + .8)
@@ -43,9 +89,9 @@ export function createForest(trees: Tree[], kit: ModelKit, style: MapTheme['tree
     }
     const crownGeometry = mergeGeometries(parts)!
     parts.forEach(g => g.dispose())
-    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 12)
+    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, light ? 5 : 12, 1, light)
     const trunks = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, trees.length)
-    const branches = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, trees.length * 5)
+    const branches = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, light ? 0 : trees.length * 5)
     const leaves = new THREE.InstancedMesh(crownGeometry, leafMaterial, trees.length)
     const dummy = new THREE.Object3D(), color = new THREE.Color(), up = new THREE.Vector3(0, 1, 0)
     trees.forEach((tree, i) => {
@@ -53,7 +99,7 @@ export function createForest(trees: Tree[], kit: ModelKit, style: MapTheme['tree
         dummy.position.set(tree.x, tree.h + 8 * tree.scale, tree.z)
         dummy.scale.set(.85 * tree.scale, 16 * tree.scale, .85 * tree.scale)
         dummy.updateMatrix(); trunks.setMatrixAt(i, dummy.matrix)
-        for (let j = 0; j < 5; j++) {
+        for (let j = 0; !light && j < 5; j++) {
             const angle = j * 2.4 + i
             const start = new THREE.Vector3(tree.x, tree.h + (7 + j * 1.2) * tree.scale, tree.z)
             const end = new THREE.Vector3(tree.x + Math.cos(angle) * 5 * tree.scale, tree.h + (16 + j * .6) * tree.scale, tree.z + Math.sin(angle) * 5 * tree.scale)
@@ -72,10 +118,27 @@ export function createForest(trees: Tree[], kit: ModelKit, style: MapTheme['tree
     trunks.castShadow = branches.castShadow = leaves.castShadow = true
     leaves.receiveShadow = true
     group.add(trunks, branches, leaves)
-    return { group, destroy() {
+    return { group, parts: [[trunks, 1], [branches, light ? 0 : 5], [leaves, 1]], destroy() {
         trunks.dispose(); branches.dispose(); leaves.dispose()
         trunkGeometry.dispose(); crownGeometry.dispose(); leafMaterial.dispose(); leafMap.dispose()
     } }
+}
+
+/** 伐採地の切り株: 樹皮の側面と、明るい切り口。 */
+export function createStumps(stumps: Tree[], kit: ModelKit) {
+    const geometry = new THREE.CylinderGeometry(.82, 1, 1, 9)
+    const cut = new THREE.MeshStandardMaterial({ color: 0xb99a6b, roughness: .9 })
+    const mesh = new THREE.InstancedMesh(geometry, [kit.surfaces.bark, cut, kit.surfaces.bark], stumps.length)
+    const dummy = new THREE.Object3D()
+    stumps.forEach((stump, i) => {
+        const height = (1.6 + .7 * Math.sin(i * 2.3)) * stump.scale
+        dummy.position.set(stump.x, stump.h + height / 2 - .2, stump.z)
+        dummy.rotation.set(.08 * Math.sin(i * 1.7), i * 1.3, .08 * Math.cos(i * 1.1))
+        dummy.scale.set(1.5 * stump.scale, height, 1.5 * stump.scale)
+        dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix)
+    })
+    mesh.castShadow = mesh.receiveShadow = true
+    return { mesh, destroy() { mesh.dispose(); geometry.dispose(); cut.dispose() } }
 }
 
 /** オアシスのヤシ: 少し傾いて反った幹と、垂れ下がる羽状の葉。 */
@@ -146,7 +209,7 @@ function createPalms(trees: Tree[], kit: ModelKit) {
     trunks.castShadow = crowns.castShadow = true
     crowns.receiveShadow = true
     group.add(trunks, crowns)
-    return { group, destroy() {
+    return { group, parts: [[trunks, SEGMENTS], [crowns, 1]], destroy() {
         trunks.dispose(); crowns.dispose()
         trunkGeometry.dispose(); crownGeometry.dispose(); frondMaterial.dispose(); frondMap.dispose(); trunkMaterial.dispose()
     } }
@@ -194,5 +257,5 @@ function createDeadTrees(trees: Tree[], kit: ModelKit, barkColor: number) {
     trunks.castShadow = branches.castShadow = true
     trunks.receiveShadow = true
     group.add(trunks, branches)
-    return { group, destroy() { trunks.dispose(); branches.dispose(); geometry.dispose(); material.dispose() } }
+    return { group, parts: [[trunks, 2], [branches, BRANCHES * (1 + TWIGS)]], destroy() { trunks.dispose(); branches.dispose(); geometry.dispose(); material.dispose() } }
 }

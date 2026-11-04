@@ -1,6 +1,7 @@
 import { GRID_MAX, TILE, TILE_PX, TILE_VARIANT } from './constants'
 import type { Army, Fort, FortKind } from '../types/game'
-import { fortDims, fortGroundAt, fortTileAt, localToGrid } from './fortLayout'
+import { fortDims, fortGroundAt, fortTileAt, inForestClearing, localToGrid } from './fortLayout'
+import { mapTypeOf, TERRAIN_PROFILE } from './mapType'
 import { createHeightfield } from '../render/three/heightfield'
 import { createLandscape, TERRAIN_CENTER } from '../render/three/landscape'
 
@@ -25,6 +26,11 @@ type FortFrame = Pick<Fort, 'kind' | 'front' | 'originGx' | 'originGy'> & { grou
 const fortFrames = new WeakMap<number[][], FortFrame[]>()
 /** 工兵の建設物で置き換えたマス（完成した柵 = WALL、橋 = BRIDGE）。元の地形より優先する。 */
 const constructionTiles = new WeakMap<number[][], Map<number, number>>()
+/** 森林で、この高さ以上の高台には木が生えない（登ると見通しが効く）。 */
+const FOREST_HILLTOP = 52
+/** 拠点の建設で木を切り払ったマス。建設物が壊れても木は戻らない。 */
+const felledTiles = new WeakMap<number[][], Set<number>>()
+const isWoodTile = (tile: number) => tile === TILE.WOOD || tile >= TILE_VARIANT.WOOD_SPARSE_MIN && tile <= TILE_VARIANT.WOOD_DENSE_MAX
 const cellKey = (gx: number, gy: number) => (gy + 4096) * 8192 + gx + 4096
 
 /** 建設物が完成・破壊されたときに、マスの地形を置き換える（undefinedで元に戻す）。 */
@@ -41,6 +47,15 @@ export function getConstructionTile(grid: number[][], gx: number, gy: number): n
 
 export function clearConstructionTiles(grid: number[][]) {
     constructionTiles.delete(grid)
+    felledTiles.delete(grid)
+}
+
+/** そのマスの木を切り払う（木のないマスはそのまま）。 */
+export function fellTree(grid: number[][], gx: number, gy: number) {
+    if (!isWoodTile(getTerrainTile(grid, gx, gy))) return
+    let felled = felledTiles.get(grid)
+    if (!felled) felledTiles.set(grid, felled = new Set())
+    felled.add(cellKey(gx, gy))
 }
 
 /** 砦の敷地では地形を置き換える: 柵は通行不可、それ以外は平地（高さは砦の地面にそろう）。 */
@@ -70,6 +85,9 @@ export function getTerrainTile(grid: number[][], gx: number, gy: number): number
         const tile = fortTileAt(fort, gx, gy)
         if (tile) return tile === 'wall' ? TILE.WALL : TILE.GRASS
     }
+    if (felledTiles.get(grid)?.has(cellKey(gx, gy))) return TILE.GRASS
+    const forest = mapTypeOf(grid) === 'forest'
+    if (forest && forts?.some(fort => inForestClearing(fort, gx, gy))) return TILE.GRASS
     let tiles = outsideTiles.get(grid)
     if (!tiles) {
         tiles = new Map()
@@ -87,6 +105,7 @@ export function getTerrainTile(grid: number[][], gx: number, gy: number): number
         const x = gx * TILE_PX, y = gy * TILE_PX
         const sunken = [[0, 0], [-6, -6], [-6, 6], [6, -6], [6, 6]].some(([dx, dy]) => landscape.heightAt(x + dx!, y + dy!) <= .3)
         if (tile !== TILE.WATER && tile !== TILE.BRIDGE && !nearBridge && sunken) tile = TILE.WATER
+        if (forest && isWoodTile(tile) && landscape.heightAt(x, y) >= FOREST_HILLTOP) tile = TILE.GRASS
         tiles.set(key, tile)
         return tile
     }
@@ -95,8 +114,14 @@ export function getTerrainTile(grid: number[][], gx: number, gy: number): number
     // Include cell corners so routes keep a little clearance from the riverbank.
     const touchesWater = [[0, 0], [-8, -8], [-8, 8], [8, -8], [8, 8]]
         .some(([dx, dy]) => landscape.heightAt(x + dx!, y + dy!) <= 0)
-    const tile = touchesWater ? TILE.WATER : height >= 130 ? TILE_VARIANT.HIGH_MOUNTAIN_MIN
+    let tile: number = touchesWater ? TILE.WATER : height >= 130 ? TILE_VARIANT.HIGH_MOUNTAIN_MIN
         : height >= 72 ? TILE_VARIANT.LOW_MOUNTAIN_MIN : TILE.GRASS
+    if (forest && tile === TILE.GRASS && height < FOREST_HILLTOP) {
+        // 戦場の内側の生成（mapGenerator）と同じ細かさの湿り気で、林を外へ続ける。
+        const { noise } = landscape
+        const moisture = (noise(x * .0036 + 111, y * .0036) + .5 * noise(x * .0072, y * .0072 + 77)) / 1.5 - TERRAIN_PROFILE.forest.woodAbove
+        if (moisture > 0) tile = moisture > .3 ? TILE_VARIANT.WOOD_DENSE_MIN : TILE_VARIANT.WOOD_SPARSE_MAX
+    }
     tiles.set(key, tile)
     return tile
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createForest } from './forest'
+import { createForest, createStumps } from './forest'
 import { TILE, TILE_PX } from '../../game/constants'
 import type { Fort } from '../../types/game'
 import { BRIDGE_HEIGHT, createHeightfield } from './heightfield'
@@ -7,13 +7,15 @@ import { createLandscape, LANDSCAPE_RADIUS, TERRAIN_CENTER } from './landscape'
 import { createTerrainMeshes } from './terrainMesh'
 import { createScenery } from './scenery'
 import type { ModelKit } from './models'
-import { fortFootprint, fortGroundAt, gridToLocal, localToWorld } from '../../game/fortLayout'
+import { fortFootprint, fortGroundAt, gridToLocal, inForestClearing, localToWorld } from '../../game/fortLayout'
+import { getTerrainTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from '../../game/playableArea'
 import { CASTLE_DEPTH, CASTLE_WIDTH, castleCell, castleRadius } from '../../game/castleLayout'
 import { mapTypeOf } from '../../game/mapType'
 import { MAP_THEME } from './mapTheme'
 
 export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     const mapType = mapTypeOf(grid), theme = MAP_THEME[mapType]
+    const source = grid
     grid = grid.map(row => Array.from(row))
     const group = new THREE.Group()
     const coreField = createHeightfield(grid, [], mapType)
@@ -75,7 +77,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
             group.add(bridge)
             bridges.push(bridge)
         }
-        if ((t === TILE.WOOD || t >= 31 && t <= 41) && !reserved(x, z)) {
+        if (mapType !== 'forest' && (t === TILE.WOOD || t >= 31 && t <= 41) && !reserved(x, z)) {
             // 枯れ木はまばらに立つ。
             const count = theme.trees.style === 'dead' ? (Math.sin(i * 12.9898 + j * 78.233) * 43758.5453 % 1 + 1) % 1 < .45 ? 1 : 0
                 : t >= 34 ? 3 : 2
@@ -86,6 +88,19 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
             }
         }
     }
+    // 森林: 部隊の動ける範囲のすべての林のマスに木を1本ずつ立て、陣地の周りの伐採地には切り株を残す。
+    const stumps: typeof trees = []
+    if (mapType === 'forest') for (let j = PLAYABLE_GRID_MIN; j <= PLAYABLE_GRID_MAX; j++) for (let i = PLAYABLE_GRID_MIN; i <= PLAYABLE_GRID_MAX; i++) {
+        const t = getTerrainTile(source, i, j)
+        const tx = i * TILE_PX + Math.sin(i * 17 + j * 31) * 5, tz = j * TILE_PX + Math.cos(i * 13 + j * 7) * 5
+        if (reserved(tx, tz)) continue
+        if (t >= 31 && t <= 41) trees.push({ x: tx, z: tz, h: field.heightAt(tx, tz), scale: .85 + .25 * (1 + Math.sin(i * 3 + j)) })
+        else if (forts.some(fort => inForestClearing(fort, i, j)) && (Math.sin(i * 12.9898 + j * 78.233) * 43758.5453 % 1 + 1) % 1 < .3) {
+            stumps.push({ x: tx, z: tz, h: field.heightAt(tx, tz), scale: .8 + .25 * (1 + Math.sin(i * 5 + j * 3)) })
+        }
+    }
+    const stumpMesh = createStumps(stumps, kit)
+    group.add(stumpMesh.mesh)
     // 城の裏手の斜面の林（本陣の棟が建つ頂の裏手には植えない）。
     for (const fort of castles) for (let lx = 0; lx < CASTLE_DEPTH; lx++) for (let ly = 0; ly < CASTLE_WIDTH; ly++) {
         if (castleCell(lx, ly) !== 'grove' || castleRadius(lx, ly) < .5 || Math.sin(lx * 12.9898 + ly * 78.233) * 43758.5453 % 1 > .1) continue
@@ -107,12 +122,12 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     }
     const water = new THREE.Mesh(waterGeometry, waterMaterial)
     group.add(water)
-    return { group, field, mapType, theme, pickables: [terrain, surroundings, water, ...bridges], update(time: number) {
+    return { group, field, mapType, theme, pickables: [terrain, surroundings, water, ...bridges], fellTrees: forest.fell, regrowTrees: forest.regrow, update(time: number) {
         const shader = waterMaterial.userData.shader
         if (shader) shader.uniforms.time.value = time
     }, destroy() {
         terrainMeshes.destroy(); scenery.destroy(); waterGeometry.dispose(); waterMaterial.dispose()
-        forest.destroy()
+        forest.destroy(); stumpMesh.destroy()
         group.removeFromParent()
     } }
 }
