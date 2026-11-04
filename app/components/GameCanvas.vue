@@ -437,7 +437,7 @@ button:hover { transform: scale(1.05); }
   .start-button { min-height: 34px; margin-block: 6px 2px; }
 }
 
-.battle-header { position: absolute; top: 0; left: 0; right: 0; z-index: 7; display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 16px 28px; background: linear-gradient(#0b151dd9, #0b151d00); pointer-events: none; }
+.battle-header { position: absolute; top: 0; left: 0; right: 0; z-index: 7; display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 16px 28px; background: linear-gradient(#0b151d59, #0b151d00); pointer-events: none; }
 .battle-header > .army-status { pointer-events: auto; }
 .clock { position: absolute; left: 50%; top: 4px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; color: #e2cf9f; font-size: 11px; letter-spacing: .1em; }
 .paused-label { margin-top: 2px; text-shadow: 0 1px 3px #000; }

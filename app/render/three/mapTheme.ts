@@ -25,9 +25,15 @@ export interface MapTheme {
         dayCloud: number; nightCloud: number; cloudAmount: number; fog: number
         /** 夜に昇る月（なければ描かない）。 */
         moon?: { color: number; glow: number }
+        /** 昼に昇る太陽（なければ描かない）。 */
+        sun?: { color: number; glow: number }
     }
     light: { sky: number; ground: number; sun: number; nightSun: number; sunScale: number }
 }
+
+/** 魔王城付近以外の空の太陽と、普通の月。 */
+const PLAIN_SUN = { color: 0xfff4d6, glow: 0xffc982 }
+const PLAIN_MOON = { color: 0xe4e7ec, glow: 0x7f94bd }
 
 export const MAP_THEME: Record<MapType, MapTheme> = {
     standard: {
@@ -39,6 +45,7 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
         sky: {
             dayZenith: 0x79a8cc, dayHorizon: 0xb6c9cb, nightZenith: 0x1c2948, nightHorizon: 0x202d43,
             dayCloud: 0xe7eded, nightCloud: 0x626c81, cloudAmount: .2, fog: .00028,
+            sun: PLAIN_SUN, moon: PLAIN_MOON,
         },
         light: { sky: 0xc8e5e4, ground: 0x56634d, sun: 0xffdeb3, nightSun: 0xa1bbff, sunScale: 1 },
     },
@@ -51,6 +58,7 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
         sky: {
             dayZenith: 0x72a7d8, dayHorizon: 0xbcd3d6, nightZenith: 0x1c2948, nightHorizon: 0x202d43,
             dayCloud: 0xdde6e6, nightCloud: 0x626c81, cloudAmount: .28, fog: .00024,
+            sun: PLAIN_SUN, moon: PLAIN_MOON,
         },
         light: { sky: 0xcfe8e2, ground: 0x5b6d47, sun: 0xffe2b8, nightSun: 0xa1bbff, sunScale: 1.05 },
     },
@@ -63,6 +71,7 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
         sky: {
             dayZenith: 0x72a7d8, dayHorizon: 0xbcd3d6, nightZenith: 0x1c2948, nightHorizon: 0x202d43,
             dayCloud: 0xdde6e6, nightCloud: 0x626c81, cloudAmount: .28, fog: .00024,
+            sun: PLAIN_SUN, moon: PLAIN_MOON,
         },
         light: { sky: 0xcfe8e2, ground: 0x566a44, sun: 0xffe2b8, nightSun: 0xa1bbff, sunScale: 1 },
     },
@@ -76,6 +85,7 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
         sky: {
             dayZenith: 0x86afd2, dayHorizon: 0xe2d6bd, nightZenith: 0x1e2a48, nightHorizon: 0x2a2c3e,
             dayCloud: 0xece2cf, nightCloud: 0x5f6578, cloudAmount: .08, fog: .00034,
+            sun: PLAIN_SUN, moon: PLAIN_MOON,
         },
         light: { sky: 0xe9e1cc, ground: 0x9a7f57, sun: 0xffe0b0, nightSun: 0xa4b4ef, sunScale: 1.12 },
     },
@@ -88,6 +98,7 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
         sky: {
             dayZenith: 0x8ea3b4, dayHorizon: 0xc9c1aa, nightZenith: 0x1f2534, nightHorizon: 0x272a35,
             dayCloud: 0xcfc6b3, nightCloud: 0x5a5c68, cloudAmount: .16, fog: .00032,
+            sun: PLAIN_SUN, moon: PLAIN_MOON,
         },
         light: { sky: 0xd9d2bd, ground: 0x6b5b45, sun: 0xffd9a8, nightSun: 0xa3b3e6, sunScale: 1 },
     },
@@ -100,6 +111,7 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
         sky: {
             dayZenith: 0x6a3a35, dayHorizon: 0x9a6a5a, nightZenith: 0x1c0606, nightHorizon: 0x3c0d0c,
             dayCloud: 0x8a5249, nightCloud: 0x4a1410, cloudAmount: .3, fog: .00042,
+            sun: { color: 0xffb98a, glow: 0xb8472c },
             moon: { color: 0xff3b24, glow: 0xb3180e },
         },
         light: { sky: 0xc9958a, ground: 0x3d2a24, sun: 0xffa983, nightSun: 0xff6a4d, sunScale: .82 },

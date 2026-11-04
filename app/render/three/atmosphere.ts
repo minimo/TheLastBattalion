@@ -7,16 +7,28 @@ import type { MapTheme } from './mapTheme'
  */
 const MOONRISE = 1050, MOONSET = 1830
 const MOON_ARC = { lowest: -6, highest: 9, fromAzimuth: -75, toAzimuth: 75 }
+/** 日の出と日の入り（ゲーム内の分）。月と同じ向きに、画面に収まる低い空を渡る。6:00ごろに地平線を越え、18:00ごろに沈む。 */
+const SUNRISE = 340, SUNSET = 1100
+const SUN_ARC = { ...MOON_ARC, lowest: -1, highest: 4.5 }
 const DEGREE = Math.PI / 180
+
+function arcDirectionAt(dayTime: number, rise: number, set: number, path: typeof MOON_ARC, target: THREE.Vector3) {
+    const t = ((dayTime - rise + 1440) % 1440) / (set - rise)
+    if (t > 1) return null
+    const arc = Math.sin(Math.PI * t)
+    const elevation = (path.lowest + (path.highest - path.lowest) * arc) * DEGREE
+    const azimuth = (path.fromAzimuth + (path.toAzimuth - path.fromAzimuth) * t) * DEGREE
+    return target.set(Math.cos(azimuth) * Math.cos(elevation), Math.sin(elevation), Math.sin(azimuth) * Math.cos(elevation))
+}
 
 /** dayTime のときの月の方角。月が出ていなければ null。 */
 export function moonDirectionAt(dayTime: number, target = new THREE.Vector3()) {
-    const t = ((dayTime - MOONRISE + 1440) % 1440) / (MOONSET - MOONRISE)
-    if (t > 1) return null
-    const arc = Math.sin(Math.PI * t)
-    const elevation = (MOON_ARC.lowest + (MOON_ARC.highest - MOON_ARC.lowest) * arc) * DEGREE
-    const azimuth = (MOON_ARC.fromAzimuth + (MOON_ARC.toAzimuth - MOON_ARC.fromAzimuth) * t) * DEGREE
-    return target.set(Math.cos(azimuth) * Math.cos(elevation), Math.sin(elevation), Math.sin(azimuth) * Math.cos(elevation))
+    return arcDirectionAt(dayTime, MOONRISE, MOONSET, MOON_ARC, target)
+}
+
+/** dayTime のときの太陽の方角。太陽が出ていなければ null。 */
+export function sunDirectionAt(dayTime: number, target = new THREE.Vector3()) {
+    return arcDirectionAt(dayTime, SUNRISE, SUNSET, SUN_ARC, target)
 }
 
 /** Horizon and distance haze use the same color so the landscape has no visible edge. */
@@ -32,12 +44,14 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
             dayZenith: { value: new THREE.Color() }, nightZenith: { value: new THREE.Color() },
             dayCloud: { value: new THREE.Color() }, nightCloud: { value: new THREE.Color() }, cloudAmount: { value: .2 },
             moonDirection: { value: new THREE.Vector3(1, 0, 0) }, moonColor: { value: new THREE.Color() }, moonGlow: { value: new THREE.Color() }, moon: { value: 0 },
+            sunDirection: { value: new THREE.Vector3(1, 0, 0) }, sunColor: { value: new THREE.Color() }, sunGlow: { value: new THREE.Color() }, sunUp: { value: 0 },
         },
         vertexShader: 'varying vec3 direction; void main() { direction = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: `
             varying vec3 direction; uniform float night; uniform vec3 horizon;
             uniform vec3 dayZenith; uniform vec3 nightZenith; uniform vec3 dayCloud; uniform vec3 nightCloud; uniform float cloudAmount;
             uniform vec3 moonDirection; uniform vec3 moonColor; uniform vec3 moonGlow; uniform float moon;
+            uniform vec3 sunDirection; uniform vec3 sunColor; uniform vec3 sunGlow; uniform float sunUp;
             void main() {
                 vec3 dir = normalize(direction);
                 vec3 zenith = mix(dayZenith, nightZenith, night);
@@ -45,10 +59,19 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
                 float cloud = sin(dir.x * 16.0 + sin(dir.z * 10.0)) * sin(dir.z * 23.0 + dir.x * 4.0);
                 cloud = smoothstep(.35, .9, cloud) * smoothstep(.0, .2, dir.y) * (1.0 - smoothstep(.3, .7, dir.y));
                 sky = mix(sky, mix(dayCloud, nightCloud, night), cloud * cloudAmount);
+                if (sunUp > 0.0) {
+                    float d = dot(dir, sunDirection);
+                    float disc = smoothstep(.99853, .99873, d);
+                    float halo = pow(max(d, 0.0), 400.0) * .7 + pow(max(d, 0.0), 40.0) * .25;
+                    float visible = sunUp * (1.0 - smoothstep(0.0, .6, night)) * smoothstep(-.02, .02, dir.y);
+                    sky += sunGlow * halo * 1.6 * visible * (1.0 - disc);
+                    // 明るい昼の空に溶けないよう、白く飛ぶくらいに明るくする。
+                    sky = mix(sky, sunColor * 4.0, disc * visible * (1.0 - cloud * cloudAmount * 1.5));
+                }
                 if (moon > 0.0) {
                     float d = dot(dir, moonDirection);
                     // Large, low moon: a disc with darker maria and a wide halo.
-                    float disc = smoothstep(.99525, .99545, d);
+                    float disc = smoothstep(.99682, .99702, d);
                     vec3 side = normalize(cross(moonDirection, vec3(0.0, 1.0, 0.0)));
                     vec3 up = cross(side, moonDirection);
                     vec2 p = vec2(dot(dir, side), dot(dir, up)) * 36.0;
@@ -68,13 +91,15 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
     sky.frustumCulled = false; sky.renderOrder = -10
     scene.add(sky)
     const u = material.uniforms
-    let hasMoon = false
+    let hasMoon = false, hasSun = false
     const setTheme = (theme: MapTheme['sky']) => {
         dayHorizon.set(theme.dayHorizon); nightHorizon.set(theme.nightHorizon)
         u.dayZenith!.value.set(theme.dayZenith); u.nightZenith!.value.set(theme.nightZenith)
         u.dayCloud!.value.set(theme.dayCloud); u.nightCloud!.value.set(theme.nightCloud); u.cloudAmount!.value = theme.cloudAmount
         hasMoon = !!theme.moon
         if (theme.moon) { u.moonColor!.value.set(theme.moon.color); u.moonGlow!.value.set(theme.moon.glow) }
+        hasSun = !!theme.sun
+        if (theme.sun) { u.sunColor!.value.set(theme.sun.color); u.sunGlow!.value.set(theme.sun.glow) }
         fog.density = theme.fog
         if (scene.background instanceof THREE.Color) scene.background.copy(dayHorizon)
     }
@@ -83,6 +108,7 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
         sky.position.copy(camera.position)
         u.night!.value = night
         u.moon!.value = hasMoon && moonDirectionAt(dayTime, u.moonDirection!.value) ? 1 : 0
+        u.sunUp!.value = hasSun && sunDirectionAt(dayTime, u.sunDirection!.value) ? 1 : 0
         fog.color.copy(dayHorizon).lerp(nightHorizon, night)
         u.horizon!.value.copy(fog.color)
     }, destroy() { sky.removeFromParent(); geometry.dispose(); material.dispose(); scene.fog = null } }
