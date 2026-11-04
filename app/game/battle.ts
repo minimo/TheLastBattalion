@@ -1598,8 +1598,11 @@ function slotPosition(battle: Battle, s: Soldier, squad: Squad): Point | undefin
         return site ? site.workPoints[s.slot % site.workPoints.length] : undefined
     }
     const offset = slotOffset(squad.type, Math.max(1, squad.count), s.slot)
+    const point = toWorld(post.anchor, post.facing, offset.forward, offset.lateral)
+    // 進んでいる隊列の槍兵は、持ち場のまま川を渡る（岸で待つと隊列が川の中で最低速になる）。
+    if (squad.march?.moving && !impassable(battle, point.x, point.y)) return point
     // 川は渡れるが、川の中では構えず岸に並ぶ。
-    return toShore(battle, toWorld(post.anchor, post.facing, offset.forward, offset.lateral))
+    return toShore(battle, point)
 }
 
 /** 隊列のまん中の持ち場の番号（隊長の持ち場）。 */

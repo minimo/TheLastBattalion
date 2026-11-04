@@ -1028,6 +1028,28 @@ describe('攻城戦・防衛戦', () => {
 describe('川', () => {
     const run = (battle: ReturnType<typeof makeBattle>, seconds: number) => { for (let t = 0; t < seconds; t += 1 / 30) updateBattle(battle, 1 / 30) }
 
+    it('槍兵の隊列は、兵を岸に残して川の中で這うことなく、兵ごと川を渡る', () => {
+        const battle = makeBattle('abc')
+        orderArmy(battle, 'cpu', 'hold')
+        const squad = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'pikeman')!
+        leaveCompany(battle, squad)
+        for (const s of battle.soldiers) if (s.owner === 'player' && s.squadId !== squad.id) { s.state = 'dead'; s.deathTime = battle.time }
+        run(battle, .2)
+        const enemy = battle.homes.cpu, length = Math.hypot(enemy.x - squad.center.x, enemy.y - squad.center.y)
+        orderMove(battle, squad.id, { x: squad.center.x + (enemy.x - squad.center.x) / length * 400, y: squad.center.y + (enemy.y - squad.center.y) / length * 400 })
+        run(battle, 10)
+        let slowest = Infinity, waded = false
+        for (let i = 0; i < 16; i++) {
+            const { x, y } = squad.march!
+            run(battle, 5)
+            slowest = Math.min(slowest, Math.hypot(squad.march!.x - x, squad.march!.y - y) / 5)
+            waded ||= battle.members.get(squad.id)!.some(s => getPlayableTile(battle.grid, Math.round(s.x / TILE_PX), Math.round(s.y / TILE_PX)) === TILE.WATER)
+        }
+        expect(waded).toBe(true)
+        // 兵を岸に残すと、隊列は川の中を最低速で這い、0.5px/秒を切る。
+        expect(slowest).toBeGreaterThan(.8)
+    }, 120000)
+
     it('騎兵は0.5倍、騎兵以外は0.2倍の速さで川を歩いて渡れる', () => {
         const battle = makeBattle('777777')
         orderArmy(battle, 'cpu', 'hold')
