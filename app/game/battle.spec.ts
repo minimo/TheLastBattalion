@@ -1224,13 +1224,33 @@ describe('開戦前の中隊の配置', () => {
         expect(company!.placed).toBeNull()
     })
 
-    it('全体の初期位置から離れすぎる場所、砦の敷地には置けない', () => {
+    it('全体の初期位置から離れすぎる場所には置けない', () => {
         const battle = makeBattle('123456')
         const company = playerCompanies(battle)[0]!
         const { anchor } = battle.formations.player
         expect(previewPlacement(battle, { companyId: company.id }, { x: anchor.x + 600, y: anchor.y })).toMatchObject({ valid: false, reason: '陣から離れすぎています' })
+    })
+
+    it('自軍の砦の中には、建物があっても置け、柵にかかる場所には置けない', () => {
+        const battle = makeBattle('123456')
         const fort = battle.forts.find(f => f.owner === 'player')!
-        expect(previewPlacement(battle, { companyId: company.id }, { x: fort.x + 60, y: fort.y }).valid).toBe(false)
+        for (const target of [{ companyId: playerCompanies(battle)[0]!.id }, { squadId: battle.squads.find(sq => sq.owner === 'player' && sq.type === 'engineer')!.id }]) {
+            // 砦の前の柵（正門の脇）にかかる場所には置けない。
+            const wall = localToGrid(fort, FORT_DEPTH - 1, 3)
+            expect(previewPlacement(battle, target, { x: wall.gx * TILE_PX, y: wall.gy * TILE_PX })).toMatchObject({ valid: false, reason: '柵や川にかかっています' })
+        }
+        const company = playerCompanies(battle)[0]!
+        expect(previewPlacement(battle, { companyId: company.id }, fort).valid).toBe(true)
+        expect(placeUnit(battle, { companyId: company.id }, { x: fort.x, y: fort.y })).toBe(true)
+        // 兵は建物の上に立たず、開戦しても砦の中に留まる。
+        for (const squad of companySquads(battle, company.id)) for (const s of battle.members.get(squad.id)!) expect(battle.paths.passable(s.x, s.y)).toBe(true)
+        updateBattle(battle, 1 / 30)
+        const after = middle(battle, company.id)
+        expect(after.x).toBeCloseTo(fort.x); expect(after.y).toBeCloseTo(fort.y)
+        // 建物のマスは置けない色に塗らない。
+        const command = localToGrid(fort, 2, 7)
+        const engineer = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'engineer')!
+        expect(placementMap(battle, { squadId: engineer.id }).find(c => c.gx === command.gx && c.gy === command.gy && c.kind === 'blocked')).toBeUndefined()
     })
 
     it('置いた中隊の周りには他の中隊を置けず、残りの中隊は置いた場所に重ならない', () => {
@@ -1304,8 +1324,8 @@ describe('開戦前の中隊の配置', () => {
         expect(kindAt(middle(battle, company!.id))).toBeUndefined()
         const fort = fortFootprint(battle.forts.find(f => f.owner === 'player')!)
         expect(cells.some(c => c.kind === 'blocked' && c.gx * TILE_PX >= fort.minX && c.gx * TILE_PX <= fort.maxX && c.gy * TILE_PX >= fort.minY && c.gy * TILE_PX <= fort.maxY)).toBe(true)
-        // 塗っていないマスだけでできた場所には、置ける（色と判定が食い違わない）。
-        const painted = new Set(cells.map(c => `${c.gx},${c.gy}`))
+        // 置ける場所は赤いマスにかからない（色と判定が食い違わない）。部隊の黄色いマスは、丸めの分だけ隣り合う部隊と接することがある。
+        const painted = new Set(cells.filter(c => c.kind === 'blocked').map(c => `${c.gx},${c.gy}`))
         const area = placementArea(battle, 'player'), xs = area.map(p => p.x), ys = area.map(p => p.y)
         let checked = 0
         for (let x = Math.min(...xs); x <= Math.max(...xs); x += 32) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 32) {

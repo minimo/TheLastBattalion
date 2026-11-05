@@ -3,7 +3,7 @@ import { getTimeDecayMultiplier, getTimeSpeedMultiplier } from './daynight'
 import { getTerrainSpeedMultiplier, getTileCost, mobilityOf } from './terrain'
 import { BATTLEFIELD_MAX, BATTLEFIELD_MIN, clearConstructionTiles, fellTree, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
 import { cellPoint, constructionWorkSite, felledCells, planConstruction } from './construction'
-import { createFortGeometry, fortCenter, fortDims, fortFootprint, localToWorld } from './fortLayout'
+import { createFortGeometry, fortCenter, fortDims, fortFootprint, isFortBuildingCell, localToWorld } from './fortLayout'
 import { CASTLE_CORE_RADIUS } from './castleLayout'
 import { createSpatialHash } from './spatialHash'
 import { clearVisionWalls, clearVisionWood, createVisionMap, isSiteKnown, isSquadSeen, knownSquadPosition, refreshVision, setVisionWalls, updateVision } from './vision'
@@ -668,7 +668,8 @@ function keepBlocksClear(battle: Battle, formation: ArmyFormation, posts: BlockP
         const point = placedPoint(block)
         if (!point) continue
         const move = { x: point.x - (block.minX + block.maxX) / 2, y: point.y - (block.minY + block.maxY) / 2 }
-        if (!isOpen(block, move) || [...fixed, ...placed].some(other => blockTouches(block, move, other, GAP_BETWEEN_BLOCKS))) continue
+        // 置いた場所は自軍の砦の中でもよい（置けるかは previewPlacement と同じ決まり）。
+        if (block.cells.some(p => placementBlocked(battle, p.x + move.x, p.y + move.y)) || [...fixed, ...placed].some(other => blockTouches(block, move, other, GAP_BETWEEN_BLOCKS))) continue
         shift(block, move)
         placed.push(block)
     }
@@ -695,7 +696,14 @@ function keepBlocksClear(battle: Battle, formation: ArmyFormation, posts: BlockP
 /** 中隊を置ける範囲: 開戦時の陣の広がりから、前・後ろ・左右へ広げる距離（px）。 */
 const PLACEMENT_RANGE = { forward: 80, back: 160, side: 160 }
 
-/** 中隊を置ける範囲（陣の位置からの前方・右手の位置）。全軍の陣の広がりを PLACEMENT_RANGE だけ広げた長方形。 */
+/** 置けないマスか（柵・城壁・川など）。砦の中の建物は部隊を分断しないので、兵は建物の脇へ寄せて立たせる。 */
+const placementBlocked = (battle: Battle, x: number, y: number) => {
+    if (!blocked(battle, x, y)) return false
+    const gx = Math.round(x / TILE_PX), gy = Math.round(y / TILE_PX)
+    return !battle.forts.some(fort => isFortBuildingCell(fort, gx, gy))
+}
+
+/** 中隊を置ける範囲（陣の位置からの前方・右手の位置）。全軍の陣の広がりを PLACEMENT_RANGE だけ広げ、自軍の砦の敷地も含めた長方形。 */
 function placementBounds(battle: Battle, owner: Army) {
     const squads = battle.squads.filter(sq => sq.owner === owner)
     const layout = layoutWithCompanies(battle, battle.formations[owner].type, squads)
@@ -707,7 +715,18 @@ function placementBounds(battle: Battle, owner: Army) {
         front = Math.max(front, slot.forward); back = Math.min(back, slot.forward - depth)
         left = Math.min(left, slot.lateral - width / 2); right = Math.max(right, slot.lateral + width / 2)
     }
-    return { front: front + PLACEMENT_RANGE.forward, back: back - PLACEMENT_RANGE.back, left: left - PLACEMENT_RANGE.side, right: right + PLACEMENT_RANGE.side }
+    front += PLACEMENT_RANGE.forward; back -= PLACEMENT_RANGE.back; left -= PLACEMENT_RANGE.side; right += PLACEMENT_RANGE.side
+    const fort = fortOf(battle, owner)
+    if (fort) {
+        const { anchor, facing } = battle.formations[owner]
+        const { fx, fy, rx, ry } = axes(facing)
+        const area = fortFootprint(fort)
+        for (const x of [area.minX, area.maxX]) for (const y of [area.minY, area.maxY]) {
+            const forward = (x - anchor.x) * fx + (y - anchor.y) * fy, lateral = (x - anchor.x) * rx + (y - anchor.y) * ry
+            back = Math.min(back, forward); left = Math.min(left, lateral); right = Math.max(right, lateral)
+        }
+    }
+    return { front, back, left, right }
 }
 
 /** 中隊を置ける範囲の四隅（表示用）。 */
@@ -759,9 +778,9 @@ export function previewPlacement(battle: Battle, target: PlacementTarget, point:
     })
     let reason = ''
     if (!inRange) reason = '陣から離れすぎています'
-    else if (battle.forts.some(fort => blockTouches(block, move, fortFootprint(fort), 0))) reason = '砦の敷地には置けません'
-    else if (cells.some(p => blocked(battle, p.x, p.y))) reason = '壁や川にかかっています'
-    else if (!reachableFromFormation(battle, owner).has(`${Math.round(cells[0]!.x / TILE_PX)},${Math.round(cells[0]!.y / TILE_PX)}`)) reason = '陣から歩いて行けない場所です'
+    else if (battle.forts.some(fort => fort.owner !== owner && blockTouches(block, move, fortFootprint(fort), 0))) reason = '敵の砦の敷地には置けません'
+    else if (cells.some(p => placementBlocked(battle, p.x, p.y))) reason = '柵や川にかかっています'
+    else if (!cells.some(p => reachableFromFormation(battle, owner).has(`${Math.round(p.x / TILE_PX)},${Math.round(p.y / TILE_PX)}`))) reason = '陣から歩いて行けない場所です'
     else if (battle.squads.some(sq => {
         if (squads.includes(sq)) return false
         const corners = blockCorners(sq.anchor, sq.facing, sq)
@@ -772,7 +791,7 @@ export function previewPlacement(battle: Battle, target: PlacementTarget, point:
     return { valid: !reason, reason, area: [...area.values()], walls: [] as { gx: number; gy: number }[] }
 }
 
-/** 置ける範囲の中の、塗り分けるマス。blocked: 壁・川・砦の敷地・歩いて行けない所。unit: 他の部隊（中隊は小隊の間も含むかたまり）。 */
+/** 置ける範囲の中の、塗り分けるマス。blocked: 柵・川・敵の砦の敷地・歩いて行けない所（自軍の砦の中の建物は塗らない）。unit: 他の部隊（中隊は小隊の間も含むかたまり）。 */
 export interface PlacementCell { gx: number; gy: number; kind: 'blocked' | 'unit' }
 export function placementMap(battle: Battle, target: PlacementTarget): PlacementCell[] {
     const unit = placementUnit(battle, target)
@@ -781,7 +800,7 @@ export function placementMap(battle: Battle, target: PlacementTarget): Placement
     const { fx, fy, rx, ry } = axes(facing)
     const bounds = placementBounds(battle, unit.owner)
     const reach = reachableFromFormation(battle, unit.owner)
-    const forts = battle.forts.map(fortFootprint)
+    const enemyForts = battle.forts.filter(fort => fort.owner !== unit.owner).map(fortFootprint)
     const inside = (x: number, y: number) => {
         const forward = (x - anchor.x) * fx + (y - anchor.y) * fy, lateral = (x - anchor.x) * rx + (y - anchor.y) * ry
         return forward <= bounds.front && forward >= bounds.back && lateral >= bounds.left && lateral <= bounds.right
@@ -793,7 +812,8 @@ export function placementMap(battle: Battle, target: PlacementTarget): Placement
         for (let gx = toCell(Math.min(...corners.map(p => p.x))); gx <= toCell(Math.max(...corners.map(p => p.x))); gx++) {
             const x = gx * TILE_PX, y = gy * TILE_PX
             if (!inside(x, y)) continue
-            if (blocked(battle, x, y) || !reach.has(`${gx},${gy}`) || forts.some(area => x >= area.minX && x <= area.maxX && y >= area.minY && y <= area.maxY)) cells.set(`${gx},${gy}`, { gx, gy, kind: 'blocked' })
+            if (blocked(battle, x, y) && !placementBlocked(battle, x, y)) continue
+            if (blocked(battle, x, y) || !reach.has(`${gx},${gy}`) || enemyForts.some(area => x >= area.minX && x <= area.maxX && y >= area.minY && y <= area.maxY)) cells.set(`${gx},${gy}`, { gx, gy, kind: 'blocked' })
         }
     }
     const groups = new Map<number, Squad[]>()
@@ -829,7 +849,8 @@ export function placeUnit(battle: Battle, target: PlacementTarget, point: Point)
         const next = slots.get(squad.id)?.anchor ?? (placing ? { x: squad.anchor.x + move.x, y: squad.anchor.y + move.y } : undefined)
         if (!next) continue
         const dx = next.x - squad.anchor.x, dy = next.y - squad.anchor.y
-        for (const s of battle.members.get(squad.id) ?? []) { s.x += dx; s.y += dy }
+        // 砦の中の建物にかかる兵は、建物の脇へ寄せる。
+        for (const s of battle.members.get(squad.id) ?? []) { const p = snapToPassable(battle, { x: s.x + dx, y: s.y + dy }); s.x = p.x; s.y = p.y }
         squad.center = { x: squad.center.x + dx, y: squad.center.y + dy }
         squad.anchor = next
     }

@@ -119,6 +119,17 @@ export function fortCenter(fort: FortFrame): Point {
     return localToWorld(fort, (depth - 1) / 2, (width - 1) / 2)
 }
 
+/** 砦の中の、柵や城壁ではない建物のマスか（兵は立てないが、中の部隊を分断しない）。 */
+export function isFortBuildingCell(fort: FortFrame, gx: number, gy: number): boolean {
+    const { lx, ly } = gridToLocal(fort, gx, gy)
+    if (fort.kind === 'castle') {
+        const cell = castleCell(lx, ly)
+        return cell === 'house' || cell === 'keep' || cell === 'grove'
+    }
+    return FORT_STRUCTURES.some(s => s.blocking && s.kind !== 'tower' && s.kind !== 'gateTower' && s.kind !== 'barricade'
+        && lx >= s.lx && lx < s.lx + s.w && ly >= s.ly && ly < s.ly + s.h)
+}
+
 /** 平坦化する範囲（ワールド座標の矩形）。 */
 export function fortFootprint(fort: FortFrame) {
     const { depth, width, back, front, side } = fortDims(fort.kind)
