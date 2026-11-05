@@ -31,6 +31,11 @@ export interface ArmyRenderStats {
 /** 視界の外のものを描かないための判定。 */
 export interface ArmyFog { soldier(soldier: Soldier): boolean; at(x: number, y: number): boolean }
 
+/** Radians of leg swing per px walked, and the speed (px/s) from which the stride is at full length. */
+const GAIT = { foot: { radiansPerPx: 1, fullStrideSpeed: 5 }, mount: { radiansPerPx: .42, fullStrideSpeed: 10 } }
+/** Below this speed a soldier is standing; the smoothed velocity only approaches zero. */
+const GAIT_REST_SPEED = .2
+
 export function createArmyRenderer(scene: THREE.Scene) {
     const group = new THREE.Group()
     group.name = 'army'
@@ -148,8 +153,12 @@ export function createArmyRenderer(scene: THREE.Scene) {
                     pose.baseRevision++
                     stats.matrixCompositions++
                 }
-                const phase = time * (s.type === 'cavalry' ? 13 : 10) + s.elapsedTime * 3
-                const step = s.moving && !dead ? Math.sin(phase) : 0
+                // Feet follow the distance actually covered, so a slow march takes slow steps
+                // instead of treading in place, and starting or stopping eases in and out.
+                const gait = GAIT[s.type === 'cavalry' ? 'mount' : 'foot']
+                const speed = Math.hypot(s.vx, s.vy)
+                const phase = s.gait * gait.radiansPerPx + s.id * 2.4
+                const step = !dead && speed > GAIT_REST_SPEED ? Math.sin(phase) * Math.min(1, speed / gait.fullStrideSpeed) : 0
                 // A mount's jointed legs swing less than a soldier's, keeping the paired
                 // feet apart and the hips under the barrel.
                 const stride = step * (s.type === 'cavalry' ? .45 : .6)

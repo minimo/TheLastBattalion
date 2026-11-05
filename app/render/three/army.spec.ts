@@ -8,7 +8,7 @@ import { InstanceBuffer } from './instanceBuffer'
 const empty = new Set<number>()
 const soldier = (id: number, options: Partial<Soldier> = {}): Soldier => ({
     id, owner: 'player', type: 'infantry', x: 0, y: 0, heading: 0, state: 'hold', moving: false,
-    elapsedTime: 0, deathTime: 0, swing: 0, aim: 0, squadId: 1, ...options,
+    elapsedTime: 0, deathTime: 0, swing: 0, aim: 0, squadId: 1, vx: 0, vy: 0, gait: 0, ...options,
 } as Soldier)
 function view(): ArmyView {
     const camera = new THREE.PerspectiveCamera(50, 1, 1, 5000)
@@ -68,10 +68,11 @@ describe('army visibility and cached transforms', () => {
     })
 
     it('keeps flags and arrows stable while paused, resumes moving poses, and removes departed leaders', () => {
-        const r = renderer(), s = soldier(1, { type: 'archer', moving: true })
+        const r = renderer(), s = soldier(1, { type: 'archer', moving: true, vx: 10, vy: 0, gait: 0 })
         update(r, [s], { leaders: new Set([1]) })
         update(r, [s], { leaders: new Set([1]) })
         expect(r.stats.matrixWrites).toBe(0)
+        s.gait = 2
         update(r, [s], { time: 2, leaders: new Set([1]) })
         expect(r.stats.matrixWrites).toBeGreaterThan(0)
         update(r, [s], { time: 2 })

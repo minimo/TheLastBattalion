@@ -1545,6 +1545,34 @@ describe('編成で組む中隊', () => {
         }
     })
 
+    it('遅い小隊に歩みをそろえた騎兵は、追いついては止まるのを繰り返さず、歩いた分だけ足を運ぶ', () => {
+        const battle = makeBattle('123456', 'field', undefined, mixedPlan())
+        run(battle, .1)
+        const company = battle.companies.find(c => c.owner === 'player' && c.planned && companySquads(battle, c.id).some(sq => sq.type === 'cavalry'))!
+        const cavalry = companySquads(battle, company.id).find(sq => sq.type === 'cavalry')!
+        orderCompanyMove(battle, company.id, { x: battle.formations.player.anchor.x, y: battle.formations.player.anchor.y + 300 })
+        for (let i = 0; i < 120; i++) updateBattle(battle, 1 / 60)
+        const members = battle.soldiers.filter(s => s.squadId === cavalry.id)
+        const leader = battle.byId.get(cavalry.leaderId)!
+        const startGait = leader.gait, startX = leader.x, startY = leader.y
+        let flips = 0, walking = 0
+        const was = new Map(members.map(s => [s.id, s.moving]))
+        for (let i = 0; i < 180; i++) {
+            updateBattle(battle, 1 / 60)
+            for (const s of members) {
+                if (was.get(s.id) !== s.moving) flips++
+                if (s.moving) walking++
+                was.set(s.id, s.moving)
+            }
+        }
+        expect(battle.stride.get(cavalry.id)).toBeLessThan(.5)
+        expect(flips / members.length).toBeLessThan(3)
+        expect(walking / (members.length * 180)).toBeGreaterThan(.9)
+        const walked = Math.hypot(leader.x - startX, leader.y - startY)
+        expect(walked).toBeGreaterThan(5)
+        expect(leader.gait - startGait).toBeCloseTo(walked, -1)
+    })
+
     it('中隊で動くと、速い小隊は一番遅い小隊に歩みをそろえる', () => {
         const battle = makeBattle('123456', 'field', undefined, mixedPlan())
         run(battle, .1)

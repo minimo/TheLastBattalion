@@ -85,7 +85,7 @@ export const LEASH: Record<UnitType, number> = { infantry: 45, pikeman: 8, caval
  * 持ち場から lagFree より遅れた兵がいると隊長は歩みを緩め、さらに lagStop 遅れると minPace の速さまで落として待つ。
  */
 export const FOLLOW = { leaderPace: .85, arrive: 5, settle: 40, turnRate: 2.5, lagFree: 8, lagStop: 30, minPace: .25 }
-export const COHESION = { margin: 16, leashShare: .6, rejoin: .55, laneShare: .6, waitShare: .25, waitLimit: 8 }
+export const COHESION = { margin: 16, leashShare: .6, rejoin: .55, laneShare: .6, waitShare: .25, waitResume: .6, waitLimit: 8 }
 /**
  * 魔王軍の忠誠の低い兵（types）の脱走。部隊の人数が編成時の squadBelow の割合を下回り、自分の体力も hpBelow の割合を下回り、
  * 周りの敵が味方の odds 倍を超える劣勢になると、思考のたびに chance の確率（臆病な個体ほど高い）で部隊を離れて敵から逃げ出す。

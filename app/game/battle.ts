@@ -409,7 +409,7 @@ export function spawnSoldier(battle: Battle, squad: Squad, x: number, y: number,
         heading: squad.facing, moving: false,
         path: [], pathIndex: 0, pathGoal: '', targetId: -1,
         thinkTimer: battle.random() * .5, attackTimer: battle.random() * stats.cooldown, swing: 0, runTime: 0, fleeTimer: 0,
-        courage: .75 + battle.random() * .5, elapsedTime: battle.random() * 10, deathTime: 0, stuckTime: 0, detour: 0, lane, routeDirect: true, slip: false, vx: 0, vy: 0, aim: 0, arrows, maxArrows: arrows,
+        courage: .75 + battle.random() * .5, elapsedTime: battle.random() * 10, deathTime: 0, stuckTime: 0, detour: 0, lane, routeDirect: true, slip: false, vx: 0, vy: 0, gait: 0, aim: 0, arrows, maxArrows: arrows,
         constructionId: -1, regroup: false, desertion: null, spottedUntil: 0, discovered: false,
     }
     battle.soldiers.push(soldier)
@@ -1448,17 +1448,21 @@ function spendStamina(battle: Battle, s: Soldier, amount: number) {
     if (squad) squad.stamina = Math.max(0, squad.stamina - amount)
 }
 
-function moveToward(battle: Battle, s: Soldier, tx: number, ty: number, dt: number, speedScale = 1): boolean {
-    const dx = tx - s.x, dy = ty - s.y
-    const distance = Math.hypot(dx, dy)
-    if (distance < .01) return true
-    const stats = UNIT_STATS[s.owner][s.type]
+/** 兵が今いる所から (dx, dy) の向きへ全力で歩く速さ。 */
+function walkSpeed(battle: Battle, s: Soldier, dx: number, dy: number) {
     // no-life-kingと同じく、地形倍率×時間帯倍率で速度を決める（加えて坂の勾配）。
     let terrain = getTerrainSpeedMultiplier(battle.grid, s.x, s.y, s.type)
     if (terrain === 0) terrain = .4 // 押し出されて柵際に入ったときは抜け出させる
     // 坂は登りで大きく、下りで少し遅くなる。
     terrain *= battle.paths.slopeSpeed(s.x, s.y, dx, dy)
-    const speed = stats.speed * terrain * getTimeSpeedMultiplier(s.owner, battle.dayTime) * speedScale * staminaFactor(battle.squadById.get(s.squadId))
+    return UNIT_STATS[s.owner][s.type].speed * terrain * getTimeSpeedMultiplier(s.owner, battle.dayTime) * staminaFactor(battle.squadById.get(s.squadId))
+}
+
+function moveToward(battle: Battle, s: Soldier, tx: number, ty: number, dt: number, speedScale = 1): boolean {
+    const dx = tx - s.x, dy = ty - s.y
+    const distance = Math.hypot(dx, dy)
+    if (distance < .01) return true
+    const speed = walkSpeed(battle, s, dx, dy) * speedScale
     const step = Math.min(distance, speed * dt)
     const nx = s.x + dx / distance * step, ny = s.y + dy / distance * step
     const ox = s.x, oy = s.y
@@ -1490,7 +1494,11 @@ function followPath(battle: Battle, s: Soldier, goal: Point, goalKey: string, dt
     const length = Math.hypot(dx, dy) || 1
     const along = ((s.x - prev.x) * dx + (s.y - prev.y) * dy) / length
     // ウェイポイント到達で次へ（横にずれていても、経路方向に通り過ぎたら到達とみなす）
-    if (along >= length - 2 || Math.hypot(next.x - s.x, next.y - s.y) < 4) { s.pathIndex++; return false }
+    if (along >= length - 2 || Math.hypot(next.x - s.x, next.y - s.y) < 4) {
+        s.pathIndex++
+        // 足を止めずに、そのまま次の区間を歩く。
+        return followPath(battle, s, goal, goalKey, dt, speedScale, lane)
+    }
     const ahead = Math.min(length, Math.max(0, along) + PATH_LOOKAHEAD)
     const cx = prev.x + dx / length * ahead, cy = prev.y + dy / length * ahead
     const home = battle.homes[s.owner]
@@ -1683,17 +1691,25 @@ function followLeader(battle: Battle, s: Soldier, squad: Squad, escort: Point, d
     const tx = blocked ? leader.x : escort.x, ty = blocked ? leader.y : escort.y
     const distance = Math.hypot(tx - s.x, ty - s.y)
     const facing = battle.travel.get(squad.id) ?? squad.facing
-    if (distance <= 1.5 || (blocked && distance < 10)) {
+    // 持ち場が川や柵の中なら隊長の手前で足を止める。
+    const gap = blocked ? distance - 10 : distance
+    // 構えた兵は押し合いで少しずれても動かない（足踏みしないよう判定に幅を持たせる）。
+    if (blocked ? gap <= 0 : !leader.moving && distance <= (s.state === 'hold' ? BUILD_REACH : 1.5)) {
         s.state = leader.moving ? 'advance' : 'hold'
         s.heading = facing; s.runTime = 0
         return
     }
     s.state = 'advance'
-    if (s.routeDirect) {
-        // 隊長が歩いていれば隊長と同じ速さに遅れの分を足して並び、止まっていれば近いほどゆっくり寄せる。
-        const scale = leader.moving ? FOLLOW.leaderPace + distance / 8 : Math.max(.4, distance / 6)
+    if (s.routeDirect || distance <= 1.5) {
+        // 隊長が歩いていれば、隊長の今の速さに遅れの分を足して並ぶ（持ち場に着いても止まらない。止まると、遅い隊長に付く兵は追いついては止まるのを繰り返す）。
+        // 隊長が止まっていれば、近いほどゆっくり寄せる。
+        const scale = leader.moving
+            ? Math.hypot(leader.vx, leader.vy) / Math.max(.01, walkSpeed(battle, s, tx - s.x, ty - s.y)) + gap / 8
+            : Math.max(.4, distance / 6)
         moveToward(battle, s, tx, ty, dt, Math.min(1, scale))
-        if (distance < 6 && leader.moving) s.heading = facing
+        if (leader.moving) s.moving = true
+        // 持ち場の近くでは隊列の向きを向き、離れるほど歩く向きへ寄せる（しきい値で切り替えると向きが毎回はね返る）。
+        if (leader.moving) s.heading = facing + angleDiff(s.heading, facing) * Math.max(0, Math.min(1, (distance - 4) / 8))
     } else {
         const { goal, goalKey } = rallyGoal(battle, leader)
         followPath(battle, s, goal, goalKey, dt, 1, 0)
@@ -1780,7 +1796,9 @@ function waitsForSquad(battle: Battle, s: Soldier, squad: Squad, dt: number) {
     const far = cohesionRadius(squad) * .7
     let behind = 0
     for (const o of members) if (o.regroup || Math.hypot(o.x - s.x, o.y - s.y) > far) behind++
-    if (behind <= members.length * COHESION.waitShare) { battle.waited.delete(squad.id); return false }
+    // 待ち始めたら遅れた兵が十分に減るまで待つ（しきい値の前後で隊長が1ティックごとに歩いては止まらないように）。
+    const share = battle.waited.has(squad.id) ? COHESION.waitShare * COHESION.waitResume : COHESION.waitShare
+    if (behind <= members.length * share) { battle.waited.delete(squad.id); return false }
     const waited = (battle.waited.get(squad.id) ?? 0) + dt
     battle.waited.set(squad.id, waited)
     return waited < COHESION.waitLimit
@@ -2050,8 +2068,9 @@ function updateSoldier(battle: Battle, s: Soldier, dt: number) {
         if (s.state === 'flee') {
             s.fleeTimer -= dt
             if (s.fleeTimer <= 0) { s.state = 'advance'; s.pathGoal = '' }
-        } else s.state = 'advance'
+        }
         if (escort && s.state !== 'flee') { followLeader(battle, s, squad, escort, dt); return }
+        if (s.state !== 'flee') s.state = 'advance'
         // 補給に戻った兵は、陣地（拠点）で矢を受け取り終えたらその場で待つ（門を通り抜けなくてよい）。
         const depot = squad.order === 'resupply' && s.state !== 'flee' ? depotOf(battle, squad) : undefined
         if (depot && s.arrows >= s.maxArrows - .01 && Math.hypot(depot.x - s.x, depot.y - s.y) < depot.range) { s.state = 'hold'; return }
@@ -2682,6 +2701,7 @@ export function updateBattle(battle: Battle, dt: number) {
         holdTether(battle, s, x, y)
         // 速度はなめらかにならして持つ（押し合いの小刻みな動きで予測がぶれないように）。
         if (dt > 0) { s.vx += ((s.x - x) / dt - s.vx) * .3; s.vy += ((s.y - y) / dt - s.vy) * .3 }
+        s.gait += Math.hypot(s.vx, s.vy) * dt
     }
     // 移動で部隊の体力を使う（動いている兵の割合に比例）。
     for (const squad of battle.squads) {
