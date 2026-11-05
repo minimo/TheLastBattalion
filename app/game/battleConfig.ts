@@ -19,7 +19,7 @@ export interface UnitStats {
 export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
     player: {
         infantry: { hp: 110, attack: 12, cooldown: 1.0, range: 1.2, speed: 15, sight: 70, radius: 2.1 },
-        pikeman: { hp: 130, attack: 13, cooldown: 1.2, range: 4, speed: 9, sight: 60, radius: 2.2 },
+        pikeman: { hp: 130, attack: 13, cooldown: 1.2, range: 4, speed: 12, sight: 60, radius: 2.2 },
         archer: { hp: 65, attack: 9, cooldown: 1.8, range: 125, speed: 14, sight: 140, radius: 2 },
         cavalry: { hp: 150, attack: 14, cooldown: 1.1, range: 1.6, speed: 45, sight: 100, radius: 3.4 },
         supply: { hp: 70, attack: 3, cooldown: 1.6, range: 1.2, speed: 15, sight: 40, radius: 2.2 },
@@ -27,7 +27,7 @@ export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
     },
     cpu: {
         infantry: { hp: 125, attack: 12, cooldown: 1.1, range: 1.2, speed: 13.5, sight: 70, radius: 2.4 },
-        pikeman: { hp: 145, attack: 13, cooldown: 1.3, range: 4, speed: 8.5, sight: 60, radius: 2.4 },
+        pikeman: { hp: 145, attack: 13, cooldown: 1.3, range: 4, speed: 11.5, sight: 60, radius: 2.4 },
         archer: { hp: 55, attack: 8, cooldown: 1.7, range: 115, speed: 15, sight: 130, radius: 1.8 },
         cavalry: { hp: 140, attack: 14, cooldown: 1.0, range: 1.6, speed: 49.5, sight: 100, radius: 3.4 },
         supply: { hp: 60, attack: 2.5, cooldown: 1.6, range: 1.2, speed: 16, sight: 40, radius: 2 },
