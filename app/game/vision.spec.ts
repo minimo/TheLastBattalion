@@ -123,6 +123,8 @@ describe('視界', () => {
             battle.soldiers.push(soldier)
             return soldier
         }
+        refreshVision(battle)
+        expect(summarize(battle).cpu.found).toBe(false)
         const swordsman = place('infantry', CENTER + 64)
         const archer = place('archer', CENTER + 2000)
         // 編成の間は、今見えている兵だけを数える。
@@ -145,6 +147,12 @@ describe('視界', () => {
         expect(discovered()).toMatchObject({ total: 2, infantry: 1, archer: 1 })
         archer.state = 'dead'
         expect(discovered()).toMatchObject({ total: 1, infantry: 1, archer: 0 })
+        // 発見した兵が全滅しても、未発見には戻らない。
+        swordsman.state = 'dead'
+        battle.soldiers = []
+        refreshVision(battle)
+        expect(discovered().total).toBe(0)
+        expect(summarize(battle).cpu.found).toBe(true)
     })
 
     it('敵の建設物は一度視界に入れば認識したままになる', () => {

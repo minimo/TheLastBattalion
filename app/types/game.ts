@@ -354,6 +354,8 @@ export interface ArmySummary {
     reserves: number
     /** 砦を持っているか（攻城戦・防衛戦の攻め手は持たない）。 */
     hasFort: boolean
+    /** 兵が敵に一人でも発見されたことがあるか。 */
+    found: boolean
     /** 敵に一度でも発見された、今も生きている自軍の兵の数（total が総数、ほかは兵種ごと）。 */
     discovered: DiscoveredCount
 }

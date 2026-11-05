@@ -59,6 +59,8 @@ export function createVisionMap(grid: number[][], forts: Fort[]) {
         drafts: { player: new Uint8Array(N * N), cpu: new Uint8Array(N * N) } as Record<Army, Uint8Array>,
         /** 地図を更新するたびに増える（描画側はこれを見てテクスチャを更新する）。 */
         version: 0,
+        /** 軍ごとの、兵が敵に一人でも発見されたことがあるか（全滅と未発見を見分ける）。 */
+        found: { player: false, cpu: false } as Record<Army, boolean>,
         timer: 0,
         sources: [] as VisionSource[],
         cursor: 0,
@@ -183,13 +185,14 @@ function finishCycle(battle: Battle, instant: boolean) {
     vision.version++
     vision.pending = false
     for (const squad of battle.squads) squad.seenCount = 0
+    if (time === 0) vision.found = { player: false, cpu: false }
     const sum = new Map<Squad, { x: number; y: number; n: number }>()
     for (const s of battle.soldiers) {
         if (s.state === 'dead') continue
         const c = cellOf(s.x, s.y)
         const seen = c >= 0 && vision.masks[s.owner === 'player' ? 'cpu' : 'player'][c] === 1
         // 編成の間（時間が進む前）は配置を変えられるので、今見えている兵だけを発見済みとする。
-        if (seen) s.discovered = true
+        if (seen) { s.discovered = true; vision.found[s.owner] = true }
         else if (time === 0) s.discovered = false
         if (seen) s.spottedUntil = time + VISION.linger
         else if (instant) s.spottedUntil = 0

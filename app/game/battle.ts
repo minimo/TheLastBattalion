@@ -2754,7 +2754,7 @@ export function summarize(battle: Battle): Record<Army, ArmySummary> {
         const fort = fortOf(battle, army)
         return [army, {
             infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: fort?.hp ?? 0, fortMaxHp: fort?.maxHp ?? 1,
-            killed: battle.killed[army], deserted: battle.deserted[army], reserves: fort?.reserves ?? 0, hasFort: !!fort, discovered: { infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0 },
+            killed: battle.killed[army], deserted: battle.deserted[army], reserves: fort?.reserves ?? 0, hasFort: !!fort, found: battle.vision.found[army], discovered: { infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0 },
         }]
     })) as Record<Army, ArmySummary>
     for (const s of battle.soldiers) {

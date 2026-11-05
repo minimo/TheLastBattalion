@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useGameStore } from '~/stores/game'
-import type { Army } from '~/types/game'
+import type { Army, UnitType } from '~/types/game'
 import { ARMY_NAME, UNIT_NAME, UNIT_TYPES } from './battleUi'
 
 /** 操作バーの「メニュー」。戦況の詳細・操作説明・陣営・戦場の情報と、タイトルへ戻る。 */
@@ -11,6 +11,12 @@ const gameStore = useGameStore()
 const armies: Army[] = ['player', 'cpu']
 /** 敵の兵の数は分からない（戦闘が終われば公開する）。 */
 const secret = (army: Army) => army === 'cpu' && !gameStore.isGameOver
+/** 兵の数。敵は発見した兵の数で、一人も発見していなければ「？」にする。 */
+const count = (army: Army, key: UnitType | 'total') => {
+  const summary = gameStore.summary[army]
+  if (!secret(army)) return summary[key]
+  return summary.found ? summary.discovered[key] : '？'
+}
 const copied = ref(false)
 const copySeed = async () => {
   try { await navigator.clipboard.writeText(gameStore.seed); copied.value = true; setTimeout(() => { copied.value = false }, 1500) } catch { /* コピーできない環境では表示だけ */ }
@@ -35,8 +41,8 @@ const copySeed = async () => {
       <table>
         <thead><tr><th></th><th v-for="army in armies" :key="army" :class="army">{{ ARMY_NAME[army] }}</th></tr></thead>
         <tbody>
-          <tr><th>総数</th><td v-for="army in armies" :key="army">{{ secret(army) ? gameStore.summary[army].discovered.total : gameStore.summary[army].total }}</td></tr>
-          <tr v-for="type in UNIT_TYPES" :key="type"><th>{{ UNIT_NAME.player[type] }}</th><td v-for="army in armies" :key="army">{{ secret(army) ? gameStore.summary[army].discovered[type] : gameStore.summary[army][type] }}</td></tr>
+          <tr><th>総数</th><td v-for="army in armies" :key="army">{{ count(army, 'total') }}</td></tr>
+          <tr v-for="type in UNIT_TYPES" :key="type"><th>{{ UNIT_NAME.player[type] }}</th><td v-for="army in armies" :key="army">{{ count(army, type) }}</td></tr>
           <tr><th>予備兵</th><td v-for="army in armies" :key="army">{{ !gameStore.summary[army].hasFort ? '—' : secret(army) ? '？' : gameStore.summary[army].reserves }}</td></tr>
           <tr><th>撃破</th><td v-for="army in armies" :key="army">{{ gameStore.summary[army].killed }}</td></tr>
           <tr><th>逃走</th><td v-for="army in armies" :key="army">{{ secret(army) ? '？' : gameStore.summary[army].deserted }}</td></tr>
