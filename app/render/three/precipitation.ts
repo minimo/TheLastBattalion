@@ -6,9 +6,9 @@ import * as THREE from 'three'
  * 粒は世界に対して落ちていき、箱の端を越えると反対側に回り込む（カメラが動いても雨が一緒に動いて見えない）。
  */
 const RAIN = {
-    count: 7000, box: 520, ahead: 260,
-    fall: 340, wind: { x: 40, z: 18 }, length: 16,
-    color: 0xb9c6cf, opacity: .42, nightOpacity: .22,
+    count: 8000, box: 520, ahead: 260,
+    fall: 340, wind: { x: 40, z: 18 }, length: 30,
+    color: 0xe4ecf2, opacity: .5, nightOpacity: .27,
     /** 時刻を回す周期（秒）。大きな時刻で mod の精度が落ちないようにする。 */
     period: 600,
 }
@@ -42,7 +42,7 @@ export function createPrecipitation(scene: THREE.Scene) {
                 vec3 p = low + mod(position * size + velocity * time - low, size);
                 vec3 edge = abs(p - center) / size;
                 // 箱の端では薄くして、回り込むときに筋が急に現れたり消えたりしないようにする。
-                alpha = (1.0 - smoothstep(.32, .5, max(edge.x, max(edge.y, edge.z)))) * (1.0 - tail * .85);
+                alpha = (1.0 - smoothstep(.32, .5, max(edge.x, max(edge.y, edge.z)))) * (1.0 - tail * .7);
                 p -= normalize(velocity) * streak * tail;
                 gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
             }`,
