@@ -4,7 +4,10 @@ import { createMulberry32, hashString } from '../../game/random'
 import { createLandscape } from './landscape'
 import type { ModelKit } from './models'
 import type { MapTheme } from './mapTheme'
-import { applyPlantSnow } from './snowCover'
+import { applyBranchSnow, applyPlantSnow } from './snowCover'
+
+/** 岩に雪が積もる順番（枯れ木の中での高さと同じ尺度。根元 0 〜 梢 1）。 */
+const ROCK_SNOW_PLACE = .6
 
 export function createScenery(grid: number[][], reserved: (x: number, y: number) => boolean, landscape: ReturnType<typeof createLandscape>, heightAt: (x: number, y: number) => number, kit: ModelKit, theme: MapTheme) {
     const random = createMulberry32(hashString(JSON.stringify(grid)) ^ 7834)
@@ -32,7 +35,12 @@ export function createScenery(grid: number[][], reserved: (x: number, y: number)
         position.setXYZ(i, x * displacement, y * displacement, z * displacement)
     }
     stoneGeometry.computeVertexNormals()
-    const rockMesh = new THREE.InstancedMesh(stoneGeometry, kit.material(0x747668), rocks.length)
+    // 同じ色の素材はほかの部品と共有しているので、雪を積もらせる岩は素材を分ける。
+    const rockMaterial = kit.material(0x747668).clone()
+    // 雪が降り続くと、岩の上の面に積もる。平地の地面より少し早く白くなる（木の中ほどの高さと同じ扱い）。
+    applyBranchSnow(rockMaterial)
+    const rockPlace = new Float32Array(rocks.length * 2)
+    const rockMesh = new THREE.InstancedMesh(stoneGeometry, rockMaterial, rocks.length)
     const dummy = new THREE.Object3D(), color = new THREE.Color()
     rocks.forEach((r, i) => {
         dummy.position.set(r.x, r.h + r.size * .2, r.y)
@@ -40,7 +48,9 @@ export function createScenery(grid: number[][], reserved: (x: number, y: number)
         dummy.scale.set(r.size, r.size * .6, r.size * .8)
         dummy.updateMatrix(); rockMesh.setMatrixAt(i, dummy.matrix)
         rockMesh.setColorAt(i, color.setHSL(theme.rocks.hue, theme.rocks.saturation, theme.rocks.lightness + random() * .25))
+        rockPlace[i * 2] = ROCK_SNOW_PLACE; rockPlace[i * 2 + 1] = r.h
     })
+    stoneGeometry.setAttribute('snowPlace', new THREE.InstancedBufferAttribute(rockPlace, 2))
     rockMesh.castShadow = rockMesh.receiveShadow = true
     group.add(rockMesh)
     const grassGeometry = new THREE.BufferGeometry()
@@ -55,5 +65,5 @@ export function createScenery(grid: number[][], reserved: (x: number, y: number)
         dummy.updateMatrix(); grassMesh.setMatrixAt(i, dummy.matrix)
     })
     group.add(grassMesh)
-    return { group, trees, destroy() { rockMesh.dispose(); grassMesh.dispose(); stoneGeometry.dispose(); grassGeometry.dispose(); grassMaterial.dispose() } }
+    return { group, trees, destroy() { rockMesh.dispose(); grassMesh.dispose(); stoneGeometry.dispose(); grassGeometry.dispose(); grassMaterial.dispose(); rockMaterial.dispose() } }
 }

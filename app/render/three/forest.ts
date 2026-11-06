@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ModelKit } from './models'
 import type { MapTheme } from './mapTheme'
-import { applyPlantSnow } from './snowCover'
+import { applyBranchSnow, applyPlantSnow } from './snowCover'
 import { TILE_PX } from '../../game/constants'
 import type { FortCell } from '../../types/game'
 
@@ -438,17 +438,30 @@ function createPalms(trees: Tree[], kit: ModelKit) {
 }
 
 /** 葉の落ちた枯れ木: ねじれた幹から、枝が上と外へ伸び、枝先がさらに分かれる。 */
+/** 枯れ木の梢の高さ（木の大きさ1のとき）。小枝の先までの高さで、雪が梢から下りてくる範囲になる。 */
+const DEAD_TREE_CROWN = 24
+
 function createDeadTrees(trees: Tree[], kit: ModelKit, barkColor: number) {
     const group = new THREE.Group()
     const BRANCHES = 6, TWIGS = 2
     const geometry = new THREE.CylinderGeometry(.5, 1, 1, 8)
     const material = kit.surfaces.bark.clone()
     material.color.set(barkColor)
-    const trunks = new THREE.InstancedMesh(geometry, material, trees.length * 2)
+    // 雪が降り続くと、枝と幹の上の面に梢から雪が積もる。
+    applyBranchSnow(material)
+    // 幹と枝は数が違うので、枝ごとの雪の積もり方の値を持たせるために形を分ける。
+    const trunkGeometry = geometry.clone()
+    const trunkPlace = new Float32Array(trees.length * 2 * 2), branchPlace = new Float32Array(trees.length * BRANCHES * (1 + TWIGS) * 2)
+    const trunks = new THREE.InstancedMesh(trunkGeometry, material, trees.length * 2)
     const branches = new THREE.InstancedMesh(geometry, material, trees.length * BRANCHES * (1 + TWIGS))
     const dummy = new THREE.Object3D(), up = new THREE.Vector3(0, 1, 0)
     const direction = new THREE.Vector3()
+    let ground = 0, crown = 1
     const limb = (mesh: THREE.InstancedMesh, index: number, start: THREE.Vector3, end: THREE.Vector3, width: number) => {
+        // 木の中での高さ（根元 0 〜 梢 1）と、木の立つ高さ。
+        const place = mesh === trunks ? trunkPlace : branchPlace
+        place[index * 2] = ((start.y + end.y) / 2 - ground) / crown
+        place[index * 2 + 1] = ground
         direction.subVectors(end, start)
         dummy.position.copy(start).lerp(end, .5)
         dummy.quaternion.setFromUnitVectors(up, direction.clone().normalize())
@@ -458,6 +471,7 @@ function createDeadTrees(trees: Tree[], kit: ModelKit, barkColor: number) {
     trees.forEach((tree, i) => {
         const s = tree.scale, wobble = i * 1.7
         const base = new THREE.Vector3(tree.x, tree.h - .5, tree.z)
+        ground = tree.h; crown = DEAD_TREE_CROWN * s
         const middle = new THREE.Vector3(tree.x + Math.cos(wobble) * 1.2 * s, tree.h + 8 * s, tree.z + Math.sin(wobble) * 1.2 * s)
         const top = new THREE.Vector3(tree.x - Math.cos(wobble) * .8 * s, tree.h + 16 * s, tree.z - Math.sin(wobble) * .8 * s)
         limb(trunks, i * 2, base, middle, 1 * s)
@@ -476,8 +490,10 @@ function createDeadTrees(trees: Tree[], kit: ModelKit, barkColor: number) {
             }
         }
     })
+    trunkGeometry.setAttribute('snowPlace', new THREE.InstancedBufferAttribute(trunkPlace, 2))
+    geometry.setAttribute('snowPlace', new THREE.InstancedBufferAttribute(branchPlace, 2))
     trunks.castShadow = branches.castShadow = true
     trunks.receiveShadow = true
     group.add(trunks, branches)
-    return { group, parts: [[trunks, 2], [branches, BRANCHES * (1 + TWIGS)]], destroy() { trunks.dispose(); branches.dispose(); geometry.dispose(); material.dispose() } }
+    return { group, parts: [[trunks, 2], [branches, BRANCHES * (1 + TWIGS)]], destroy() { trunks.dispose(); branches.dispose(); geometry.dispose(); trunkGeometry.dispose(); material.dispose() } }
 }
