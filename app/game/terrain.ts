@@ -8,6 +8,8 @@ export type Mobility = 'foot' | 'mounted'
 export const mobilityOf = (type: UnitType): Mobility => type === 'cavalry' ? 'mounted' : 'foot'
 /** 川を歩いて渡るときの速度倍率。 */
 export const WATER_SPEED: Record<Mobility, number> = { foot: .2, mounted: .5 }
+/** 沼（葦原も）を歩くときの速度倍率。馬は脚を取られて、徒歩より遅い。 */
+export const MARSH_SPEED: Record<Mobility, number> = { foot: .5, mounted: .4 }
 
 /** その戦場の水が、歩いて渡れない深さか。 */
 const deepWater = (mapGrid: number[][]) => TERRAIN_PROFILE[mapTypeOf(mapGrid)].water === 'deep'
@@ -24,6 +26,8 @@ export function getTerrainSpeedMultiplier(mapGrid: number[][], worldX: number, w
     if (tile === TILE.WATER) { mult = deepWater(mapGrid) ? 0 : WATER_SPEED[mobilityOf(type)] }
     // 砦の柵・櫓
     else if (tile === TILE.WALL) { mult = 0.0 }
+    // 沼・葦原
+    else if (tile === TILE.MARSH || tile === TILE.REEDS || tile === TILE.REEDS_DENSE) { mult = MARSH_SPEED[mobilityOf(type)] }
     // 橋
     else if (tile === TILE.BRIDGE) { mult = 1.0 }
     // 低山 (21-22)
@@ -70,6 +74,7 @@ export function getTileCost(mapGrid: number[][], gx: number, gy: number, mobilit
     const tile = getPlayableTile(mapGrid, gx, gy)
     if (tile === TILE.WATER) return deepWater(mapGrid) ? Infinity : 1 / WATER_SPEED[mobility] // 川（歩いて渡る。深い川は渡れない）
     if (tile === TILE.WALL) return Infinity // 砦の柵・櫓
+    if (tile === TILE.MARSH || tile === TILE.REEDS || tile === TILE.REEDS_DENSE) return 1 / MARSH_SPEED[mobility] // 沼・葦原
     if (tile === TILE.BRIDGE) return 1.0 // 橋
     if (tile === TILE_VARIANT.LOW_MOUNTAIN_MIN || tile === TILE_VARIANT.LOW_MOUNTAIN_MAX) return 2.0 // 低山
     if (tile === TILE_VARIANT.HIGH_MOUNTAIN_MIN || tile === TILE_VARIANT.HIGH_MOUNTAIN_MAX) return 2.86 // 高山

@@ -4,6 +4,7 @@ import { LOGICAL_SIZE, TILE, TILE_PX } from '../../game/constants'
 import type { Base, MapType } from '../../types/game'
 import { mapTypeOf, TERRAIN_PROFILE } from '../../game/mapType'
 import { getFortGroundRadius } from './fortLayout'
+import { marshFor } from '../../game/marsh'
 
 export const WATER_HEIGHT = 0
 export const BRIDGE_HEIGHT = 4
@@ -91,8 +92,11 @@ export function createHeightfield(grid: number[][], bases: Base[], mapType: MapT
         }
         return mask
     }
+    const marsh = marshFor(grid, mapType)
     const tileAt = (x: number, y: number) => grid[Math.max(0, Math.min(grid.length - 1, Math.round(y / TILE_PX)))]?.[Math.max(0, Math.min(grid.length - 1, Math.round(x / TILE_PX)))] ?? TILE.GRASS
     const raw = (x: number, y: number) => {
+        // 湿地の沼・土手道・岸は、戦場の内外で同じ式で決まる。
+        if (marsh) return marsh.heightAt(x, y)
         let mountain = 0
         let weight = 0
         let riverDistance = Infinity

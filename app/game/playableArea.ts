@@ -2,6 +2,7 @@ import { GRID_MAX, TILE, TILE_PX, TILE_VARIANT } from './constants'
 import type { Army, Fort, FortKind } from '../types/game'
 import { fortDims, fortGroundAt, fortTileAt, inForestClearing, localToGrid } from './fortLayout'
 import { mapTypeOf, TERRAIN_PROFILE } from './mapType'
+import { marshCell, marshFor } from './marsh'
 import { createHeightfield } from '../render/three/heightfield'
 import { createLandscape, TERRAIN_CENTER } from '../render/three/landscape'
 
@@ -96,6 +97,14 @@ export function getTerrainTile(grid: number[][], gx: number, gy: number): number
     const key = `${gx},${gy}`
     const cached = tiles.get(key)
     if (cached !== undefined) return cached
+    // 湿地: 沼と葦原は、戦場の内外とも湿地の形で決まる（高さが水面下でも川にはしない）。
+    const marsh = marshFor(grid)
+    const wet = marsh && marshCell(marsh, gx * TILE_PX, gy * TILE_PX)
+    if (wet) {
+        const tile = wet === 'denseReeds' ? TILE.REEDS_DENSE : wet === 'reeds' ? TILE.REEDS : TILE.MARSH
+        tiles.set(key, tile)
+        return tile
+    }
     const landscape = getPlayableLandscape(grid)
     const frozen = TERRAIN_PROFILE[mapTypeOf(grid)].water === 'ice'
     if (gx >= 0 && gx <= GRID_MAX && gy >= 0 && gy <= GRID_MAX) {
@@ -150,7 +159,7 @@ export function getCellHeight(grid: number[][], gx: number, gy: number): number 
 
 export type FortSite = { owner: Army; kind: FortKind; front: 1 | -1; originGx: number; originGy: number }
 
-const isLowland = (tile: number) => tile !== TILE.WATER && tile !== TILE.BRIDGE
+const isLowland = (tile: number) => tile !== TILE.WATER && tile !== TILE.BRIDGE && tile !== TILE.MARSH && tile !== TILE.REEDS && tile !== TILE.REEDS_DENSE
     && !(tile === TILE.MOUNTAIN || tile >= TILE_VARIANT.LOW_MOUNTAIN_MIN && tile <= TILE_VARIANT.HIGH_MOUNTAIN_MAX)
 
 /** キャンプを戦場の端から内側へずらせる最大のマス数と、両軍の砦の中心どうしの目標の距離（px）。 */
@@ -199,7 +208,8 @@ function siteTerrain(grid: number[][]) {
     for (let j = 1; j < size; j++) for (let i = 1; i < size; i++) {
         const gx = PLAYABLE_GRID_MIN + i - 1, gy = PLAYABLE_GRID_MIN + j - 1
         const tile = getPlayableTile(grid, gx, gy)
-        const wet = tile === TILE.WATER || tile === TILE.ICE || tile === TILE.BRIDGE
+        // 沼も水と同じく、砦の敷地と正門の前から外す。
+        const wet = tile === TILE.WATER || tile === TILE.ICE || tile === TILE.BRIDGE || tile === TILE.MARSH || tile === TILE.REEDS || tile === TILE.REEDS_DENSE
         const value = wet ? 0 : (isLowland(tile) ? 0 : 1) + Math.max(0, landscape.heightAt(gx * TILE_PX, gy * TILE_PX) - 50) / 40
         const h = Math.max(0, landscape.heightAt(gx * TILE_PX, gy * TILE_PX))
         const k = j * size + i

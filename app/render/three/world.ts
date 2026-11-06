@@ -12,6 +12,8 @@ import { getTerrainTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from '../../game
 import { CASTLE_DEPTH, CASTLE_WIDTH, castleCell, castleRadius } from '../../game/castleLayout'
 import { mapTypeOf } from '../../game/mapType'
 import { MAP_THEME } from './mapTheme'
+import { marshCell, marshFor } from '../../game/marsh'
+import { createReeds } from './reeds'
 
 export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     const mapType = mapTypeOf(grid), theme = MAP_THEME[mapType]
@@ -19,6 +21,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     grid = grid.map(row => Array.from(row))
     const group = new THREE.Group()
     const coreField = createHeightfield(grid, [], mapType)
+    const marsh = marshFor(source, mapType)
     const camps = forts.filter(fort => fort.kind === 'camp'), castles = forts.filter(fort => fort.kind === 'castle')
     const foundations = camps.map(fort => fortFootprint(fort))
     // 砦の敷地（キャンプは平地、城は岩山）。戦場の内外で地形の高さを置き換えるので、砦が戦場の内側にあっても平らに建つ。
@@ -81,7 +84,8 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
             group.add(bridge)
             bridges.push(bridge)
         }
-        if (mapType !== 'forest' && (t === TILE.WOOD || t >= 31 && t <= 41) && !reserved(x, z)) {
+        // 湿地では、沼になったマスに木を立てない。
+        if (mapType !== 'forest' && (t === TILE.WOOD || t >= 31 && t <= 41) && !reserved(x, z) && !(marsh && marshCell(marsh, x, z))) {
             // 枯れ木はまばらに立つ。
             const count = theme.trees.style === 'dead' ? (Math.sin(i * 12.9898 + j * 78.233) * 43758.5453 % 1 + 1) % 1 < .45 ? 1 : 0
                 : t >= 34 ? 3 : 2
@@ -105,6 +109,9 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     }
     const stumpMesh = createStumps(stumps, kit)
     group.add(stumpMesh.mesh)
+    // 湿地の葦原。
+    const reeds = marsh ? createReeds(source, field.heightAt, reserved, 0xe6e2c6) : undefined
+    if (reeds) group.add(reeds.mesh)
     // 城の裏手の斜面の林（本陣の棟が建つ頂の裏手には植えない）。
     for (const fort of castles) for (let lx = 0; lx < CASTLE_DEPTH; lx++) for (let ly = 0; ly < CASTLE_WIDTH; ly++) {
         if (castleCell(lx, ly) !== 'grove' || castleRadius(lx, ly) < .5 || Math.sin(lx * 12.9898 + ly * 78.233) * 43758.5453 % 1 > .1) continue
@@ -131,7 +138,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
         if (shader) shader.uniforms.time.value = time
     }, destroy() {
         terrainMeshes.destroy(); scenery.destroy(); waterGeometry.dispose(); waterMaterial.dispose()
-        forest.destroy(); stumpMesh.destroy()
+        forest.destroy(); stumpMesh.destroy(); reeds?.destroy()
         group.removeFromParent()
     } }
 }

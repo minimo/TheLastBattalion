@@ -101,6 +101,19 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
         },
         light: { sky: 0xc8e5e4, ground: 0x56634d, sun: 0xffdeb3, nightSun: 0xa1bbff, sunScale: 1 },
     },
+    marsh: {
+        ground: { base: 0x58653f, patch: 0x7b7a4c, patchAmount: .45, rock: 0x6c6857, shore: 0x4c4632 },
+        grass: { color: 0x8c8a4f, count: 2200 },
+        rocks: { hue: .12, saturation: .08, lightness: .45, count: 60, above: 12 },
+        trees: { style: 'broadleaf', outsideCount: 260 },
+        water: { color: 0x3f5236, opacity: .8, roughness: .3, metalness: .3 },
+        sky: {
+            dayZenith: 0x86a5bd, dayHorizon: 0xc3cbc2, nightZenith: 0x1b2640, nightHorizon: 0x26303f,
+            dayCloud: 0xdfe3df, nightCloud: 0x5f6879, cloudAmount: .32, fog: .00036,
+            sun: PLAIN_SUN, moon: PLAIN_MOON,
+        },
+        light: { sky: 0xcbd9cf, ground: 0x4f5a3f, sun: 0xffe0b8, nightSun: 0xa1bbff, sunScale: .95 },
+    },
     desert: {
         ground: { base: 0xc2a06a, patch: 0xa9844f, patchAmount: .4, rock: 0x9a7552, shore: 0x8d8456,
             crest: { color: 0xe0c48e, amount: .45, from: 26, to: 42 } },

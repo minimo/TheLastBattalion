@@ -1,8 +1,8 @@
 import type { BattleMode, MapType } from '../types/game'
 
-export const MAP_TYPES: MapType[] = ['standard', 'meadow', 'forest', 'snowfield', 'greatRiver', 'desert', 'wasteland', 'demonland']
+export const MAP_TYPES: MapType[] = ['standard', 'meadow', 'forest', 'snowfield', 'greatRiver', 'marsh', 'desert', 'wasteland', 'demonland']
 export const MAP_TYPE_NAME: Record<MapType, string> = {
-    standard: '標準', meadow: '草原', forest: '森林', snowfield: '雪原', greatRiver: '大河', desert: '砂漠', wasteland: '荒野', demonland: '魔王城付近',
+    standard: '標準', meadow: '草原', forest: '森林', snowfield: '雪原', greatRiver: '大河', marsh: '湿地', desert: '砂漠', wasteland: '荒野', demonland: '魔王城付近',
 }
 export const MAP_TYPE_DESCRIPTION: Record<MapType, string> = {
     standard: '森と山と川のある戦場',
@@ -10,6 +10,7 @@ export const MAP_TYPE_DESCRIPTION: Record<MapType, string> = {
     forest: '木の茂る丘陵。高台に登らないと見通しが効かない。陣地の周りは伐採してある',
     snowfield: '見通しのよい雪の平原。足は遅いが、川は凍っていて歩いて渡れる',
     greatRiver: '両軍の間を、歩いて渡れない大河が流れる。渡れるのは数本の橋だけ',
+    marsh: '浅い沼と葦原が一面に広がる。沼では足が鈍り、馬はなお遅く、拠点も建てられない。茂った葦原は見通しが効かない',
     desert: '砂丘の連なる砂漠。川はなく、オアシスがある',
     wasteland: '起伏の少ない荒野。川のあることもある',
     demonland: '荒れ果てた魔王城の周り。赤い空に赤い月が昇る',
@@ -41,6 +42,8 @@ export interface TerrainProfile {
     greatRiver?: boolean
     /** 地面の移動速度の倍率（省略すると1）。両軍に同じようにかかる。 */
     groundSpeed?: number
+    /** 両軍の間に浅い沼を広げ、土手道を通す（game/marsh.ts）。 */
+    marsh?: boolean
 }
 
 export const TERRAIN_PROFILE: Record<MapType, TerrainProfile> = {
@@ -67,6 +70,12 @@ export const TERRAIN_PROFILE: Record<MapType, TerrainProfile> = {
         rivers: () => 0, mountainAbove: .58, woodAbove: .32, oases: [0, 0], mountainScale: .85, maxGrade: 1.2,
         outerMountain: { base: 70, far: 300, sharp: 2 },
         water: 'deep', greatRiver: true,
+    },
+    marsh: {
+        // 山も川もなく、沼と土手道は湿地の形（marsh.ts）で作る。乾いた所に木立がある。
+        rivers: () => 0, mountainAbove: Infinity, woodAbove: .35, oases: [0, 0], mountainScale: 1, maxGrade: Infinity,
+        outerMountain: { base: 40, far: 240, sharp: 2 },
+        marsh: true,
     },
     desert: {
         rivers: () => 0, mountainAbove: .68, woodAbove: Infinity, oases: [1, 2], mountainScale: .8, maxGrade: Infinity,

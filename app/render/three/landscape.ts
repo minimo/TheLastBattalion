@@ -3,6 +3,7 @@ import { createMulberry32, hashString } from '../../game/random'
 import { TILE, TILE_PX } from '../../game/constants'
 import { TERRAIN_PROFILE } from '../../game/mapType'
 import { MAP_MIN, MAP_MAX, reliefAt, type Heightfield } from './heightfield'
+import { marshFor } from '../../game/marsh'
 
 // Fix the full landscape width at 3,300, independently of the battlefield size.
 export const LANDSCAPE_RADIUS = 1650
@@ -42,6 +43,7 @@ export function createLandscape(grid: number[][], field: Heightfield, foundation
             }
         }
     }
+    const marsh = marshFor(grid, mapType)
     const inside = (x: number, y: number) => x >= MAP_MIN && x <= MAP_MAX && y >= MAP_MIN && y <= MAP_MAX
     const distanceOutside = (x: number, y: number) => Math.hypot(Math.max(MAP_MIN - x, 0, x - MAP_MAX), Math.max(MAP_MIN - y, 0, y - MAP_MAX))
     const baseHeightAt = (x: number, y: number) => {
@@ -73,8 +75,14 @@ export function createLandscape(grid: number[][], field: Heightfield, foundation
             const valley = Math.max(110, h * 1.5 / maxGrade)
             h = Math.min(h, riverbed + h * smooth(4, valley, bank))
         }
-        const boundary = field.heightAt(Math.max(MAP_MIN, Math.min(MAP_MAX, x)), Math.max(MAP_MIN, Math.min(MAP_MAX, y)))
-        h = boundary + (h - boundary) * smooth(0, 200, distance)
+        if (marsh) {
+            // 湿地は部隊の動ける範囲まで湿地の形のまま続き、その外で山並みに上がる。
+            const reach = Math.max(Math.abs(x - TERRAIN_CENTER), Math.abs(y - TERRAIN_CENTER))
+            h = marsh.heightAt(x, y) + Math.max(0, h - 8) * smooth(900, 1250, reach)
+        } else {
+            const boundary = field.heightAt(Math.max(MAP_MIN, Math.min(MAP_MAX, x)), Math.max(MAP_MIN, Math.min(MAP_MAX, y)))
+            h = boundary + (h - boundary) * smooth(0, 200, distance)
+        }
         // 砦は平地に建ち、周りはなだらかに丘へつながる。戦場の縁で効果を弱め、内側の地形と段差なくつなぐ。
         for (const f of foundations) {
             const outside = Math.hypot(Math.max(f.minX - x, 0, x - f.maxX), Math.max(f.minY - y, 0, y - f.maxY))

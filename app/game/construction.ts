@@ -41,6 +41,11 @@ export function planConstruction(site: Site, owner: Army, kind: ConstructionKind
         const tile = getPlayableTile(site.grid, gx, gy)
         return tile === TILE.MOUNTAIN || tile >= TILE_VARIANT.LOW_MOUNTAIN_MIN && tile <= TILE_VARIANT.HIGH_MOUNTAIN_MAX
     }
+    /** 湿地の沼・葦原（拠点は建てられない）。 */
+    const marsh = (gx: number, gy: number) => {
+        const tile = getPlayableTile(site.grid, gx, gy)
+        return tile === TILE.MARSH || tile === TILE.REEDS || tile === TILE.REEDS_DENSE
+    }
     const cx = Math.round(point.x / TILE_PX), cy = Math.round(point.y / TILE_PX)
     const plan: ConstructionPlan = { kind, owner, axis, walls: [], deck: [], area: [], center: { x: cx * TILE_PX, y: cy * TILE_PX }, ends: [], valid: false, reason: '' }
     const fail = (reason: string) => { plan.valid = false; plan.reason = reason; return plan }
@@ -56,6 +61,7 @@ export function planConstruction(site: Site, owner: Army, kind: ConstructionKind
         if (plan.area.some(c => !free(c.gx, c.gy))) return fail('他の建設物や砦と重なっています')
         if (plan.area.some(c => !walkable(c.gx, c.gy) || getPlayableTile(site.grid, c.gx, c.gy) === TILE.BRIDGE)) return fail('川や橋の上には建てられません')
         if (plan.area.some(c => mountain(c.gx, c.gy))) return fail('山には建てられません')
+        if (plan.area.some(c => marsh(c.gx, c.gy))) return fail('沼には建てられません')
         const heights = plan.area.map(c => getCellHeight(site.grid, c.gx, c.gy))
         if (Math.max(...heights) - Math.min(...heights) > OUTPOST_MAX_RISE) return fail('高低差が大きすぎます')
         const enemy = site.forts.find(f => f.owner !== owner)

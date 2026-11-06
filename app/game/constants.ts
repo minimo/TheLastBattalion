@@ -15,6 +15,12 @@ export const TILE = {
     WALL: 5,
     /** Frozen water. Walkable like open ground; the terrain stays carved as a river. */
     ICE: 6,
+    /** Shallow marsh. Walkable but slow, and slower still on horseback. */
+    MARSH: 7,
+    /** Marsh overgrown with reeds. Moves like MARSH and blocks sight like a sparse wood. */
+    REEDS: 8,
+    /** Thick reed beds. Moves like MARSH and blocks sight like a dense wood. */
+    REEDS_DENSE: 9,
 } as const
 
 export const TILE_VARIANT = {

@@ -285,6 +285,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     scene.add(constructions.group)
     /** 地面の高さ（完成した橋の上では床の高さ）。 */
     const surfaceAt = (x: number, y: number) => constructions.surfaceAt(x, y) ?? world.field.surfaceAt(x, y)
+    /** 水に浸かる深さ（0〜1）: 水底が水面より下がるほど深い。凍った川は歩いて渡るので浸からない。 */
+    const wadeAt = world.theme.water.frozen ? undefined : (x: number, y: number) => Math.max(0, Math.min(1, -world.field.heightAt(x, y) / 1.2))
 
     const project = (x: number, y: number, elevation = 0) => {
         const point = new THREE.Vector3(x, surfaceAt(x, y) + elevation, y).project(camera)
@@ -810,7 +812,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             constructions.preview(buildPlan)
             const ringed = new Set(input.selectedSquadId.value !== null ? [input.selectedSquadId.value] : selectedCompany !== null ? battle.companyById.get(selectedCompany)?.squadIds ?? [] : [])
             armyView.viewportHeight = canvasEl.clientHeight
-            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()), armyView, armyFog)
+            army.update(battle.soldiers, battle.arrows, battle.spentArrows, surfaceAt, animationTime, battle.time, ringed, new Set(battle.squads.map(sq => sq.leaderId)), new Set(heads.keys()), armyView, armyFog, wadeAt)
             updatePaths()
             updatePlacementOverlay()
             placementOverlay.preview(input.placementPreview())

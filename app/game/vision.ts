@@ -42,7 +42,8 @@ export function createVisionMap(grid: number[][], forts: Fort[]) {
         const gx = i + G0, gy = j + G0, c = j * N + i
         ground[c] = getCellHeight(grid, gx, gy)
         const tile = getPlayableTile(grid, gx, gy)
-        kinds[c] = isWood(tile) ? (tile >= 34 ? WOOD_DENSE : WOOD_SPARSE) : OPEN
+        // 葦原は林と同じに視界を遮る（密な葦原は深い林と同じ）。
+        kinds[c] = isWood(tile) ? (tile >= 34 ? WOOD_DENSE : WOOD_SPARSE) : tile === TILE.REEDS ? WOOD_SPARSE : tile === TILE.REEDS_DENSE ? WOOD_DENSE : OPEN
         for (const fort of forts) {
             const kind = fortCellKind(fort, gx, gy)
             if (kind === undefined) continue

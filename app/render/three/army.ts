@@ -36,6 +36,11 @@ const GAIT = { foot: { radiansPerPx: 1, fullStrideSpeed: 5 }, mount: { radiansPe
 /** Below this speed a soldier is standing; the smoothed velocity only approaches zero. */
 const GAIT_REST_SPEED = .2
 
+/** 水に入った兵を沈める深さ（背丈に対する割合）。歩兵は腰、騎兵は馬の腹まで。 */
+const WADE_DEPTH = { foot: .42, mounted: .3 }
+/** 足元がこの高さ以下なら水面に立っている（橋の上・岸は沈めない）。 */
+const WADE_SURFACE = .05
+
 export function createArmyRenderer(scene: THREE.Scene) {
     const group = new THREE.Group()
     group.name = 'army'
@@ -107,7 +112,8 @@ export function createArmyRenderer(scene: THREE.Scene) {
         group,
         stats,
         update(soldiers: Soldier[], arrows: Arrow[], spentArrows: SpentArrow[], heightAt: SurfaceHeight, time: number, battleTime: number,
-            selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>, companyLeaderIds: ReadonlySet<number> = new Set(), view?: ArmyView, fog?: ArmyFog) {
+            selectedSquadIds: ReadonlySet<number>, leaderIds: ReadonlySet<number>, companyLeaderIds: ReadonlySet<number> = new Set(), view?: ArmyView, fog?: ArmyFog,
+            wadeAt?: (x: number, y: number) => number) {
             const started = performance.now()
             stats.totalSoldiers = soldiers.length
             stats.renderedSoldiers = stats.culledSoldiers = stats.shadowSoldiers = 0
@@ -134,7 +140,9 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 const fall = dead ? Math.min(1, since / .45) * Math.PI / 2 : 0
                 const sink = dead ? Math.max(0, since - 5) * 2.2 : 0
                 const ground = visibility.ground(soldierIndex)
-                const y = ground + .2 - sink
+                // 川や沼を歩くときは水に沈める: 歩兵は腰まで、騎兵は馬の腹まで。足元が水面の高さのときだけ調べる。
+                const wade = wadeAt && ground <= WADE_SURFACE ? wadeAt(s.x, s.y) * model.height * (s.type === 'cavalry' ? WADE_DEPTH.mounted : WADE_DEPTH.foot) : 0
+                const y = ground + .2 - sink - wade
                 let pose = poses.get(s)
                 if (!pose || pose.model !== model) {
                     pose = { model, base: new THREE.Matrix4(), baseRevision: 0,
