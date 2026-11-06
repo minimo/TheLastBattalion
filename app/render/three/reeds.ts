@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { TILE, TILE_PX } from '../../game/constants'
 import { getTerrainTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from '../../game/playableArea'
+import { applyPlantSnow } from './snowCover'
 
 /** 葦の株（細長い葉の束）を、高さ1の大きさで作る。根元は暗く、穂先は枯れ色。 */
 function createClumpGeometry() {
@@ -39,6 +40,8 @@ export function createReeds(grid: number[][], heightAt: (x: number, y: number) =
     }
     const geometry = createClumpGeometry()
     const material = new THREE.MeshStandardMaterial({ color, vertexColors: true, side: THREE.DoubleSide, roughness: .95 })
+    // 雪が降り続くと、穂先から白くなる（株の高さは 0〜1）。
+    applyPlantSnow(material, 0, 1)
     const mesh = new THREE.InstancedMesh(geometry, material, clumps.length)
     const dummy = new THREE.Object3D()
     clumps.forEach((c, i) => {

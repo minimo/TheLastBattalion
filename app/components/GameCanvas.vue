@@ -412,7 +412,7 @@ button:hover { transform: scale(1.05); }
 .map-select { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
 .map-tile { box-sizing: border-box; height: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 3px; border: 1px solid #99713d55; border-radius: 2px; background: #130c0740; color: #dfc590; font-size: 12px; line-height: 1.3; }
 .time-select { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-.weather-select { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.weather-select { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
 .map-option.is-unavailable { cursor: not-allowed; opacity: .38; }
 .map-option.is-unavailable:hover .map-tile { background: #130c0740; }
 .map-tile :deep(:is(.terrain-icon, .time-icon, .weather-icon)) { width: 22px; height: 22px; }

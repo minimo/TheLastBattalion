@@ -9,6 +9,8 @@ describe('天候', () => {
         expect(resolveWeather('fog', 'standard', '1')).toBe('fog')
         expect(resolveWeather('rain', 'desert', '1')).toBe('clear')
         expect(resolveWeather('rain', 'snowfield', '1')).toBe('clear')
+        expect(resolveWeather('snow', 'snowfield', '1')).toBe('snow')
+        expect(resolveWeather('snow', 'desert', '1')).toBe('clear')
     })
 
     it('おまかせは同じ SEED なら同じ天候で、その地形で起こりうる天候だけになる', () => {

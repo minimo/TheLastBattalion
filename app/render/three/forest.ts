@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ModelKit } from './models'
 import type { MapTheme } from './mapTheme'
+import { applyPlantSnow } from './snowCover'
 import { TILE_PX } from '../../game/constants'
 import type { FortCell } from '../../types/game'
 
@@ -106,6 +107,10 @@ function addSnowCover(material: THREE.Material) {
     }
 }
 
+/** 雪が降り続いたときに白くなる葉の高さの範囲（木の形の中での高さ）。森林の木は根元、広葉樹は樹冠の中心が 0。 */
+const WOODLAND_SNOW = { low: 6, high: 30 }
+const BROADLEAF_SNOW = { low: -10, high: 10 }
+
 /** 森林の木の寸法（木の大きさ1のとき）。太枝は下ほど長く水平に近く、上ほど短く立つ。 */
 const WOODLAND = {
     trunk: { height: 22, base: .95, top: .12 },
@@ -198,7 +203,9 @@ function createWoodlandTrees(trees: Tree[], kit: ModelKit, snowy = false) {
     const group = new THREE.Group()
     const leafMap = createLeafMap(snowy)
     const leafMaterial = new THREE.MeshLambertMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, color: snowy ? 0xffffff : 0xd6d8c2 })
+    // 雪原の木ははじめから雪をかぶっている。ほかの地形の木は、雪が降り続くと梢から白くなる。
     if (snowy) addSnowCover(leafMaterial)
+    else applyPlantSnow(leafMaterial, WOODLAND_SNOW.low, WOODLAND_SNOW.high)
     // 影だけを落とす板: 通常の描画では画面の外へ飛ばして何も塗らず、影の描画では葉の絵の形どおりに描かれる。
     const shadowMaterial = new THREE.ShaderMaterial({ side: THREE.DoubleSide, colorWrite: false, depthWrite: false, vertexShader: 'void main() { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); }', fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }' })
     const shadowDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leafMap, alphaTest: .25 })
@@ -287,6 +294,7 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
     // A branch spray with individual leaf silhouettes, shared by all crowns.
     const leafMap = createLeafMap()
     const leafMaterial = new THREE.MeshStandardMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .95, color: 0xced3b5 })
+    applyPlantSnow(leafMaterial, BROADLEAF_SNOW.low, BROADLEAF_SNOW.high)
     const parts: THREE.BufferGeometry[] = []
     // Layer sprays throughout an irregular volume, rather than stacking cones.
     for (let i = 0; i < 170; i++) {

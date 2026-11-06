@@ -4,6 +4,7 @@ import { createMulberry32, hashString } from '../../game/random'
 import { createLandscape } from './landscape'
 import type { ModelKit } from './models'
 import type { MapTheme } from './mapTheme'
+import { applyPlantSnow } from './snowCover'
 
 export function createScenery(grid: number[][], reserved: (x: number, y: number) => boolean, landscape: ReturnType<typeof createLandscape>, heightAt: (x: number, y: number) => number, kit: ModelKit, theme: MapTheme) {
     const random = createMulberry32(hashString(JSON.stringify(grid)) ^ 7834)
@@ -46,6 +47,8 @@ export function createScenery(grid: number[][], reserved: (x: number, y: number)
     grassGeometry.setAttribute('position', new THREE.Float32BufferAttribute([-.35, 0, 0, 0, 2, .25, .35, 0, 0, 0, 0, -.4, .3, 1.4, 0, 0, 0, .4], 3))
     grassGeometry.computeVertexNormals()
     const grassMaterial = new THREE.MeshStandardMaterial({ color: theme.grass.color, side: THREE.DoubleSide, roughness: 1 })
+    // 雪が降り続くと、穂先から白くなる（草の高さは 0〜2）。
+    applyPlantSnow(grassMaterial, 0, 2)
     const grassMesh = new THREE.InstancedMesh(grassGeometry, grassMaterial, grass.length)
     grass.forEach((g, i) => {
         dummy.position.set(g.x, g.h, g.y); dummy.rotation.set(0, random() * 6, 0); dummy.scale.setScalar(g.size)

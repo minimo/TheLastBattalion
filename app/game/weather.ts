@@ -1,16 +1,17 @@
 import type { MapType, Weather, WeatherChoice } from '../types/game'
 import { createMulberry32, hashString } from './random'
 
-export const WEATHERS: Weather[] = ['clear', 'cloudy', 'rain', 'fog']
+export const WEATHERS: Weather[] = ['clear', 'cloudy', 'rain', 'snow', 'fog']
 export const WEATHER_CHOICES: WeatherChoice[] = ['auto', ...WEATHERS]
 export const WEATHER_NAME: Record<WeatherChoice, string> = {
-    auto: 'おまかせ', clear: '晴れ', cloudy: '曇り', rain: '雨', fog: '濃霧',
+    auto: 'おまかせ', clear: '晴れ', cloudy: '曇り', rain: '雨', snow: '雪', fog: '濃霧',
 }
 export const WEATHER_DESCRIPTION: Record<WeatherChoice, string> = {
     auto: '戦場の空模様にまかせる。どの天候になるかは開戦まで分からない',
     clear: '晴れ渡った空。遠くまで見通せる',
     cloudy: '雲が空を覆う。見通しが少し悪い',
     rain: '雨が降り続く。見通しが悪く、足元がぬかるみ、矢が散らばる',
+    snow: '雪が降りしきる。見通しが悪く、雪に足を取られ、矢も散らばる',
     fog: '濃い霧が立ちこめる。ごく近くしか見えず、矢も散らばる',
 }
 
@@ -22,24 +23,25 @@ export const WEATHER_EFFECT: Record<Weather, { vision: number; speed: number; ar
     clear: { vision: 1, speed: 1, arrowSpread: 1 },
     cloudy: { vision: .9, speed: 1, arrowSpread: 1 },
     rain: { vision: .7, speed: .9, arrowSpread: 1.5 },
+    snow: { vision: .75, speed: .85, arrowSpread: 1.3 },
     fog: { vision: .35, speed: 1, arrowSpread: 1.2 },
 }
 
-/** 地形ごとに起こりうる天候。雪原と砂漠に雨は降らず、砂漠に霧は出ない。魔王城付近の雨は専用の天候として後で足す。 */
+/** 地形ごとに起こりうる天候。雪原と砂漠に雨は降らず、砂漠と魔王城付近に雪は降らず、砂漠に霧は出ない。魔王城付近の雨は専用の天候として後で足す。 */
 export const MAP_WEATHERS: Record<MapType, Weather[]> = {
-    standard: ['clear', 'cloudy', 'rain', 'fog'],
-    meadow: ['clear', 'cloudy', 'rain', 'fog'],
-    forest: ['clear', 'cloudy', 'rain', 'fog'],
-    snowfield: ['clear', 'cloudy', 'fog'],
-    greatRiver: ['clear', 'cloudy', 'rain', 'fog'],
-    marsh: ['clear', 'cloudy', 'rain', 'fog'],
+    standard: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
+    meadow: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
+    forest: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
+    snowfield: ['clear', 'cloudy', 'snow', 'fog'],
+    greatRiver: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
+    marsh: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
     desert: ['clear', 'cloudy'],
-    wasteland: ['clear', 'cloudy', 'rain', 'fog'],
+    wasteland: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
     demonland: ['clear', 'cloudy', 'fog'],
 }
 
 /** おまかせのときの起こりやすさ（その地形で起こりうる天候の中で比べる）。 */
-const WEATHER_ODDS: Record<Weather, number> = { clear: 40, cloudy: 25, rain: 20, fog: 15 }
+const WEATHER_ODDS: Record<Weather, number> = { clear: 40, cloudy: 25, rain: 20, snow: 12, fog: 15 }
 
 export function weatherAllowed(mapType: MapType, choice: WeatherChoice) {
     return choice === 'auto' || MAP_WEATHERS[mapType].includes(choice)
