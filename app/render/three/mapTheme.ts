@@ -1,6 +1,6 @@
 import type { MapType } from '../../types/game'
 
-export type TreeStyle = 'broadleaf' | 'woodland' | 'palm' | 'dead'
+export type TreeStyle = 'broadleaf' | 'woodland' | 'palm' | 'dead' | 'snowy'
 
 /** 地形の種類ごとの見た目。地形の形は game/mapType.ts の TERRAIN_PROFILE が決める。 */
 export interface MapTheme {
@@ -19,7 +19,7 @@ export interface MapTheme {
     /** 木の形、戦場の外に植える数の上限、（枯れ木の）幹の色。woodland は部隊の動ける範囲に林のマスの木が立つので、飾りの木はその外だけに植える。 */
     trees: { style: TreeStyle; outsideCount: number; barkColor?: number }
     /** 水面の色と不透明度。roughness・metalness が小さいほど空を強く映す。 */
-    water: { color: number; opacity: number; roughness: number; metalness: number }
+    water: { color: number; opacity: number; roughness: number; metalness: number; /** 凍っていて、さざ波が立たない。 */ frozen?: boolean }
     sky: {
         dayZenith: number; dayHorizon: number; nightZenith: number; nightHorizon: number
         dayCloud: number; nightCloud: number; cloudAmount: number; fog: number
@@ -74,6 +74,19 @@ export const MAP_THEME: Record<MapType, MapTheme> = {
             sun: PLAIN_SUN, moon: PLAIN_MOON,
         },
         light: { sky: 0xcfe8e2, ground: 0x566a44, sun: 0xffe2b8, nightSun: 0xa1bbff, sunScale: 1 },
+    },
+    snowfield: {
+        ground: { base: 0xdfe6ea, patch: 0xcbd6de, patchAmount: .45, rock: 0x7f8990, shore: 0xc3d2db },
+        grass: { color: 0x9c9a7c, count: 260 },
+        rocks: { hue: .58, saturation: .06, lightness: .5, count: 160, above: 22 },
+        trees: { style: 'snowy', outsideCount: 320 },
+        water: { color: 0xb4d3e2, opacity: 1, roughness: .35, metalness: .1, frozen: true },
+        sky: {
+            dayZenith: 0x9ab7cf, dayHorizon: 0xdfe6ea, nightZenith: 0x18243c, nightHorizon: 0x2a3650,
+            dayCloud: 0xeef2f4, nightCloud: 0x5e6a80, cloudAmount: .3, fog: .0003,
+            sun: PLAIN_SUN, moon: PLAIN_MOON,
+        },
+        light: { sky: 0xdce8f2, ground: 0xa9b6c2, sun: 0xfff0dd, nightSun: 0xb0c4ff, sunScale: .86 },
     },
     desert: {
         ground: { base: 0xc2a06a, patch: 0xa9844f, patchAmount: .4, rock: 0x9a7552, shore: 0x8d8456,

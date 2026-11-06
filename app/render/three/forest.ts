@@ -53,25 +53,57 @@ export function createForest(trees: Tree[], kit: ModelKit, style: MapTheme['tree
     }
 }
 
-/** 葉のついた小枝の絵。根元が絵の下端にある。 */
-function createLeafMap() {
+/**
+ * 小枝に積もった雪の塊の絵。丸い塊を枝に沿って重ね、輪郭をふっくらさせる。
+ * 塊の上側を明るく下側を暗く塗り、雪の素材がこの濃淡で厚みを見せる（色は素材が雪の白にする）。
+ */
+function drawSnowClumps(ctx: CanvasRenderingContext2D) {
+    const clumps = [[64, 108, 14], [57, 92, 13], [71, 80, 14], [62, 64, 15], [69, 48, 13], [62, 33, 12], [66, 24, 9]]
+    for (const [x, y, r] of clumps) {
+        const shade = ctx.createRadialGradient(x! - r! * .2, y! - r! * .45, r! * .1, x!, y!, r!)
+        shade.addColorStop(0, '#ffffff'); shade.addColorStop(.65, '#d9d9d9'); shade.addColorStop(1, '#8c8c8c')
+        ctx.fillStyle = shade
+        ctx.beginPath(); ctx.arc(x!, y!, r!, 0, Math.PI * 2); ctx.fill()
+    }
+}
+
+/** 葉のついた小枝の絵。根元が絵の下端にある。snowy は葉の代わりに積もった雪の塊を描く。 */
+function createLeafMap(snowy = false) {
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = 128
     const ctx = canvas.getContext('2d')!
+    if (snowy) drawSnowClumps(ctx)
+    else {
     ctx.strokeStyle = '#657050'; ctx.lineWidth = 2
     ctx.beginPath(); ctx.moveTo(63, 125); ctx.lineTo(63, 9); ctx.stroke()
     for (let i = 0; i < 7; i++) for (const side of [-1, 1]) {
         const y = 112 - i * 14
         ctx.save(); ctx.translate(64 + side * 14, y); ctx.rotate(side * .7)
-        ctx.fillStyle = i % 2 ? '#a6b481' : '#83995f'
+        ctx.fillStyle = snowy ? i % 2 ? '#4f6a4c' : '#3e5a41' : i % 2 ? '#a6b481' : '#83995f'
         ctx.beginPath(); ctx.ellipse(0, -6, 8 - i * .35, 17 - i * .6, 0, 0, Math.PI * 2); ctx.fill()
-        ctx.strokeStyle = '#b2b995'; ctx.lineWidth = .6; ctx.beginPath(); ctx.moveTo(0, 7); ctx.lineTo(0, -18); ctx.stroke()
+        ctx.strokeStyle = snowy ? '#6f8670' : '#b2b995'; ctx.lineWidth = .6; ctx.beginPath(); ctx.moveTo(0, 7); ctx.lineTo(0, -18); ctx.stroke()
         ctx.restore()
+    }
     }
     const leafMap = new THREE.CanvasTexture(canvas)
     leafMap.colorSpace = THREE.SRGBColorSpace
     leafMap.anisotropy = 4
     return leafMap
+}
+
+/**
+ * 葉を緑が見えないくらいの雪で覆う。葉の絵の濃淡は少しだけ残して葉の形を見せ、木の中の位置で雪の厚みにむらをつける。
+ * 下を向いた面は影になるので、青みのある灰色にする。
+ */
+function addSnowCover(material: THREE.Material) {
+    material.onBeforeCompile = shader => {
+        shader.vertexShader = `varying vec3 vSnowWorld;\n` + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+            vSnowWorld = (instanceMatrix * vec4(transformed, 1.0)).xyz;`)
+        shader.fragmentShader = `varying vec3 vSnowWorld;\n` + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+            float snowDepth = sin(vSnowWorld.x * .62 + sin(vSnowWorld.z * .41) * 1.7) * sin(vSnowWorld.z * .67 + vSnowWorld.y * .5);
+            float snowLight = (gl_FrontFacing ? 1.0 : .82) * (.95 + .04 * snowDepth) * (.6 + .42 * dot(diffuseColor.rgb, vec3(.333)));
+            diffuseColor.rgb = vec3(.95, .97, 1.0) * snowLight;`)
+    }
 }
 
 /** 森林の木の寸法（木の大きさ1のとき）。太枝は下ほど長く水平に近く、上ほど短く立つ。 */
@@ -162,10 +194,11 @@ function buildWoodlandTree(detail: typeof WOODLAND_LEVELS[number]) {
  * 森林の木。数が桁違いに多いので、形は段階ごとに1本ぶんだけ作って共有し、向きと大きさだけを変える。
  * 木を区画に分けて画面外の区画を描かず、区画ごとにカメラからの距離で段階を切り替える。
  */
-function createWoodlandTrees(trees: Tree[], kit: ModelKit) {
+function createWoodlandTrees(trees: Tree[], kit: ModelKit, snowy = false) {
     const group = new THREE.Group()
-    const leafMap = createLeafMap()
-    const leafMaterial = new THREE.MeshLambertMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, color: 0xd6d8c2 })
+    const leafMap = createLeafMap(snowy)
+    const leafMaterial = new THREE.MeshLambertMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, color: snowy ? 0xffffff : 0xd6d8c2 })
+    if (snowy) addSnowCover(leafMaterial)
     // 影だけを落とす板: 通常の描画では画面の外へ飛ばして何も塗らず、影の描画では葉の絵の形どおりに描かれる。
     const shadowMaterial = new THREE.ShaderMaterial({ side: THREE.DoubleSide, colorWrite: false, depthWrite: false, vertexShader: 'void main() { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); }', fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }' })
     const shadowDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: leafMap, alphaTest: .25 })
@@ -190,7 +223,10 @@ function createWoodlandTrees(trees: Tree[], kit: ModelKit) {
             dummy.rotation.set(0, tree * 1.7, 0)
             dummy.scale.set(scale, scale * (1 + .15 * Math.sin(tree)), scale)
             dummy.updateMatrix(); dummy.matrix.toArray(matrices.array, local * 16)
-            color.setHSL(.22 + .03 * Math.sin(tree), .22, .54 + .1 * Math.sin(tree * 2.8)).toArray(colors.array, local * 3)
+            // 雪の白を濁らせないよう、雪の木は明るさだけを変える。
+            if (snowy) color.setScalar(.9 + .1 * Math.sin(tree * 2.8))
+            else color.setHSL(.22 + .03 * Math.sin(tree), .22, .54 + .1 * Math.sin(tree * 2.8))
+            color.toArray(colors.array, local * 3)
             box.expandByPoint(dummy.position)
         })
         box.expandByScalar(WOODLAND_CHUNK_PADDING)
@@ -246,6 +282,7 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
     if (style.style === 'palm') return createPalms(trees, kit)
     if (style.style === 'dead') return createDeadTrees(trees, kit, style.barkColor ?? 0x4d463e)
     if (style.style === 'woodland') return createWoodlandTrees(trees, kit)
+    if (style.style === 'snowy') return createWoodlandTrees(trees, kit, true)
     const group = new THREE.Group()
     // A branch spray with individual leaf silhouettes, shared by all crowns.
     const leafMap = createLeafMap()

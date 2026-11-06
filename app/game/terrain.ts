@@ -1,4 +1,5 @@
 import { TILE, TILE_PX, TILE_VARIANT } from './constants'
+import { TERRAIN_PROFILE, mapTypeOf } from './mapType'
 import { getPlayableTile } from './playableArea'
 import type { UnitType } from '../types/game'
 
@@ -31,7 +32,7 @@ export function getTerrainSpeedMultiplier(mapGrid: number[][], worldX: number, w
     // 木・密 (34-35)
     else if (tile === TILE_VARIANT.WOOD_DENSE_MIN || tile === TILE_VARIANT.WOOD_DENSE_MAX) { mult = 0.7 }
 
-    return mult
+    return mult * (TERRAIN_PROFILE[mapTypeOf(mapGrid)].groundSpeed ?? 1)
 }
 
 /**

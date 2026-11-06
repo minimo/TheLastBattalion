@@ -1,13 +1,14 @@
 import type { BattleMode, MapType } from '../types/game'
 
-export const MAP_TYPES: MapType[] = ['standard', 'meadow', 'forest', 'desert', 'wasteland', 'demonland']
+export const MAP_TYPES: MapType[] = ['standard', 'meadow', 'forest', 'snowfield', 'desert', 'wasteland', 'demonland']
 export const MAP_TYPE_NAME: Record<MapType, string> = {
-    standard: '標準', meadow: '草原', forest: '森林', desert: '砂漠', wasteland: '荒野', demonland: '魔王城付近',
+    standard: '標準', meadow: '草原', forest: '森林', snowfield: '雪原', desert: '砂漠', wasteland: '荒野', demonland: '魔王城付近',
 }
 export const MAP_TYPE_DESCRIPTION: Record<MapType, string> = {
     standard: '森と山と川のある戦場',
     meadow: 'なだらかな丘の続く草原。川はない',
     forest: '木の茂る丘陵。高台に登らないと見通しが効かない。陣地の周りは伐採してある',
+    snowfield: '見通しのよい雪の平原。足は遅いが、川は凍っていて歩いて渡れる',
     desert: '砂丘の連なる砂漠。川はなく、オアシスがある',
     wasteland: '起伏の少ない荒野。川のあることもある',
     demonland: '荒れ果てた魔王城の周り。赤い空に赤い月が昇る',
@@ -33,6 +34,10 @@ export interface TerrainProfile {
     maxGrade: number
     /** 戦場の外の山並みの高さ: 近く（base）と遠く（far）。 */
     outerMountain: { base: number; far: number; sharp: number }
+    /** 水の性質（省略すると、歩いて渡れる川）。ice は凍っていて、普通の地面と同じに歩ける（橋は架からない）。 */
+    water?: 'river' | 'ice'
+    /** 地面の移動速度の倍率（省略すると1）。両軍に同じようにかかる。 */
+    groundSpeed?: number
 }
 
 export const TERRAIN_PROFILE: Record<MapType, TerrainProfile> = {
@@ -48,6 +53,11 @@ export const TERRAIN_PROFILE: Record<MapType, TerrainProfile> = {
         // 山のマスはなく、丘と高台は地面の起伏（reliefAt）で作る。
         rivers: () => 0, mountainAbove: Infinity, woodAbove: -.35, oases: [0, 0], mountainScale: 1, maxGrade: 1.2,
         outerMountain: { base: 8, far: 200, sharp: 2 },
+    },
+    snowfield: {
+        rivers: rnd => 1 + Math.floor(rnd() * 2), mountainAbove: .62, woodAbove: .48, oases: [0, 0], mountainScale: .7, maxGrade: 1.2,
+        outerMountain: { base: 70, far: 300, sharp: 2 },
+        water: 'ice', groundSpeed: .85,
     },
     desert: {
         rivers: () => 0, mountainAbove: .68, woodAbove: Infinity, oases: [1, 2], mountainScale: .8, maxGrade: Infinity,

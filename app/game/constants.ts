@@ -13,6 +13,8 @@ export const TILE = {
     BRIDGE: 4,
     /** Fort palisades, towers and barricades. Impassable for every unit. */
     WALL: 5,
+    /** Frozen water. Walkable like open ground; the terrain stays carved as a river. */
+    ICE: 6,
 } as const
 
 export const TILE_VARIANT = {

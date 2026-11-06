@@ -97,6 +97,7 @@ export function getTerrainTile(grid: number[][], gx: number, gy: number): number
     const cached = tiles.get(key)
     if (cached !== undefined) return cached
     const landscape = getPlayableLandscape(grid)
+    const frozen = TERRAIN_PROFILE[mapTypeOf(grid)].water === 'ice'
     if (gx >= 0 && gx <= GRID_MAX && gy >= 0 && gy <= GRID_MAX) {
         let tile = grid[gy]?.[gx] ?? TILE.GRASS
         // なめらかにした川岸では、陸のマスが水面より低くなることがある。兵が描画上の水の中に立たないよう水として扱う。
@@ -106,6 +107,7 @@ export function getTerrainTile(grid: number[][], gx: number, gy: number): number
         const sunken = [[0, 0], [-6, -6], [-6, 6], [6, -6], [6, 6]].some(([dx, dy]) => landscape.heightAt(x + dx!, y + dy!) <= .3)
         if (tile !== TILE.WATER && tile !== TILE.BRIDGE && !nearBridge && sunken) tile = TILE.WATER
         if (forest && isWoodTile(tile) && landscape.heightAt(x, y) >= FOREST_HILLTOP) tile = TILE.GRASS
+        if (tile === TILE.WATER && frozen) tile = TILE.ICE
         tiles.set(key, tile)
         return tile
     }
@@ -114,7 +116,7 @@ export function getTerrainTile(grid: number[][], gx: number, gy: number): number
     // Include cell corners so routes keep a little clearance from the riverbank.
     const touchesWater = [[0, 0], [-8, -8], [-8, 8], [8, -8], [8, 8]]
         .some(([dx, dy]) => landscape.heightAt(x + dx!, y + dy!) <= 0)
-    let tile: number = touchesWater ? TILE.WATER : height >= 130 ? TILE_VARIANT.HIGH_MOUNTAIN_MIN
+    let tile: number = touchesWater ? frozen ? TILE.ICE : TILE.WATER : height >= 130 ? TILE_VARIANT.HIGH_MOUNTAIN_MIN
         : height >= 72 ? TILE_VARIANT.LOW_MOUNTAIN_MIN : TILE.GRASS
     if (forest && tile === TILE.GRASS && height < FOREST_HILLTOP) {
         // 戦場の内側の生成（mapGenerator）と同じ細かさの湿り気で、林を外へ続ける。
@@ -197,7 +199,7 @@ function siteTerrain(grid: number[][]) {
     for (let j = 1; j < size; j++) for (let i = 1; i < size; i++) {
         const gx = PLAYABLE_GRID_MIN + i - 1, gy = PLAYABLE_GRID_MIN + j - 1
         const tile = getPlayableTile(grid, gx, gy)
-        const wet = tile === TILE.WATER || tile === TILE.BRIDGE
+        const wet = tile === TILE.WATER || tile === TILE.ICE || tile === TILE.BRIDGE
         const value = wet ? 0 : (isLowland(tile) ? 0 : 1) + Math.max(0, landscape.heightAt(gx * TILE_PX, gy * TILE_PX) - 50) / 40
         const h = Math.max(0, landscape.heightAt(gx * TILE_PX, gy * TILE_PX))
         const k = j * size + i

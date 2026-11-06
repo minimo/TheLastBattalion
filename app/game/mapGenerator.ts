@@ -151,7 +151,7 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
 
     // 川が全て生成された後に橋をかける
     // Add 2 to 4 bridges per river system
-    const maxBridges = numRivers * (2 + Math.floor(rnd() * 3)) // numRivers * (2 to 4)
+    const maxBridges = profile.water === 'ice' ? 0 : numRivers * (2 + Math.floor(rnd() * 3)) // numRivers * (2 to 4)
     for (let b = 0; b < maxBridges; b++) {
         if (riverPoints.length === 0) break
 
@@ -289,7 +289,7 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
     }
 
     // 川で完全に分断された陸地（一定以上の広さ）がある場合は、橋で結ぶ
-    let landsConnected = false;
+    let landsConnected = profile.water === 'ice'; // 凍った川は歩いて渡れるので、橋は要らない。
     let landConnectAttempts = 0;
     while (!landsConnected && landConnectAttempts < 10) {
         landConnectAttempts++;

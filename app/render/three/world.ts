@@ -114,7 +114,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     waterGeometry.rotateX(-Math.PI / 2)
     waterGeometry.translate(TERRAIN_CENTER, 0, TERRAIN_CENTER)
     const waterMaterial = new THREE.MeshStandardMaterial({ color: theme.water.color, roughness: theme.water.roughness, metalness: theme.water.metalness, transparent: true, opacity: theme.water.opacity })
-    waterMaterial.onBeforeCompile = shader => {
+    if (!theme.water.frozen) waterMaterial.onBeforeCompile = shader => {
         shader.uniforms.time = { value: 0 }
         waterMaterial.userData.shader = shader
         shader.vertexShader = 'varying vec3 riverPosition;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nriverPosition = position;')

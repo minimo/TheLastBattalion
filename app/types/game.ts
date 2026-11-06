@@ -325,7 +325,7 @@ export interface Fort {
 export type BattleMode = 'field' | 'siege' | 'defense'
 
 /** 地形の種類。standard: 標準 / meadow: 草原 / forest: 森林 / desert: 砂漠 / wasteland: 荒野 / demonland: 魔王城付近。 */
-export type MapType = 'standard' | 'meadow' | 'forest' | 'desert' | 'wasteland' | 'demonland'
+export type MapType = 'standard' | 'meadow' | 'forest' | 'snowfield' | 'desert' | 'wasteland' | 'demonland'
 
 /** 開戦の時刻。dawn: 夜明け / noon: 昼 / dusk: 日没 / midnight: 深夜。 */
 export type StartTime = 'dawn' | 'noon' | 'dusk' | 'midnight'
