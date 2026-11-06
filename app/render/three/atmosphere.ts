@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { MapTheme } from './mapTheme'
+import { WEATHER_LOOK, type WeatherLook } from './weatherLook'
 
 /**
  * 月の出と月の入り（ゲーム内の分）。夕方に左手（初期視点から見て）の地平線から昇り、敵陣の上を横切って、明け方に右手へ沈む。
@@ -42,14 +43,14 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
         uniforms: {
             night: { value: 0 }, horizon: { value: new THREE.Color() },
             dayZenith: { value: new THREE.Color() }, nightZenith: { value: new THREE.Color() },
-            dayCloud: { value: new THREE.Color() }, nightCloud: { value: new THREE.Color() }, cloudAmount: { value: .2 },
+            dayCloud: { value: new THREE.Color() }, nightCloud: { value: new THREE.Color() }, cloudAmount: { value: .2 }, overcast: { value: 0 },
             moonDirection: { value: new THREE.Vector3(1, 0, 0) }, moonColor: { value: new THREE.Color() }, moonGlow: { value: new THREE.Color() }, moon: { value: 0 },
             sunDirection: { value: new THREE.Vector3(1, 0, 0) }, sunColor: { value: new THREE.Color() }, sunGlow: { value: new THREE.Color() }, sunUp: { value: 0 },
         },
         vertexShader: 'varying vec3 direction; void main() { direction = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: `
             varying vec3 direction; uniform float night; uniform vec3 horizon;
-            uniform vec3 dayZenith; uniform vec3 nightZenith; uniform vec3 dayCloud; uniform vec3 nightCloud; uniform float cloudAmount;
+            uniform vec3 dayZenith; uniform vec3 nightZenith; uniform vec3 dayCloud; uniform vec3 nightCloud; uniform float cloudAmount; uniform float overcast;
             uniform vec3 moonDirection; uniform vec3 moonColor; uniform vec3 moonGlow; uniform float moon;
             uniform vec3 sunDirection; uniform vec3 sunColor; uniform vec3 sunGlow; uniform float sunUp;
             void main() {
@@ -59,11 +60,15 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
                 float cloud = sin(dir.x * 16.0 + sin(dir.z * 10.0)) * sin(dir.z * 23.0 + dir.x * 4.0);
                 cloud = smoothstep(.35, .9, cloud) * smoothstep(.0, .2, dir.y) * (1.0 - smoothstep(.3, .7, dir.y));
                 sky = mix(sky, mix(dayCloud, nightCloud, night), cloud * cloudAmount);
+                // 曇りの空: 天頂ほど厚い雲の灰色になり、地平線は霞の色に溶ける。
+                vec3 deck = mix(dayCloud, nightCloud, night) * .78;
+                sky = mix(sky, mix(horizon, deck, smoothstep(0.0, .45, dir.y)), overcast);
+                float clearSky = 1.0 - overcast;
                 if (sunUp > 0.0) {
                     float d = dot(dir, sunDirection);
                     float disc = smoothstep(.99853, .99873, d);
                     float halo = pow(max(d, 0.0), 400.0) * .7 + pow(max(d, 0.0), 40.0) * .25;
-                    float visible = sunUp * (1.0 - smoothstep(0.0, .6, night)) * smoothstep(-.02, .02, dir.y);
+                    float visible = sunUp * (1.0 - smoothstep(0.0, .6, night)) * smoothstep(-.02, .02, dir.y) * clearSky;
                     sky += sunGlow * halo * 1.6 * visible * (1.0 - disc);
                     // 明るい昼の空に溶けないよう、白く飛ぶくらいに明るくする。
                     sky = mix(sky, sunColor * 4.0, disc * visible * (1.0 - cloud * cloudAmount * 1.5));
@@ -78,7 +83,7 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
                     float maria = .5 + .5 * sin(p.x * 2.1 + sin(p.y * 1.7)) * sin(p.y * 2.6 - p.x * .8);
                     vec3 face = moonColor * (.78 + .3 * maria);
                     float halo = pow(max(d, 0.0), 300.0) * .55 + pow(max(d, 0.0), 60.0) * .18;
-                    float visible = moon * smoothstep(0.0, .4, night) * smoothstep(-.02, .02, dir.y);
+                    float visible = moon * smoothstep(0.0, .4, night) * smoothstep(-.02, .02, dir.y) * clearSky;
                     sky += moonGlow * halo * visible * (1.0 - disc);
                     sky = mix(sky, face, disc * visible * (1.0 - cloud * cloudAmount * 1.5));
                 }
@@ -91,7 +96,9 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
     sky.frustumCulled = false; sky.renderOrder = -10
     scene.add(sky)
     const u = material.uniforms
-    let hasMoon = false, hasSun = false
+    let hasMoon = false, hasSun = false, fogDensity = initial.fog
+    let look: WeatherLook = WEATHER_LOOK.clear
+    const gray = new THREE.Color()
     const setTheme = (theme: MapTheme['sky']) => {
         dayHorizon.set(theme.dayHorizon); nightHorizon.set(theme.nightHorizon)
         u.dayZenith!.value.set(theme.dayZenith); u.nightZenith!.value.set(theme.nightZenith)
@@ -100,16 +107,28 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
         if (theme.moon) { u.moonColor!.value.set(theme.moon.color); u.moonGlow!.value.set(theme.moon.glow) }
         hasSun = !!theme.sun
         if (theme.sun) { u.sunColor!.value.set(theme.sun.color); u.sunGlow!.value.set(theme.sun.glow) }
-        fog.density = theme.fog
+        fogDensity = theme.fog
+        fog.density = fogDensity * look.fog
         if (scene.background instanceof THREE.Color) scene.background.copy(dayHorizon)
     }
     setTheme(initial)
-    return { setTheme, update(camera: THREE.Camera, night: number, dayTime: number) {
+    /** 天候の見た目を変える（地形の見た目を変えたあとも、そのまま掛かる）。 */
+    const setWeather = (next: WeatherLook) => {
+        look = next
+        fog.density = fogDensity * look.fog
+        u.overcast!.value = look.overcast
+    }
+    return { setTheme, setWeather, update(camera: THREE.Camera, night: number, dayTime: number) {
         sky.position.copy(camera.position)
         u.night!.value = night
         u.moon!.value = hasMoon && moonDirectionAt(dayTime, u.moonDirection!.value) ? 1 : 0
         u.sunUp!.value = hasSun && sunDirectionAt(dayTime, u.sunDirection!.value) ? 1 : 0
         fog.color.copy(dayHorizon).lerp(nightHorizon, night)
+        // 天候が悪いほど、霞の色は同じ明るさの灰色に寄る。
+        if (look.haze > 0) {
+            const l = fog.color.r * .3 + fog.color.g * .55 + fog.color.b * .15
+            fog.color.lerp(gray.setRGB(l, l, l), look.haze)
+        }
         u.horizon!.value.copy(fog.color)
     }, destroy() { sky.removeFromParent(); geometry.dispose(); material.dispose(); scene.fog = null } }
 }

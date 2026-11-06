@@ -13,6 +13,9 @@ import { createWorld } from './three/world'
 import { createVisionShade } from './three/visionShade'
 import { felledCells } from '../game/construction'
 import { createAtmosphere } from './three/atmosphere'
+import { createPrecipitation } from './three/precipitation'
+import { createMist } from './three/mist'
+import { WEATHER_LOOK } from './three/weatherLook'
 import { MAP_THEME, type MapTheme } from './three/mapTheme'
 import { createPlacementOverlay } from './three/placementOverlay'
 import { createPathOverlay } from './three/overlays'
@@ -64,6 +67,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0xb6c9cb)
     const atmosphere = createAtmosphere(scene, MAP_THEME.standard.sky)
+    const precipitation = createPrecipitation(scene)
+    const mist = createMist(scene)
     const pmrem = new THREE.PMREMGenerator(renderer)
     const environmentScene = new RoomEnvironment()
     const environment = pmrem.fromScene(environmentScene, .04)
@@ -686,8 +691,12 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         }
         camera.updateMatrixWorld()
         world.updateTrees(camera.position)
+        const weather = WEATHER_LOOK[gameStore.status === 'title' ? 'clear' : gameStore.weather]
+        atmosphere.setWeather(weather)
         atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2, gameStore.dayTime)
         const visible = gameStore.status !== 'title'
+        precipitation.update(camera, visible && weather.rain, getNightAlpha(gameStore.dayTime) * 2, delta)
+        if (scene.fog) mist.update(visible ? weather.mist : 0, world.field.heightAt, scene.fog.color, getNightAlpha(gameStore.dayTime) * 2, delta)
         labels.hidden = !visible
         world.group.visible = visible
         army.group.visible = visible
@@ -700,8 +709,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             renderTimings.simulationMs = performance.now() - simulationStarted
             if (gameStore.status === 'playing') animationTime += delta * gameStore.timeScale
             const night = getNightAlpha(gameStore.dayTime) * 2
-            sky.intensity = (1.7 - night * .9) * light.sunScale
-            sun.intensity = (2.5 - night * 1.8) * light.sunScale
+            sky.intensity = (1.7 - night * .9) * light.sunScale * weather.sky
+            sun.intensity = (2.5 - night * 1.8) * light.sunScale * weather.sun
             sun.color.copy(night > .5 ? sunNight : sunDay)
             world.update(animationTime)
             const battle = gameStore.battle!
@@ -849,7 +858,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         removeSquadLabels(); removeCompanyLabels(); removeConstructionLabels()
         pathOverlay.destroy(); placementOverlay.destroy(); army.destroy(); constructions.destroy()
         if (import.meta.dev) window.removeEventListener('keydown', toggleReveal)
-        world.destroy(); kit.destroy(); visionShade.destroy(); sun.shadow.dispose(); atmosphere.destroy()
+        world.destroy(); kit.destroy(); visionShade.destroy(); sun.shadow.dispose(); atmosphere.destroy(); precipitation.destroy(); mist.destroy()
         environment.dispose(); renderer.dispose(); renderer.forceContextLoss()
         renderer.domElement.remove(); labels.remove()
     } }

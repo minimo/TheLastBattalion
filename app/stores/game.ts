@@ -12,9 +12,10 @@ import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
 import { createGuidelineDirector, markCommanded, setGuideline, type GuidelineDirector } from '~/game/squadGuidelines'
 import { cpuDeployment, defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
 import { START_TIME_MINUTES } from '~/game/daynight'
+import { resolveWeather } from '~/game/weather'
 import { VISION } from '~/game/battleConfig'
 import { refreshVision } from '~/game/vision'
-import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, Directive, FormationType, GameStatus, Guideline, MapType, Point, SquadOrder, StartTime, UnitType } from '~/types/game'
+import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, Directive, FormationType, GameStatus, Guideline, MapType, Point, SquadOrder, StartTime, UnitType, Weather, WeatherChoice } from '~/types/game'
 
 /** 1倍速のときの実時間に対するゲーム内時間の倍率。 */
 const BASE_TIME_SCALE = .5
@@ -112,6 +113,9 @@ export const useGameStore = defineStore('game', {
         mapType: 'standard' as MapType,
         /** 開戦の時刻。 */
         startTime: 'dawn' as StartTime,
+        /** 開戦設定で選んだ天候（おまかせを含む）と、今の戦場の天候。 */
+        weatherChoice: 'auto' as WeatherChoice,
+        weather: 'clear' as Weather,
         winner: null as Army | null,
         isGameOver: false,
         summary: { player: emptySummary(), cpu: emptySummary() } as Record<Army, ArmySummary>,
@@ -149,6 +153,7 @@ export const useGameStore = defineStore('game', {
             this.mapGrid = markRaw(mapGrid)
             const battle = createBattle(mapGrid, rnd, this.mode, { player: this.plans[this.mode], cpu: cpuDeployment(this.mode, rnd) })
             battle.dayTime = START_TIME_MINUTES[this.startTime]
+            battle.weather = this.weather = resolveWeather(this.weatherChoice, this.mapType, this.seed)
             refreshVision(battle)
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))
@@ -161,10 +166,11 @@ export const useGameStore = defineStore('game', {
         },
 
         /** 戦場に入る。deploy なら部隊編成から始め（開戦前）、そうでなければ前回の編成ですぐ開戦する。 */
-        startGame(seed?: string, mode?: BattleMode, mapChoice?: MapType, deploy = true, startTime?: StartTime): void {
+        startGame(seed?: string, mode?: BattleMode, mapChoice?: MapType, deploy = true, startTime?: StartTime, weather?: WeatherChoice): void {
             if (mode) this.mode = mode
             if (mapChoice) this.mapChoice = mapChoice
             if (startTime) this.startTime = startTime
+            if (weather) this.weatherChoice = weather
             this.status = deploy ? 'deploying' : 'playing'
             this.initGame(seed)
         },

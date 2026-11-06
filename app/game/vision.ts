@@ -2,9 +2,10 @@ import { castleCell } from './castleLayout'
 import { FORT_VISION, OUTPOST_VISION, UNIT_VISION, VISION, type VisionRange } from './battleConfig'
 import { TILE, TILE_PX } from './constants'
 import { getNightAlpha } from './daynight'
+import { WEATHER_EFFECT } from './weather'
 import { FORT_STRUCTURES, fortTileAt, gridToLocal, isFortWallCell } from './fortLayout'
 import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
-import type { Army, Construction, FortCell, Fort, Point, Soldier, Squad } from '../types/game'
+import type { Army, Construction, FortCell, Fort, Point, Soldier, Squad, Weather } from '../types/game'
 import type { Battle } from './battle'
 
 const G0 = PLAYABLE_GRID_MIN
@@ -105,9 +106,9 @@ export function clearVisionWalls(vision: VisionMap, cells: FortCell[]) {
     }
 }
 
-/** 時間帯に応じた視界の広さ。朝夕は夜の暗さに合わせて少しずつ変わる。 */
-export function visionRangeAt(range: VisionRange, dayTime: number) {
-    return range.day + (range.night - range.day) * getNightAlpha(dayTime) * 2
+/** 時間帯と天候に応じた視界の広さ。朝夕は夜の暗さに合わせて少しずつ変わり、天候の倍率はそれに掛ける。 */
+export function visionRangeAt(range: VisionRange, dayTime: number, weather: Weather = 'clear') {
+    return (range.day + (range.night - range.day) * getNightAlpha(dayTime) * 2) * WEATHER_EFFECT[weather].vision
 }
 
 function collectSources(battle: Battle): VisionSource[] {
@@ -116,11 +117,11 @@ function collectSources(battle: Battle): VisionSource[] {
         if (!squad.count) continue
         const leader = battle.byId.get(squad.leaderId)
         const at = leader && leader.state !== 'dead' ? leader : squad.center
-        sources.push({ army: squad.owner, x: at.x, y: at.y, range: visionRangeAt(UNIT_VISION[squad.owner][squad.type], battle.dayTime), eye: VISION.eye })
+        sources.push({ army: squad.owner, x: at.x, y: at.y, range: visionRangeAt(UNIT_VISION[squad.owner][squad.type], battle.dayTime, battle.weather), eye: VISION.eye })
     }
-    for (const fort of battle.forts) sources.push({ army: fort.owner, x: fort.x, y: fort.y, range: visionRangeAt(FORT_VISION[fort.owner], battle.dayTime), eye: VISION.structureEye })
+    for (const fort of battle.forts) sources.push({ army: fort.owner, x: fort.x, y: fort.y, range: visionRangeAt(FORT_VISION[fort.owner], battle.dayTime, battle.weather), eye: VISION.structureEye })
     for (const site of battle.constructions) {
-        if (site.kind === 'outpost' && site.complete) sources.push({ army: site.owner, x: site.center.x, y: site.center.y, range: visionRangeAt(OUTPOST_VISION[site.owner], battle.dayTime), eye: VISION.structureEye })
+        if (site.kind === 'outpost' && site.complete) sources.push({ army: site.owner, x: site.center.x, y: site.center.y, range: visionRangeAt(OUTPOST_VISION[site.owner], battle.dayTime, battle.weather), eye: VISION.structureEye })
     }
     return sources
 }

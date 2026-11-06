@@ -10,12 +10,14 @@ import CommandBar from './CommandBar.vue'
 import CommandIcon from './CommandIcon.vue'
 import TerrainIcon from './TerrainIcon.vue'
 import TimeIcon from './TimeIcon.vue'
+import WeatherIcon from './WeatherIcon.vue'
 import SquadPanel from './SquadPanel.vue'
 import { ARMY_NAME, UNIT_NAME, companyActions, companyName, squadActions, squadName } from './battleUi'
 import type { GameScene } from '~/render/gameScene'
 import { MAP_TYPE_DESCRIPTION, MAP_TYPE_NAME, MAP_TYPES, mapTypeForMode } from '~/game/mapType'
 import { START_TIME_DESCRIPTION, START_TIME_NAME, START_TIMES } from '~/game/daynight'
-import type { Army, BattleMode, MapType, StartTime } from '~/types/game'
+import { WEATHER_CHOICES, WEATHER_DESCRIPTION, WEATHER_NAME, weatherAllowed } from '~/game/weather'
+import type { Army, BattleMode, MapType, StartTime, WeatherChoice } from '~/types/game'
 
 const gameStore = useGameStore()
 const titleLogo = ref('/images/title-logo.png')
@@ -83,10 +85,15 @@ const FIXED_MODES = MODES.filter(m => m.mode !== 'field')
 const selectedMode = ref<BattleMode>(gameStore.mode)
 const selectedMap = ref<MapType>(gameStore.mapChoice)
 const selectedTime = ref<StartTime>(gameStore.startTime)
+const selectedWeather = ref<WeatherChoice>(gameStore.weatherChoice)
+/** 選んだ戦場で起こりうる天候だけを選べる（雪原・砂漠に雨は降らない など）。起こらない天候を選んでいたらおまかせに戻す。 */
+const battleMapType = computed(() => mapTypeForMode(selectedMode.value, selectedMap.value))
+const weatherSelectable = (weather: WeatherChoice) => weatherAllowed(battleMapType.value, weather)
+watch(battleMapType, () => { if (!weatherSelectable(selectedWeather.value)) selectedWeather.value = 'auto' })
 /** 地形を選べるのは攻防戦だけ。攻城戦・防衛戦は地形が決まっている。 */
 const mapSelectable = computed(() => selectedMode.value === 'field')
 /** 戦場に入る。deploy なら戦場で部隊編成をしてから開戦し、そうでなければ前回の編成ですぐ開戦する（Restart）。 */
-const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy, selectedTime.value) }
+const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy, selectedTime.value, selectedWeather.value) }
 const curtain = ref<HTMLElement | null>(null)
 const curtainClosed = ref(false)
 const curtainActive = ref(false)
@@ -260,6 +267,22 @@ onUnmounted(() => {
                 <span v-for="time in START_TIMES" :key="time" :class="{ 'is-reserved': selectedTime !== time }" :aria-hidden="selectedTime !== time">{{ START_TIME_DESCRIPTION[time] }}</span>
               </p>
             </fieldset>
+            <fieldset class="operation-section weather-section" aria-describedby="weather-description">
+              <legend class="title-sr-only">天候</legend>
+              <div class="weather-select">
+                <label v-for="weather in WEATHER_CHOICES" :key="weather" class="map-option" :class="{ 'is-unavailable': !weatherSelectable(weather) }">
+                  <input v-model="selectedWeather" type="radio" name="battle-weather" :value="weather" :disabled="!weatherSelectable(weather)">
+                  <span class="map-tile">
+                    <span class="selection-mark" aria-hidden="true">◆</span>
+                    <WeatherIcon :weather="weather" />
+                    <span>{{ WEATHER_NAME[weather] }}</span>
+                  </span>
+                </label>
+              </div>
+              <p id="weather-description" class="mode-description stable-description">
+                <span v-for="weather in WEATHER_CHOICES" :key="weather" :class="{ 'is-reserved': selectedWeather !== weather }" :aria-hidden="selectedWeather !== weather">{{ WEATHER_DESCRIPTION[weather] }}</span>
+              </p>
+            </fieldset>
             <button type="submit" class="start-button">部隊編成へ <span aria-hidden="true">→</span></button>
             <div class="seed-options">
               <button type="button" class="seed-button" :aria-expanded="seedEntry" aria-controls="seed-entry" @click="toggleSeedEntry"><span aria-hidden="true">{{ seedEntry ? '−' : '+' }}</span> 特定の戦場を指定（SEED）</button>
@@ -277,7 +300,7 @@ onUnmounted(() => {
     <template v-if="ready && gameStore.status !== 'title'">
       <header class="battle-header">
         <ArmyStatus army="player" />
-        <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
+        <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><span class="weather-label"><WeatherIcon :weather="gameStore.weather" />{{ WEATHER_NAME[gameStore.weather] }}</span><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
         <ArmyStatus army="cpu" />
       </header>
       <DeploymentEditor v-if="deploying" :key="`${gameStore.mode}:${gameStore.seed}`" :mode="gameStore.mode" :mode-name="MODE_NAME[gameStore.mode]" :plan="gameStore.plans[gameStore.mode]" :unit-names="UNIT_NAME.player"
@@ -381,7 +404,7 @@ button:hover { transform: scale(1.05); }
 .mode-option:hover .mode-tile { filter: brightness(1.15); }
 .mode-option input:focus-visible + .mode-tile, .map-option input:focus-visible + .map-tile { outline: 2px solid #f1d193; outline-offset: 3px; }
 .mode-description { margin: 6px 0 0; color: #d4bfa0; font-size: 12px; line-height: 1.5; text-wrap: pretty; }
-.terrain-section, .time-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #c49b5959; }
+.terrain-section, .time-section, .weather-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #c49b5959; }
 /* All alternatives share one grid cell so wrapping reserves the largest height. */
 .terrain-slot, .stable-description { display: grid; }
 .terrain-slot > *, .stable-description > * { grid-area: 1 / 1; min-width: 0; }
@@ -389,7 +412,10 @@ button:hover { transform: scale(1.05); }
 .map-select { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
 .map-tile { box-sizing: border-box; height: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 3px; border: 1px solid #99713d55; border-radius: 2px; background: #130c0740; color: #dfc590; font-size: 12px; line-height: 1.3; }
 .time-select { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-.map-tile :deep(:is(.terrain-icon, .time-icon)) { width: 22px; height: 22px; }
+.weather-select { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.map-option.is-unavailable { cursor: not-allowed; opacity: .38; }
+.map-option.is-unavailable:hover .map-tile { background: #130c0740; }
+.map-tile :deep(:is(.terrain-icon, .time-icon, .weather-icon)) { width: 22px; height: 22px; }
 .map-tile .selection-mark { font-size: 7px; }
 .map-option:hover .map-tile { background: #b48a4540; }
 .map-option input:checked + .map-tile { border-color: #d2ad69; background: #986a3159; color: #fff0cb; box-shadow: inset 0 -2px #d2ad69; }
@@ -413,7 +439,7 @@ button:hover { transform: scale(1.05); }
   .mode-tile :deep(.command-icon) { width: 16px; height: 16px; }
   .map-tile { position: relative; flex-direction: column; gap: 3px; padding: 5px 2px 10px; font-size: 10px; }
   .map-tile .selection-mark { position: absolute; bottom: 1px; font-size: 6px; }
-  .map-select, .time-select { gap: 2px; }
+  .map-select, .time-select, .weather-select { gap: 2px; }
   .mode-description { font-size: 11px; }
   .start-button { width: 100%; font-size: 14px; }
 }
@@ -422,7 +448,7 @@ button:hover { transform: scale(1.05); }
   .title-content { gap: 6px; padding-block: 8px; }
   .title-logo { max-height: 42dvh; }
   .operation-sheet { padding-top: 6px; padding-bottom: 2px; }
-  .terrain-section, .time-section { margin-top: 6px; padding-top: 5px; }
+  .terrain-section, .time-section, .weather-section { margin-top: 6px; padding-top: 5px; }
   .mode-description { margin-top: 4px; font-size: 11px; }
   .start-button { min-height: 40px; margin-top: 8px; padding-block: 6px; }
   .seed-button { min-height: 26px; }
@@ -432,7 +458,7 @@ button:hover { transform: scale(1.05); }
   .title-splash { gap: 12px; }
   .mode-tile { min-height: 32px; padding-block: 4px; }
   .map-tile { min-height: 30px; padding-block: 3px; flex-direction: row; }
-  .map-tile :deep(:is(.terrain-icon, .time-icon)) { display: none; }
+  .map-tile :deep(:is(.terrain-icon, .time-icon, .weather-icon)) { display: none; }
   .map-tile .selection-mark { position: static; }
   .start-button { min-height: 34px; margin-block: 6px 2px; }
 }
@@ -441,6 +467,8 @@ button:hover { transform: scale(1.05); }
 .battle-header > .army-status { pointer-events: auto; }
 .clock { position: absolute; left: 50%; top: 4px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; color: #e2cf9f; font-size: 11px; letter-spacing: .1em; }
 .paused-label { margin-top: 2px; text-shadow: 0 1px 3px #000; }
+.weather-label { display: flex; align-items: center; gap: 3px; margin-top: 1px; text-shadow: 0 1px 3px #000; }
+.weather-label :deep(.weather-icon) { width: 16px; height: 16px; filter: drop-shadow(0 1px 2px #000); }
 .context-menu { position: fixed; z-index: 1000; min-width: 200px; padding: 2px 0 6px; color: #493522; user-select: none; }
 .context-menu-content { display: flex; flex-direction: column; }
 .context-menu-title { padding: 8px 16px 3px; font-size: 10px; letter-spacing: .14em; color: #70502d; }
