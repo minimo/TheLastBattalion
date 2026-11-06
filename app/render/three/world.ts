@@ -54,11 +54,15 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
             if (!riverX) bridge.rotation.y = Math.PI / 2
             kit.part(bridge, kit.rounded, kit.surfaces.wood, 0, BRIDGE_HEIGHT - 1, 0, 15, 2, 16)
             for (let k = -6; k <= 6; k += 3) kit.part(bridge, kit.rounded, kit.surfaces.wood, 0, BRIDGE_HEIGHT + .15, k, 14, .3, 2.5)
+            // 幅の広い橋（隣の列も橋）では、列の間に欄干を立てない。
+            const railed = (side: number) => (riverX ? grid[j]?.[i + side] : grid[j - side]?.[i]) !== TILE.BRIDGE
             for (const side of [-1, 1]) {
+                if (!railed(side)) continue
                 kit.part(bridge, kit.rounded, kit.surfaces.wood, side * 7, 7, 0, .8, 1, 16)
                 for (const end of [-6, 6]) kit.part(bridge, kit.rounded, kit.surfaces.wood, side * 7, 2, end, 1.2, 11, 1.2)
             }
             for (const side of [-1, 1]) for (let k = -6; k <= 6; k += 3) {
+                if (!railed(side)) continue
                 kit.part(bridge, kit.cylinder, 0x454746, side * 5.8, BRIDGE_HEIGHT + .33, k, .14, .1, .14)
             }
             // Deck extensions form approaches at the two land-facing ends.

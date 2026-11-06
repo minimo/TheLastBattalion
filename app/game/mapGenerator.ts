@@ -25,6 +25,33 @@ export function createBase(id: string, owner: Owner, rank: Rank, isCore: boolean
     }
 }
 
+/**
+ * 大河: 両軍の砦の間（グリッドの中央の列の辺り）を、上の端から下の端までゆるく蛇行して流れる。
+ * 端から先は描画の地形が川を延ばすので、部隊の動ける範囲の端まで切れ目なく続く。
+ * 橋は2〜3本で、3列の幅で架ける（両岸の取り付けの周りは平地にする）。
+ */
+function carveGreatRiver(mapGrid: number[][], rnd: RandomFn) {
+    const meander = createNoise2D(rnd)
+    const centerAt = (y: number) => GRID_MAX / 2 + meander(y / 22, 3.7) * 4
+    const halfWidthAt = (y: number) => 4.6 + meander(y / 9, 11.3) * .6
+    for (let y = 0; y <= GRID_MAX; y++) for (let x = 0; x <= GRID_MAX; x++) {
+        if (Math.abs(x - centerAt(y)) <= halfWidthAt(y)) mapGrid[y]![x] = TILE.WATER
+    }
+    const slots = rnd() < .5 ? [[8, 15], [22, 30], [37, 44]] : [[11, 19], [33, 41]]
+    for (const [from, to] of slots) {
+        const middle = from! + Math.floor(rnd() * (to! - from! + 1))
+        for (let y = middle - 1; y <= middle + 1; y++) {
+            const row = mapGrid[y]!
+            let left = Math.round(centerAt(y)), right = left
+            while (row[left - 1] === TILE.WATER) left--
+            while (row[right + 1] === TILE.WATER) right++
+            for (let x = left; x <= right; x++) row[x] = TILE.BRIDGE
+            // 橋の取り付けは、山や林のない平地にする。
+            for (const x of [left - 2, left - 1, right + 1, right + 2]) if (row[x] !== undefined) row[x] = TILE.GRASS
+        }
+    }
+}
+
 export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGrid: number[][]; bases: Base[] } {
     const bases: Base[] = []
     const profile = TERRAIN_PROFILE[type]
@@ -59,6 +86,8 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
             }
         }
     }
+
+    if (profile.greatRiver) carveGreatRiver(mapGrid, rnd)
 
     // 2. Carve Rivers
     const numRivers = profile.rivers(rnd)

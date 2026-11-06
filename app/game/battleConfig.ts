@@ -185,7 +185,7 @@ export const OUTPOST_SIZE = 5
 export const OUTPOST_MAX_RISE = 20
 export const BARRICADE_LENGTH = 5
 /** 架けられる橋の長さ（水のマス数）の上限。橋の幅は2マス。 */
-export const BRIDGE_MAX_LENGTH = 9
+export const BRIDGE_MAX_LENGTH = 12
 /** 工兵が作業地点からこの距離内にいれば作業する。修理は1人1秒あたりこの耐久を戻す。 */
 export const BUILD_REACH = 5
 export const REPAIR_RATE = 1.5
