@@ -1,6 +1,6 @@
 import { TILE, TILE_PX, TILE_VARIANT } from './constants'
 import { getTimeDecayMultiplier, getTimeSpeedMultiplier } from './daynight'
-import { WEATHER_EFFECT } from './weather'
+import { createWeatherState, updateWeather } from './weather'
 import { getTerrainSpeedMultiplier, getTileCost, mobilityOf } from './terrain'
 import { BATTLEFIELD_MAX, BATTLEFIELD_MIN, clearConstructionTiles, fellTree, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
 import { cellPoint, constructionWorkSite, felledCells, planConstruction } from './construction'
@@ -21,7 +21,7 @@ import {
     SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN, DESERTION, COMPANY, VISION,
 } from './battleConfig'
 import type {
-    Army, ArmyFormation, ArmySummary, Arrow, BattleMode, Company, Construction, Home, ConstructionAxis, ConstructionKind, FormationType, Fort, Point, Soldier, SpentArrow, Squad, SquadOrder, UnitType, Weather,
+    Army, ArmyFormation, ArmySummary, Arrow, BattleMode, Company, Construction, Home, ConstructionAxis, ConstructionKind, FormationType, Fort, Point, Soldier, SpentArrow, Squad, SquadOrder, UnitType,
 } from '../types/game'
 
 const ARMIES: Army[] = ['player', 'cpu']
@@ -110,8 +110,8 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
         arrows: [] as Arrow[],
         spentArrows: [] as SpentArrow[],
         dayTime: 360,
-        /** 戦場の天候（ゲーム処理は WEATHER_EFFECT で倍率を引く）。 */
-        weather: 'clear' as Weather,
+        /** 戦場の天候と、その移り変わり（ゲーム処理は effect の倍率を使う）。 */
+        weather: createWeatherState('clear', 'standard', ''),
         time: 0,
         nextId: 1,
         nextSquadId: 1,
@@ -1207,7 +1207,7 @@ function holdTether(battle: Battle, s: Soldier, x: number, y: number) {
 /** 小隊が進む速さ（兵種の速さ×時間帯×体力。槍兵は隊列の進む速さ、ほかは隊長の歩く速さ）。中隊の足並みをそろえるのに使う。 */
 function squadSpeed(battle: Battle, squad: Squad) {
     const base = UNIT_STATS[squad.owner][squad.type].speed * (squad.type === 'pikeman' ? PIKEMAN.marchPace : FOLLOW.leaderPace)
-    return base * getTimeSpeedMultiplier(squad.owner, battle.dayTime) * WEATHER_EFFECT[battle.weather].speed * staminaFactor(squad)
+    return base * getTimeSpeedMultiplier(squad.owner, battle.dayTime) * battle.weather.effect.speed * staminaFactor(squad)
 }
 
 /**
@@ -1479,7 +1479,7 @@ function walkSpeed(battle: Battle, s: Soldier, dx: number, dy: number) {
     if (terrain === 0) terrain = .4 // 押し出されて柵際に入ったときは抜け出させる
     // 坂は登りで大きく、下りで少し遅くなる。
     terrain *= battle.paths.slopeSpeed(s.x, s.y, dx, dy)
-    return UNIT_STATS[s.owner][s.type].speed * terrain * getTimeSpeedMultiplier(s.owner, battle.dayTime) * WEATHER_EFFECT[battle.weather].speed * staminaFactor(battle.squadById.get(s.squadId))
+    return UNIT_STATS[s.owner][s.type].speed * terrain * getTimeSpeedMultiplier(s.owner, battle.dayTime) * battle.weather.effect.speed * staminaFactor(battle.squadById.get(s.squadId))
 }
 
 function moveToward(battle: Battle, s: Soldier, tx: number, ty: number, dt: number, speedScale = 1): boolean {
@@ -1977,7 +1977,7 @@ function attack(battle: Battle, s: Soldier, target: Soldier) {
         s.arrows--
         // 弓の位置（体の少し前）から、相手の着弾時の位置を狙って放つ。遠いほど散らばる。
         const forward = { x: Math.sin(s.heading) * 1.6, y: Math.cos(s.heading) * 1.6 }
-        launchArrow(battle, s.owner, s.x + forward.x, s.y + forward.y, 5.2, target, damage, ARROW_AIM.spread * WEATHER_EFFECT[battle.weather].arrowSpread)
+        launchArrow(battle, s.owner, s.x + forward.x, s.y + forward.y, 5.2, target, damage, ARROW_AIM.spread * battle.weather.effect.arrowSpread)
         s.swing = .7
         return
     }
@@ -2612,7 +2612,7 @@ function advanceMarch(battle: Battle, squad: Squad, post: SquadPost, dt: number)
     const members = battle.members.get(squad.id) ?? []
     const { rows, spacing, width } = squadBlock(squad.type, Math.max(1, squad.count))
     const half = (rows - 1) * spacing / 2
-    const pace = UNIT_STATS[squad.owner][squad.type].speed * getTimeSpeedMultiplier(squad.owner, battle.dayTime) * WEATHER_EFFECT[battle.weather].speed * staminaFactor(squad)
+    const pace = UNIT_STATS[squad.owner][squad.type].speed * getTimeSpeedMultiplier(squad.owner, battle.dayTime) * battle.weather.effect.speed * staminaFactor(squad)
     // 隊列がなければ（突撃・退却などのあと）、今の部隊の位置から組み直す。
     if (!squad.march) {
         const facing = Math.hypot(post.anchor.x - squad.center.x, post.anchor.y - squad.center.y) > 25
@@ -2703,6 +2703,7 @@ export function updateBattle(battle: Battle, dt: number) {
     if (battle.winner) return
     battle.time += dt
     battle.dayTime = (battle.dayTime + dt * DAY_MINUTES_PER_SECOND) % 1440
+    updateWeather(battle.weather, battle.time, dt)
     battle.hash.rebuild(battle.soldiers)
     updateVision(battle, dt)
     battle.paths.process(PATH_BUDGET_PER_TICK)

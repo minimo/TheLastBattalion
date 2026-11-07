@@ -75,9 +75,11 @@ function createSnow(scene: THREE.Scene) {
     const forward = new THREE.Vector3()
     let clock = 0
     return {
-        update(camera: THREE.Camera, snowing: boolean, night: number, delta: number) {
-            snow.visible = snowing
-            if (!snowing) return
+        /** amount: 降る量（0〜1）。天候の移り変わりに合わせて、降る粒の数を増やしたり減らしたりする。 */
+        update(camera: THREE.Camera, amount: number, night: number, delta: number) {
+            snow.visible = amount > 0
+            if (!snow.visible) return
+            geometry.setDrawRange(0, Math.ceil(SNOW.count * amount))
             clock = (clock + delta) % SNOW.period
             u.time!.value = clock
             camera.getWorldDirection(forward)
@@ -134,12 +136,16 @@ export function createPrecipitation(scene: THREE.Scene) {
     let clock = 0
     const snow = createSnow(scene)
     return {
-        /** 雨か雪を降らせる（null で何も降らせない）。delta は実時間の秒（一時停止中も、早送り中も同じ速さで降る）。 */
-        update(camera: THREE.Camera, fall: 'rain' | 'snow' | null, night: number, delta: number) {
-            snow.update(camera, fall === 'snow', night, delta)
-            const raining = fall === 'rain'
+        /**
+         * 雨と雪を降らせる。rainAmount・snowAmount は降る量（0〜1）で、移り変わりの途中は両方が少しずつ降る。
+         * delta は実時間の秒（一時停止中も、早送り中も同じ速さで降る）。
+         */
+        update(camera: THREE.Camera, rainAmount: number, snowAmount: number, night: number, delta: number) {
+            snow.update(camera, snowAmount, night, delta)
+            const raining = rainAmount > 0
             rain.visible = raining
             if (!raining) return
+            geometry.setDrawRange(0, Math.ceil(RAIN.count * rainAmount) * 2)
             clock = (clock + delta) % RAIN.period
             u.time!.value = clock
             camera.getWorldDirection(forward)

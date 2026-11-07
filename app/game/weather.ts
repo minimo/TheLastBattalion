@@ -43,22 +43,104 @@ export const MAP_WEATHERS: Record<MapType, Weather[]> = {
 /** おまかせのときの起こりやすさ（その地形で起こりうる天候の中で比べる）。 */
 const WEATHER_ODDS: Record<Weather, number> = { clear: 40, cloudy: 25, rain: 20, snow: 12, fog: 15 }
 
+/**
+ * 戦闘中の天候の移り変わり（時間はすべて戦闘の経過時間の秒。1秒は戦場の6分）。
+ * hold: ひとつの天候が続く長さ（この間でランダム）/ shift: 次の天候へ移り変わるのにかかる長さ。
+ * fogShift: 霧が立ちこめる・引くときの長さ（ゆっくり濃くなり、ゆっくり引く）。
+ * snowBuild: 雪が降り続いて一面に積もるまでの長さ。
+ * snowMelt: 雪が止んでから溶けきるまでの長さ（そのときの天候ごと。日の差す晴れと、雪を流す雨では早く消える）。
+ */
+export const WEATHER_CHANGE = {
+    hold: [60, 150] as [number, number], shift: 20, fogShift: 45,
+    snowBuild: 170,
+    snowMelt: { clear: 45, cloudy: 70, rain: 35, fog: 70 } as Record<Exclude<Weather, 'snow'>, number>,
+}
+
+/**
+ * 戦闘中の天候。from から to へ blend（0〜1。1で移り終わり）で移り変わる。移り終わっていれば from と to は同じ。
+ * next: 次に天候が変わり始める時刻 / count: これまでに変わった回数（次の天候を SEED から決めるのに使う）。
+ * snow: 積雪の進み具合（0〜1。雪の間は増え、止むと減る。見た目だけに使う）。
+ * effect: 今の天候の影響（weatherEffect の値。毎回作り直さないよう、天候を進めるたびに求めておく）。
+ */
+export interface WeatherState {
+    from: Weather; to: Weather; blend: number; duration: number
+    next: number; count: number; snow: number
+    mapType: MapType; seed: string
+    effect: { vision: number; speed: number; arrowSpread: number }
+}
+
+/** 天候の乱数。何回目の変化かごとに SEED から作るので、同じ SEED なら同じ移り変わりになる。 */
+const weatherRandom = (seed: string, count: number) => createMulberry32(hashString(`${seed}:weather:${count}`))
+
+export function createWeatherState(weather: Weather, mapType: MapType, seed: string): WeatherState {
+    const random = weatherRandom(seed, 0)
+    return { from: weather, to: weather, blend: 1, duration: 0, next: holdLength(random), count: 0, snow: 0, mapType, seed, effect: { ...WEATHER_EFFECT[weather] } }
+}
+
+const holdLength = (random: () => number) => WEATHER_CHANGE.hold[0] + random() * (WEATHER_CHANGE.hold[1] - WEATHER_CHANGE.hold[0])
+
+/** その天候がどれだけ効いているか（0〜1）。移り変わりの途中では、前の天候と次の天候が混ざる。 */
+export function weatherAmount(state: WeatherState, weather: Weather) {
+    return (state.to === weather ? state.blend : 0) + (state.from === weather ? 1 - state.blend : 0)
+}
+
+/** 今の天候の影響。移り変わりの途中は、前の天候と次の天候の倍率を混ぜる（霧が濃くなるほど視界が狭くなる）。 */
+export function weatherEffect(state: WeatherState) {
+    const a = WEATHER_EFFECT[state.from], b = WEATHER_EFFECT[state.to], t = state.blend
+    const effect = state.effect
+    effect.vision = a.vision + (b.vision - a.vision) * t
+    effect.speed = a.speed + (b.speed - a.speed) * t
+    effect.arrowSpread = a.arrowSpread + (b.arrowSpread - a.arrowSpread) * t
+    return effect
+}
+
+/** 天候を進める。決まった時刻が来ると、その地形で起こりうるほかの天候へ移り変わり始める。 */
+export function updateWeather(state: WeatherState, time: number, dt: number) {
+    if (state.blend < 1) {
+        state.blend = Math.min(1, state.blend + dt / state.duration)
+        if (state.blend >= 1) state.from = state.to
+    } else if (time >= state.next) {
+        state.count++
+        const random = weatherRandom(state.seed, state.count)
+        const choices = MAP_WEATHERS[state.mapType].filter(w => w !== state.to)
+        if (choices.length) {
+            const next = pickWeather(choices, random())
+            state.from = state.to
+            state.to = next
+            state.blend = 0
+            state.duration = state.from === 'fog' || next === 'fog' ? WEATHER_CHANGE.fogShift : WEATHER_CHANGE.shift
+        }
+        state.next = time + (choices.length ? state.duration : 0) + holdLength(random)
+    }
+    weatherEffect(state)
+    // 雪が降っている間は積もり、止むとそのときの天候に合った速さで少しずつ溶ける（移り変わりの途中は前後の天候を混ぜる）。
+    const snowing = weatherAmount(state, 'snow')
+    let melt = 0
+    for (const w of [state.from, state.to]) if (w !== 'snow') melt += weatherAmount(state, w) / WEATHER_CHANGE.snowMelt[w]
+    if (state.from === state.to && state.to !== 'snow') melt = 1 / WEATHER_CHANGE.snowMelt[state.to]
+    state.snow = Math.min(1, Math.max(0, state.snow + dt * (snowing / WEATHER_CHANGE.snowBuild - melt)))
+}
+
+function pickWeather(choices: Weather[], roll: number) {
+    const total = choices.reduce((sum, w) => sum + WEATHER_ODDS[w], 0)
+    roll *= total
+    for (const w of choices) {
+        roll -= WEATHER_ODDS[w]
+        if (roll < 0) return w
+    }
+    return choices[choices.length - 1]!
+}
+
 export function weatherAllowed(mapType: MapType, choice: WeatherChoice) {
     return choice === 'auto' || MAP_WEATHERS[mapType].includes(choice)
 }
 
 /**
- * 戦場の天候を決める。おまかせは SEED から決めるので、同じ SEED なら同じ天候になる。
+ * 開戦時の天候を決める。おまかせは SEED から決めるので、同じ SEED なら同じ天候になる。
  * 地図の乱数とは別の乱数を使う（地図の生成は乱数を使う回数をそろえてあるので、共有すると地形が変わる）。
  */
 export function resolveWeather(choice: WeatherChoice, mapType: MapType, seed: string): Weather {
     const allowed = MAP_WEATHERS[mapType]
     if (choice !== 'auto') return allowed.includes(choice) ? choice : 'clear'
-    const total = allowed.reduce((sum, w) => sum + WEATHER_ODDS[w], 0)
-    let roll = createMulberry32(hashString(`${seed}:weather`))() * total
-    for (const w of allowed) {
-        roll -= WEATHER_ODDS[w]
-        if (roll < 0) return w
-    }
-    return allowed[allowed.length - 1]!
+    return pickWeather(allowed, createMulberry32(hashString(`${seed}:weather`))())
 }

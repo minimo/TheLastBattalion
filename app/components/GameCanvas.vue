@@ -300,7 +300,7 @@ onUnmounted(() => {
     <template v-if="ready && gameStore.status !== 'title'">
       <header class="battle-header">
         <ArmyStatus army="player" />
-        <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><span class="weather-label"><WeatherIcon :weather="gameStore.weather" />{{ WEATHER_NAME[gameStore.weather] }}</span><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
+        <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><span class="weather-label" :class="{ 'is-shifting': gameStore.weatherFrom }"><template v-if="gameStore.weatherFrom"><WeatherIcon :weather="gameStore.weatherFrom" />{{ WEATHER_NAME[gameStore.weatherFrom] }}<span class="weather-arrow" aria-label="から">→</span></template><WeatherIcon :weather="gameStore.weather" />{{ WEATHER_NAME[gameStore.weather] }}</span><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
         <ArmyStatus army="cpu" />
       </header>
       <DeploymentEditor v-if="deploying" :key="`${gameStore.mode}:${gameStore.seed}`" :mode="gameStore.mode" :mode-name="MODE_NAME[gameStore.mode]" :plan="gameStore.plans[gameStore.mode]" :unit-names="UNIT_NAME.player"
@@ -469,6 +469,11 @@ button:hover { transform: scale(1.05); }
 .paused-label { margin-top: 2px; text-shadow: 0 1px 3px #000; }
 .weather-label { display: flex; align-items: center; gap: 3px; margin-top: 1px; text-shadow: 0 1px 3px #000; }
 .weather-label :deep(.weather-icon) { width: 16px; height: 16px; filter: drop-shadow(0 1px 2px #000); }
+/* 天候が移り変わっている間は「雪→雨」のように前後の天候を並べ、ゆっくり明滅させて変化中であることを示す。 */
+.weather-arrow { margin: 0 2px; color: #d9b56e; }
+.weather-label.is-shifting { animation: weather-shift 2.4s ease-in-out infinite; }
+@keyframes weather-shift { 50% { opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { .weather-label.is-shifting { animation: none; } }
 .context-menu { position: fixed; z-index: 1000; min-width: 200px; padding: 2px 0 6px; color: #493522; user-select: none; }
 .context-menu-content { display: flex; flex-direction: column; }
 .context-menu-title { padding: 8px 16px 3px; font-size: 10px; letter-spacing: .14em; color: #70502d; }

@@ -14,9 +14,9 @@ import { createVisionShade } from './three/visionShade'
 import { felledCells } from '../game/construction'
 import { createAtmosphere } from './three/atmosphere'
 import { createPrecipitation } from './three/precipitation'
-import { applySnowCover, snowCover, snowCoverAt } from './three/snowCover'
+import { applySnowCover, snowCover, snowCoverOf } from './three/snowCover'
 import { createMist } from './three/mist'
-import { WEATHER_LOOK } from './three/weatherLook'
+import { blendWeatherLook, WEATHER_LOOK } from './three/weatherLook'
 import { MAP_THEME, type MapTheme } from './three/mapTheme'
 import { createPlacementOverlay } from './three/placementOverlay'
 import { createPathOverlay } from './three/overlays'
@@ -259,6 +259,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const kit = createModelKit()
     // 地面の積雪。暗さの書き換えより先に付ける（どちらも同じ素材のシェーダーを書き換える）。
     applySnowCover(kit.surfaces.ground)
+    const weatherLook = { ...WEATHER_LOOK.clear }
     gameStore.initGame()
     let world = createWorld(gameStore.mapGrid, gameStore.battle!.forts, kit)
     applyTheme(world.theme)
@@ -694,11 +695,11 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         }
         camera.updateMatrixWorld()
         world.updateTrees(camera.position)
-        const weather = WEATHER_LOOK[gameStore.status === 'title' ? 'clear' : gameStore.weather]
+        const weather = gameStore.status === 'title' || !gameStore.battle ? WEATHER_LOOK.clear : blendWeatherLook(gameStore.battle.weather, weatherLook)
         atmosphere.setWeather(weather)
         atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2, gameStore.dayTime)
         const visible = gameStore.status !== 'title'
-        precipitation.update(camera, visible ? weather.fall : null, getNightAlpha(gameStore.dayTime) * 2, delta)
+        precipitation.update(camera, visible ? weather.rain : 0, visible ? weather.snow : 0, getNightAlpha(gameStore.dayTime) * 2, delta)
         if (scene.fog) mist.update(visible ? weather.mist : 0, world.field.heightAt, scene.fog.color, getNightAlpha(gameStore.dayTime) * 2, delta)
         labels.hidden = !visible
         world.group.visible = visible
@@ -718,7 +719,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             world.update(animationTime)
             const battle = gameStore.battle!
             // 雪原はもとから白いので積もらせない。
-            snowCover.value = gameStore.weather === 'snow' && world.mapType !== 'snowfield' ? snowCoverAt(battle.time) : 0
+            snowCover.value = world.mapType !== 'snowfield' ? snowCoverOf(battle.weather.snow) : 0
             visionShade.update(battle.vision.masks.player, battle.vision.version, delta, night, revealAll())
             // 見えなくなった敵の部隊は選択を外す。
             const pickedSquad = input.selectedSquadId.value !== null ? battle.squadById.get(input.selectedSquadId.value) : undefined

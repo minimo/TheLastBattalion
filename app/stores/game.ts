@@ -12,7 +12,7 @@ import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
 import { createGuidelineDirector, markCommanded, setGuideline, type GuidelineDirector } from '~/game/squadGuidelines'
 import { cpuDeployment, defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
 import { START_TIME_MINUTES } from '~/game/daynight'
-import { resolveWeather } from '~/game/weather'
+import { createWeatherState, resolveWeather } from '~/game/weather'
 import { VISION } from '~/game/battleConfig'
 import { refreshVision } from '~/game/vision'
 import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, Directive, FormationType, GameStatus, Guideline, MapType, Point, SquadOrder, StartTime, UnitType, Weather, WeatherChoice } from '~/types/game'
@@ -116,6 +116,8 @@ export const useGameStore = defineStore('game', {
         /** 開戦設定で選んだ天候（おまかせを含む）と、今の戦場の天候。 */
         weatherChoice: 'auto' as WeatherChoice,
         weather: 'clear' as Weather,
+        /** 天候が移り変わっている途中なら、前の天候（移り終わると null）。 */
+        weatherFrom: null as Weather | null,
         winner: null as Army | null,
         isGameOver: false,
         summary: { player: emptySummary(), cpu: emptySummary() } as Record<Army, ArmySummary>,
@@ -153,7 +155,9 @@ export const useGameStore = defineStore('game', {
             this.mapGrid = markRaw(mapGrid)
             const battle = createBattle(mapGrid, rnd, this.mode, { player: this.plans[this.mode], cpu: cpuDeployment(this.mode, rnd) })
             battle.dayTime = START_TIME_MINUTES[this.startTime]
-            battle.weather = this.weather = resolveWeather(this.weatherChoice, this.mapType, this.seed)
+            this.weather = resolveWeather(this.weatherChoice, this.mapType, this.seed)
+            this.weatherFrom = null
+            battle.weather = createWeatherState(this.weather, this.mapType, this.seed)
             refreshVision(battle)
             this.battle = markRaw(battle)
             this.commander = markRaw(createCpuCommander(battle))
@@ -361,6 +365,9 @@ export const useGameStore = defineStore('game', {
             this.commander?.update(deltaSeconds)
             this.director?.update(deltaSeconds)
             this.dayTime = battle.dayTime
+            const weather = battle.weather, from = weather.blend < 1 ? weather.from : null
+            if (this.weather !== weather.to) this.weather = weather.to
+            if (this.weatherFrom !== from) this.weatherFrom = from
             if (battle.winner) {
                 this.refresh()
                 this.winner = battle.winner

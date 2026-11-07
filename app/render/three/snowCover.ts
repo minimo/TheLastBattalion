@@ -4,21 +4,20 @@ import * as THREE from 'three'
  * 雪が降り続くと地面が少しずつ白くなる。見た目だけで、ゲームの処理には影響しない。
  * 高い所ほど早く積もる（山の頂上が一番先に白くなり、低い所ほど遅れる）。どこでもまだらに積もり始め、だんだん広がる。
  * 低い所が白いのに高い所が白くない、ということが起こらないように、積もり具合は高さとともに必ず増える。
- * start・full: 戦闘の経過時間（秒）。start から積もり始め、full でほぼ一面が白くなる（1秒は戦場の6分）。
+ * 積もる速さと溶ける速さは game/weather.ts の WEATHER_CHANGE が決める（雪が止むと、積もったときと逆の順に溶けて地面が見えてくる）。
  * slope: 雪が積もる地面の傾き（法線の上向きの成分）。scale: まだらの模様の大きさ / shore: 水際から積もり始める高さ。
  * rise: この高さだけ上がるごとに、積もる速さが平地の1倍分ずつ増える（高さ rise で2倍、rise の2倍で3倍）。
  * mountainSlope: 高い所と積もりきった所で雪が残る地面の傾き（平地より急な斜面まで白くする）。high: 山とみなす高さ（この間で傾きの基準を移す）。
  */
 const SNOW_COVER = {
-    start: 10, full: 180,
     color: 0xe6ecf0,
     slope: [.72, .9], scale: .012, shore: [.5, 4],
     rise: 45, mountainSlope: [.45, .7], high: [20, 220],
 }
 
-/** 雪の積もり具合（0〜1）。戦闘の経過時間から決める。 */
-export function snowCoverAt(time: number) {
-    const t = Math.min(1, Math.max(0, (time - SNOW_COVER.start) / (SNOW_COVER.full - SNOW_COVER.start)))
+/** 雪の積もり具合（0〜1）。積雪の進み具合（WeatherState の snow）から決める。 */
+export function snowCoverOf(progress: number) {
+    const t = Math.min(1, Math.max(0, progress))
     return t * t * (3 - 2 * t)
 }
 
