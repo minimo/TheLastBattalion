@@ -4,10 +4,10 @@ import { createMulberry32, hashString } from './random'
 export const WEATHERS: Weather[] = ['clear', 'cloudy', 'rain', 'snow', 'fog']
 export const WEATHER_CHOICES: WeatherChoice[] = ['auto', ...WEATHERS]
 export const WEATHER_NAME: Record<WeatherChoice, string> = {
-    auto: 'おまかせ', clear: '晴れ', cloudy: '曇り', rain: '雨', snow: '雪', fog: '濃霧',
+    auto: 'ランダム', clear: '晴れ', cloudy: '曇り', rain: '雨', snow: '雪', fog: '濃霧',
 }
 export const WEATHER_DESCRIPTION: Record<WeatherChoice, string> = {
-    auto: '戦場の空模様にまかせる。どの天候になるかは開戦まで分からない',
+    auto: '始まりの天候をランダムに決める。どの天候になるかは開戦まで分からない',
     clear: '晴れ渡った空。遠くまで見通せる',
     cloudy: '雲が空を覆う。見通しが少し悪い',
     rain: '雨が降り続く。見通しが悪く、足元がぬかるみ、矢が散らばる',
@@ -40,7 +40,7 @@ export const MAP_WEATHERS: Record<MapType, Weather[]> = {
     demonland: ['clear', 'cloudy', 'fog'],
 }
 
-/** おまかせのときの起こりやすさ（その地形で起こりうる天候の中で比べる）。 */
+/** ランダムのときの起こりやすさ（その地形で起こりうる天候の中で比べる）。 */
 const WEATHER_ODDS: Record<Weather, number> = { clear: 40, cloudy: 25, rain: 20, snow: 12, fog: 15 }
 
 /**
@@ -136,7 +136,7 @@ export function weatherAllowed(mapType: MapType, choice: WeatherChoice) {
 }
 
 /**
- * 開戦時の天候を決める。おまかせは SEED から決めるので、同じ SEED なら同じ天候になる。
+ * 開戦時の天候を決める。ランダムは SEED から決めるので、同じ SEED なら同じ天候になる。
  * 地図の乱数とは別の乱数を使う（地図の生成は乱数を使う回数をそろえてあるので、共有すると地形が変わる）。
  */
 export function resolveWeather(choice: WeatherChoice, mapType: MapType, seed: string): Weather {

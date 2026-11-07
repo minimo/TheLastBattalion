@@ -332,7 +332,7 @@ export type StartTime = 'dawn' | 'noon' | 'dusk' | 'midnight'
 
 /** 戦場の天候（戦闘中は変わらない）。clear: 晴れ / cloudy: 曇り / rain: 雨 / snow: 雪 / fog: 濃霧。 */
 export type Weather = 'clear' | 'cloudy' | 'rain' | 'snow' | 'fog'
-/** 開戦設定で選ぶ天候。auto: おまかせ（SEED から決める）。 */
+/** 開戦設定で選ぶ天候。auto: ランダム（SEED から決める）。 */
 export type WeatherChoice = Weather | 'auto'
 
 /** 軍の本拠地（退却・補給に戻る先）。砦を持つ軍は砦、砦を持たない攻め手は後方の野営地。 */

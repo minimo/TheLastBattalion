@@ -86,7 +86,7 @@ const selectedMode = ref<BattleMode>(gameStore.mode)
 const selectedMap = ref<MapType>(gameStore.mapChoice)
 const selectedTime = ref<StartTime>(gameStore.startTime)
 const selectedWeather = ref<WeatherChoice>(gameStore.weatherChoice)
-/** 選んだ戦場で起こりうる天候だけを選べる（雪原・砂漠に雨は降らない など）。起こらない天候を選んでいたらおまかせに戻す。 */
+/** 選んだ戦場で起こりうる天候だけを選べる（雪原・砂漠に雨は降らない など）。起こらない天候を選んでいたらランダムに戻す。 */
 const battleMapType = computed(() => mapTypeForMode(selectedMode.value, selectedMap.value))
 const weatherSelectable = (weather: WeatherChoice) => weatherAllowed(battleMapType.value, weather)
 watch(battleMapType, () => { if (!weatherSelectable(selectedWeather.value)) selectedWeather.value = 'auto' })

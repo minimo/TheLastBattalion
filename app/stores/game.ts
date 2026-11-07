@@ -113,7 +113,7 @@ export const useGameStore = defineStore('game', {
         mapType: 'standard' as MapType,
         /** 開戦の時刻。 */
         startTime: 'dawn' as StartTime,
-        /** 開戦設定で選んだ天候（おまかせを含む）と、今の戦場の天候。 */
+        /** 開戦設定で選んだ天候（ランダムを含む）と、今の戦場の天候。 */
         weatherChoice: 'auto' as WeatherChoice,
         weather: 'clear' as Weather,
         /** 天候が移り変わっている途中なら、前の天候（移り終わると null）。 */
