@@ -1,3 +1,4 @@
+import type { Weather } from '../types/game'
 import { describe, expect, it } from 'vitest'
 import { UNIT_VISION } from './battleConfig'
 import { MAP_TYPES } from './mapType'
@@ -11,6 +12,8 @@ describe('天候', () => {
         expect(resolveWeather('rain', 'snowfield', '1')).toBe('clear')
         expect(resolveWeather('snow', 'snowfield', '1')).toBe('snow')
         expect(resolveWeather('snow', 'desert', '1')).toBe('clear')
+        expect(resolveWeather('sandstorm', 'desert', '1')).toBe('sandstorm')
+        for (const type of MAP_TYPES) if (type !== 'desert') expect(MAP_WEATHERS[type]).not.toContain('sandstorm')
     })
 
     it('おまかせは同じ SEED なら同じ天候で、その地形で起こりうる天候だけになる', () => {
@@ -28,10 +31,15 @@ describe('天候', () => {
 
     it('視界は昼夜の広さに天候の倍率を掛け、晴れより悪い天候では狭くなる', () => {
         const range = UNIT_VISION.player.infantry
-        expect(visionRangeAt(range, 720, WEATHER_EFFECT.clear.vision)).toBe(600)
-        expect(visionRangeAt(range, 720, WEATHER_EFFECT.fog.vision)).toBeCloseTo(600 * WEATHER_EFFECT.fog.vision)
-        expect(visionRangeAt(range, 0, WEATHER_EFFECT.rain.vision)).toBeCloseTo(150 * WEATHER_EFFECT.rain.vision)
-        for (const w of WEATHERS) if (w !== 'clear') expect(WEATHER_EFFECT[w].vision).toBeLessThan(1)
+        const settled = (w: Weather) => ({ from: w, to: w, blend: 1 })
+        expect(visionRangeAt(range, 720, settled('clear'))).toBe(600)
+        expect(visionRangeAt(range, 720, settled('fog'))).toBeCloseTo(600 * WEATHER_EFFECT.fog.vision)
+        expect(visionRangeAt(range, 0, settled('rain'))).toBeCloseTo(150 * WEATHER_EFFECT.rain.vision)
+        // 砂嵐では、どの視界も 120 までになる。移り変わりの途中は前後の広さを混ぜる。
+        expect(visionRangeAt(range, 720, settled('sandstorm'))).toBe(120)
+        expect(visionRangeAt(range, 0, settled('sandstorm'))).toBe(120)
+        expect(visionRangeAt(range, 720, { from: 'clear', to: 'sandstorm', blend: .5 })).toBe(360)
+        for (const w of WEATHERS) if (w !== 'clear') expect(Math.min(WEATHER_EFFECT[w].vision, (WEATHER_EFFECT[w].reach ?? Infinity) / 600)).toBeLessThan(1)
     })
 
     /** 天候を dt 秒ずつ、until 秒まで進める。 */

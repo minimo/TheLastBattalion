@@ -330,8 +330,8 @@ export type MapType = 'standard' | 'meadow' | 'forest' | 'snowfield' | 'greatRiv
 /** 開戦の時刻。dawn: 夜明け / noon: 昼 / dusk: 日没 / midnight: 深夜。 */
 export type StartTime = 'dawn' | 'noon' | 'dusk' | 'midnight'
 
-/** 戦場の天候（戦闘中は変わらない）。clear: 晴れ / cloudy: 曇り / rain: 雨 / snow: 雪 / fog: 濃霧。 */
-export type Weather = 'clear' | 'cloudy' | 'rain' | 'snow' | 'fog'
+/** 戦場の天候（戦闘中は変わらない）。clear: 晴れ / cloudy: 曇り / rain: 雨 / snow: 雪 / fog: 濃霧 / sandstorm: 砂嵐。 */
+export type Weather = 'clear' | 'cloudy' | 'rain' | 'snow' | 'fog' | 'sandstorm'
 /** 開戦設定で選ぶ天候。auto: ランダム（SEED から決める）。 */
 export type WeatherChoice = Weather | 'auto'
 

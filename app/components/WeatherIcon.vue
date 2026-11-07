@@ -11,6 +11,7 @@ const paths: Record<WeatherChoice, string> = {
   cloudy: `${CLOUD}M5 26h22`,
   rain: `${CLOUD}M11 23l-2 5M17 23l-2 5M23 23l-2 5`,
   snow: `${CLOUD}M10 23v4M8 25h4M16 25v4M14 27h4M22 23v4M20 25h4`,
+  sandstorm: 'M4 10c4-3 8 3 12 0s8-3 12 0M4 17c4-3 8 3 12 0s8-3 12 0M6 24c3-2 6 2 9 0M20 23v.5M24 25v.5M27 22v.5',
   fog: 'M4 9h17M8 14h20M4 19h18M10 24h18M24 9h4M4 24h3',
 }
 </script>

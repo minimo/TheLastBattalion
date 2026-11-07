@@ -53,6 +53,9 @@ const membersCenter = (members: { x: number; y: number }[] | undefined) => membe
     ? { x: members.reduce((sum, s) => sum + s.x, 0) / members.length, y: members.reduce((sum, s) => sum + s.y, 0) / members.length }
     : undefined
 
+/** 何も降らせないとき（題名の画面）。 */
+const NO_FALL = { rain: 0, snow: 0, sand: 0 }
+
 export async function createGameScene({ canvasEl, gameStore, input }: GameSceneOptions) {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
@@ -699,7 +702,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         atmosphere.setWeather(weather)
         atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2, gameStore.dayTime)
         const visible = gameStore.status !== 'title'
-        precipitation.update(camera, visible ? weather.rain : 0, visible ? weather.snow : 0, getNightAlpha(gameStore.dayTime) * 2, delta)
+        precipitation.update(camera, visible ? weather : NO_FALL, getNightAlpha(gameStore.dayTime) * 2, delta)
         if (scene.fog) mist.update(visible ? weather.mist : 0, world.field.heightAt, scene.fog.color, getNightAlpha(gameStore.dayTime) * 2, delta)
         labels.hidden = !visible
         world.group.visible = visible

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 
 /**
- * 雨の筋と雪の粒。戦場全体には降らせず、カメラの前の箱の中だけに降らせる（描画の重さが戦場の広さによらず一定になる）。
+ * 雨の筋・雪の粒・砂嵐の砂。戦場全体には降らせず、カメラの前の箱の中だけに降らせる（描画の重さが戦場の広さによらず一定になる）。
  * 粒の位置は頂点シェーダーで時刻から求めるので、毎フレームの CPU の計算はない。
  * 粒は世界に対して落ちていき、箱の端を越えると反対側に回り込む（カメラが動いても雨が一緒に動いて見えない）。
  */
@@ -9,7 +9,19 @@ const RAIN = {
     count: 8000, box: 520, ahead: 260,
     fall: 340, wind: { x: 40, z: 18 }, length: 30,
     color: 0xe4ecf2, opacity: .5, nightOpacity: .27,
+    /** 濃淡の強さ（0で一様）と、濃い所と薄い所の間隔（px）。濃淡は風に乗って流れる。 */
+    patch: { amount: 0, size: 1 },
     /** 時刻を回す周期（秒）。大きな時刻で mod の精度が落ちないようにする。 */
+    period: 600,
+}
+type Streaks = typeof RAIN
+
+/** 砂嵐の砂。強い横風で地面と平行に吹き流れる、短く細かな筋。濃い砂塵の塊と薄い所が、風に乗って流れていく。 */
+const SAND: Streaks = {
+    count: 11000, box: 460, ahead: 220,
+    fall: 12, wind: { x: 300, z: 110 }, length: 12,
+    color: 0xd8b98a, opacity: .6, nightOpacity: .26,
+    patch: { amount: .85, size: 140 },
     period: 600,
 }
 
@@ -90,10 +102,11 @@ function createSnow(scene: THREE.Scene) {
     }
 }
 
-export function createPrecipitation(scene: THREE.Scene) {
-    const seeds = new Float32Array(RAIN.count * 2 * 3)
-    const tails = new Float32Array(RAIN.count * 2)
-    for (let i = 0; i < RAIN.count; i++) {
+/** 筋の粒（雨と砂嵐の砂）。amount は降る量（0〜1）で、降る筋の数を増やしたり減らしたりする。 */
+function createStreaks(scene: THREE.Scene, config: Streaks) {
+    const seeds = new Float32Array(config.count * 2 * 3)
+    const tails = new Float32Array(config.count * 2)
+    for (let i = 0; i < config.count; i++) {
         const x = Math.random(), y = Math.random(), z = Math.random()
         for (let j = 0; j < 2; j++) {
             seeds.set([x, y, z], (i * 2 + j) * 3)
@@ -106,13 +119,14 @@ export function createPrecipitation(scene: THREE.Scene) {
     const material = new THREE.ShaderMaterial({
         transparent: true, depthWrite: false, fog: false,
         uniforms: {
-            center: { value: new THREE.Vector3() }, size: { value: RAIN.box }, time: { value: 0 },
-            velocity: { value: new THREE.Vector3(RAIN.wind.x, -RAIN.fall, RAIN.wind.z) }, streak: { value: RAIN.length },
-            color: { value: new THREE.Color(RAIN.color) }, opacity: { value: RAIN.opacity },
+            center: { value: new THREE.Vector3() }, size: { value: config.box }, time: { value: 0 },
+            velocity: { value: new THREE.Vector3(config.wind.x, -config.fall, config.wind.z) }, streak: { value: config.length },
+            color: { value: new THREE.Color(config.color) }, opacity: { value: config.opacity },
+            patch: { value: new THREE.Vector2(config.patch.amount, 1 / config.patch.size) },
         },
         vertexShader: `
             attribute float tail;
-            uniform vec3 center; uniform float size; uniform float time; uniform vec3 velocity; uniform float streak;
+            uniform vec3 center; uniform float size; uniform float time; uniform vec3 velocity; uniform float streak; uniform vec2 patch;
             varying float alpha;
             void main() {
                 vec3 low = center - size * .5;
@@ -120,6 +134,13 @@ export function createPrecipitation(scene: THREE.Scene) {
                 vec3 edge = abs(p - center) / size;
                 // 箱の端では薄くして、回り込むときに筋が急に現れたり消えたりしないようにする。
                 alpha = (1.0 - smoothstep(.32, .5, max(edge.x, max(edge.y, edge.z)))) * (1.0 - tail * .7);
+                if (patch.x > 0.0) {
+                    // 濃淡の模様は粒と一緒に風下へ流れる（粒の位置から風で進んだ分を戻して模様を引く）。
+                    vec2 q = (p.xz - velocity.xz * time * .9) * patch.y;
+                    float dense = sin(q.x * 1.3 + sin(q.y * .9) * 1.6) * sin(q.y * 1.1 - q.x * .4 + sin(q.x * .7) * 1.2);
+                    dense = smoothstep(-.4, .7, dense + sin(q.x * .37 + q.y * .29 + 1.7) * .45);
+                    alpha *= mix(1.0, dense * 1.6, patch.x);
+                }
                 p -= normalize(velocity) * streak * tail;
                 gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
             }`,
@@ -127,31 +148,41 @@ export function createPrecipitation(scene: THREE.Scene) {
             uniform vec3 color; uniform float opacity; varying float alpha;
             void main() { gl_FragColor = vec4(color, opacity * alpha); }`,
     })
-    const rain = new THREE.LineSegments(geometry, material)
-    rain.frustumCulled = false
-    rain.visible = false
-    scene.add(rain)
+    const lines = new THREE.LineSegments(geometry, material)
+    lines.frustumCulled = false
+    lines.visible = false
+    scene.add(lines)
     const u = material.uniforms
     const forward = new THREE.Vector3()
     let clock = 0
+    return {
+        update(camera: THREE.Camera, amount: number, night: number, delta: number) {
+            lines.visible = amount > 0
+            if (!lines.visible) return
+            geometry.setDrawRange(0, Math.ceil(config.count * amount) * 2)
+            clock = (clock + delta) % config.period
+            u.time!.value = clock
+            camera.getWorldDirection(forward)
+            u.center!.value.copy(camera.position).addScaledVector(forward, config.ahead)
+            u.opacity!.value = config.opacity + (config.nightOpacity - config.opacity) * night
+        },
+        destroy() { lines.removeFromParent(); geometry.dispose(); material.dispose() },
+    }
+}
+
+export function createPrecipitation(scene: THREE.Scene) {
+    const rain = createStreaks(scene, RAIN), sand = createStreaks(scene, SAND)
     const snow = createSnow(scene)
     return {
         /**
-         * 雨と雪を降らせる。rainAmount・snowAmount は降る量（0〜1）で、移り変わりの途中は両方が少しずつ降る。
+         * 雨・雪・砂嵐の砂を降らせる。amount はそれぞれの降る量（0〜1）で、移り変わりの途中は前後の天候が少しずつ混ざる。
          * delta は実時間の秒（一時停止中も、早送り中も同じ速さで降る）。
          */
-        update(camera: THREE.Camera, rainAmount: number, snowAmount: number, night: number, delta: number) {
-            snow.update(camera, snowAmount, night, delta)
-            const raining = rainAmount > 0
-            rain.visible = raining
-            if (!raining) return
-            geometry.setDrawRange(0, Math.ceil(RAIN.count * rainAmount) * 2)
-            clock = (clock + delta) % RAIN.period
-            u.time!.value = clock
-            camera.getWorldDirection(forward)
-            u.center!.value.copy(camera.position).addScaledVector(forward, RAIN.ahead)
-            u.opacity!.value = RAIN.opacity + (RAIN.nightOpacity - RAIN.opacity) * night
+        update(camera: THREE.Camera, amount: { rain: number; snow: number; sand: number }, night: number, delta: number) {
+            rain.update(camera, amount.rain, night, delta)
+            snow.update(camera, amount.snow, night, delta)
+            sand.update(camera, amount.sand, night, delta)
         },
-        destroy() { rain.removeFromParent(); geometry.dispose(); material.dispose(); snow.destroy() },
+        destroy() { rain.destroy(); snow.destroy(); sand.destroy() },
     }
 }

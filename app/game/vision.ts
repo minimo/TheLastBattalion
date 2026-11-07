@@ -1,10 +1,11 @@
 import { castleCell } from './castleLayout'
+import { WEATHER_EFFECT, type WeatherState } from './weather'
 import { FORT_VISION, OUTPOST_VISION, UNIT_VISION, VISION, type VisionRange } from './battleConfig'
 import { TILE, TILE_PX } from './constants'
 import { getNightAlpha } from './daynight'
 import { FORT_STRUCTURES, fortTileAt, gridToLocal, isFortWallCell } from './fortLayout'
 import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
-import type { Army, Construction, FortCell, Fort, Point, Soldier, Squad } from '../types/game'
+import type { Army, Construction, FortCell, Fort, Point, Soldier, Squad, Weather } from '../types/game'
 import type { Battle } from './battle'
 
 const G0 = PLAYABLE_GRID_MIN
@@ -105,14 +106,21 @@ export function clearVisionWalls(vision: VisionMap, cells: FortCell[]) {
     }
 }
 
-/** 時間帯と天候に応じた視界の広さ。朝夕は夜の暗さに合わせて少しずつ変わり、天候の視界の倍率（battle.weather.effect.vision）はそれに掛ける。 */
-export function visionRangeAt(range: VisionRange, dayTime: number, weatherVision = 1) {
-    return (range.day + (range.night - range.day) * getNightAlpha(dayTime) * 2) * weatherVision
+/**
+ * 時間帯と天候に応じた視界の広さ。朝夕は夜の暗さに合わせて少しずつ変わり、天候の視界の倍率はそれに掛ける。
+ * 砂嵐のように視界の上限がある天候では、上限より先は見えない。天候の移り変わりの途中は、前後の天候での広さを混ぜる。
+ */
+export function visionRangeAt(range: VisionRange, dayTime: number, weather?: Pick<WeatherState, 'from' | 'to' | 'blend'>) {
+    const base = range.day + (range.night - range.day) * getNightAlpha(dayTime) * 2
+    if (!weather) return base
+    const under = (w: Weather) => Math.min(base * WEATHER_EFFECT[w].vision, WEATHER_EFFECT[w].reach ?? Infinity)
+    const from = under(weather.from), to = under(weather.to)
+    return from + (to - from) * weather.blend
 }
 
 function collectSources(battle: Battle): VisionSource[] {
     const sources: VisionSource[] = []
-    const weather = battle.weather.effect.vision
+    const weather = battle.weather
     for (const squad of battle.squads) {
         if (!squad.count) continue
         const leader = battle.byId.get(squad.leaderId)

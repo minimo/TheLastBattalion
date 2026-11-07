@@ -23,6 +23,9 @@ function arcDirectionAt(dayTime: number, rise: number, set: number, path: typeof
 }
 
 /** dayTime のときの月の方角。月が出ていなければ null。 */
+/** 砂嵐の霞の色。 */
+const DUST = new THREE.Color(0xc9a77a)
+
 export function moonDirectionAt(dayTime: number, target = new THREE.Vector3()) {
     return arcDirectionAt(dayTime, MOONRISE, MOONSET, MOON_ARC, target)
 }
@@ -129,6 +132,8 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
             const l = fog.color.r * .3 + fog.color.g * .55 + fog.color.b * .15
             fog.color.lerp(gray.setRGB(l, l, l), look.haze)
         }
+        // 砂嵐では、霞と地平線が舞い上がった砂の色になる（夜は暗い砂色）。
+        if (look.dust > 0) fog.color.lerp(gray.copy(DUST).multiplyScalar(1 - night * .75), look.dust)
         u.horizon!.value.copy(fog.color)
     }, destroy() { sky.removeFromParent(); geometry.dispose(); material.dispose(); scene.fog = null } }
 }

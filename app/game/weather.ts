@@ -1,10 +1,10 @@
 import type { MapType, Weather, WeatherChoice } from '../types/game'
 import { createMulberry32, hashString } from './random'
 
-export const WEATHERS: Weather[] = ['clear', 'cloudy', 'rain', 'snow', 'fog']
+export const WEATHERS: Weather[] = ['clear', 'cloudy', 'rain', 'snow', 'fog', 'sandstorm']
 export const WEATHER_CHOICES: WeatherChoice[] = ['auto', ...WEATHERS]
 export const WEATHER_NAME: Record<WeatherChoice, string> = {
-    auto: 'ランダム', clear: '晴れ', cloudy: '曇り', rain: '雨', snow: '雪', fog: '濃霧',
+    auto: 'ランダム', clear: '晴れ', cloudy: '曇り', rain: '雨', snow: '雪', fog: '濃霧', sandstorm: '砂嵐',
 }
 export const WEATHER_DESCRIPTION: Record<WeatherChoice, string> = {
     auto: '始まりの天候をランダムに決める。どの天候になるかは開戦まで分からない',
@@ -12,22 +12,25 @@ export const WEATHER_DESCRIPTION: Record<WeatherChoice, string> = {
     cloudy: '雲が空を覆う。見通しが少し悪い',
     rain: '雨が降り続く。見通しが悪く、足元がぬかるみ、矢が散らばる',
     snow: '雪が降りしきる。見通しが悪く、雪に足を取られ、矢も散らばる',
+    sandstorm: '砂嵐が吹き荒れる。近くしか見えず、砂に足を取られ、矢が大きく散らばる',
     fog: '濃い霧が立ちこめる。ごく近くしか見えず、矢も散らばる',
 }
 
 /**
  * 天候の影響。両軍に同じようにかかる（どちらかの軍に有利な天候はない）。
  * vision: 視界の倍率（昼夜の視界に掛ける）/ speed: 移動の速さの倍率 / arrowSpread: 兵を狙う矢の散らばりの倍率
+ * reach: 視界の上限（px）。部隊や陣地の視界がどれだけ広くても、ここまでしか見えない（なければ上限なし）。
  */
-export const WEATHER_EFFECT: Record<Weather, { vision: number; speed: number; arrowSpread: number }> = {
+export const WEATHER_EFFECT: Record<Weather, { vision: number; speed: number; arrowSpread: number; reach?: number }> = {
     clear: { vision: 1, speed: 1, arrowSpread: 1 },
     cloudy: { vision: .9, speed: 1, arrowSpread: 1 },
     rain: { vision: .7, speed: .9, arrowSpread: 1.5 },
     snow: { vision: .75, speed: .85, arrowSpread: 1.3 },
     fog: { vision: .35, speed: 1, arrowSpread: 1.2 },
+    sandstorm: { vision: 1, speed: .85, arrowSpread: 1.7, reach: 120 },
 }
 
-/** 地形ごとに起こりうる天候。雪原と砂漠に雨は降らず、砂漠と魔王城付近に雪は降らず、砂漠に霧は出ない。魔王城付近の雨は専用の天候として後で足す。 */
+/** 地形ごとに起こりうる天候。雪原と砂漠に雨は降らず、砂漠と魔王城付近に雪は降らず、砂漠に霧は出ない。砂嵐は砂漠だけ。魔王城付近の雨は専用の天候として後で足す。 */
 export const MAP_WEATHERS: Record<MapType, Weather[]> = {
     standard: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
     meadow: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
@@ -35,25 +38,25 @@ export const MAP_WEATHERS: Record<MapType, Weather[]> = {
     snowfield: ['clear', 'cloudy', 'snow', 'fog'],
     greatRiver: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
     marsh: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
-    desert: ['clear', 'cloudy'],
+    desert: ['clear', 'cloudy', 'sandstorm'],
     wasteland: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
     demonland: ['clear', 'cloudy', 'fog'],
 }
 
 /** ランダムのときの起こりやすさ（その地形で起こりうる天候の中で比べる）。 */
-const WEATHER_ODDS: Record<Weather, number> = { clear: 40, cloudy: 25, rain: 20, snow: 12, fog: 15 }
+const WEATHER_ODDS: Record<Weather, number> = { clear: 40, cloudy: 25, rain: 20, snow: 12, fog: 15, sandstorm: 20 }
 
 /**
  * 戦闘中の天候の移り変わり（時間はすべて戦闘の経過時間の秒。1秒は戦場の6分）。
  * hold: ひとつの天候が続く長さ（この間でランダム）/ shift: 次の天候へ移り変わるのにかかる長さ。
- * fogShift: 霧が立ちこめる・引くときの長さ（ゆっくり濃くなり、ゆっくり引く）。
+ * fogShift: 霧や砂嵐が立ちこめる・引くときの長さ（ゆっくり濃くなり、ゆっくり引く）。
  * snowBuild: 雪が降り続いて一面に積もるまでの長さ。
  * snowMelt: 雪が止んでから溶けきるまでの長さ（そのときの天候ごと。日の差す晴れと、雪を流す雨では早く消える）。
  */
 export const WEATHER_CHANGE = {
-    hold: [60, 150] as [number, number], shift: 20, fogShift: 45,
+    hold: [30, 150] as [number, number], shift: 20, fogShift: 45,
     snowBuild: 170,
-    snowMelt: { clear: 45, cloudy: 70, rain: 35, fog: 70 } as Record<Exclude<Weather, 'snow'>, number>,
+    snowMelt: { clear: 45, cloudy: 70, rain: 35, fog: 70, sandstorm: 45 } as Record<Exclude<Weather, 'snow'>, number>,
 }
 
 /**
@@ -108,7 +111,7 @@ export function updateWeather(state: WeatherState, time: number, dt: number) {
             state.from = state.to
             state.to = next
             state.blend = 0
-            state.duration = state.from === 'fog' || next === 'fog' ? WEATHER_CHANGE.fogShift : WEATHER_CHANGE.shift
+            state.duration = [state.from, next].some(w => w === 'fog' || w === 'sandstorm') ? WEATHER_CHANGE.fogShift : WEATHER_CHANGE.shift
         }
         state.next = time + (choices.length ? state.duration : 0) + holdLength(random)
     }
