@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { applySurfaceSnow } from './snowCover'
 
 /** Deterministic, tileable surface maps. All maps are owned by the scene. */
 export function createSurfaceMaterials() {
@@ -40,6 +41,8 @@ export function createSurfaceMaterials() {
     const maps = { stone: makeMap('stone'), wood: makeMap('wood'), ground: makeMap('ground'), metal: makeMap('metal'), cloth: makeMap('cloth') }
     const make = (color: number, kind: keyof typeof maps, options: THREE.MeshStandardMaterialParameters = {}) => {
         const m = new THREE.MeshStandardMaterial({ color, map: maps[kind], bumpMap: maps[kind], bumpScale: kind === 'stone' ? .35 : kind === 'wood' ? .16 : .06, roughness: .9, ...options })
+        // 陣地・城・拠点・橋の部材には、雪が降り続くと上の面に雪が積もる（地面は snowCover.ts の applySnowCover で別に積もらせる）。
+        applySurfaceSnow(m)
         materials.push(m)
         return m
     }

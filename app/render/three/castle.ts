@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { applySurfaceSnow } from './snowCover'
 import type { Fort } from '../../types/game'
 import {
     CASTLE_DEPTH, CASTLE_GATE_HALF, CASTLE_RADII, CASTLE_SUMMIT, CASTLE_TOWER_ANGLES,
@@ -39,7 +40,8 @@ export function createCastle(fort: Fort, kit: ModelKit) {
     const pick = <T>(items: T[]) => items[Math.floor(random() * items.length)]!
 
     // ---- 材質（花崗岩の濃淡、スレート、木組み、窓） ----
-    const stoneOf = (color: number) => { const m = own(surfaces.stone.clone()); m.color.set(color); return m }
+    // 写した素材には雪の書き換えが引き継がれないので、付け直す。
+    const stoneOf = (color: number) => { const m = own(surfaces.stone.clone()); m.color.set(color); applySurfaceSnow(m); return m }
     const granite = stoneOf(human ? 0xa59f92 : 0x4a4341)
     const graniteDark = stoneOf(human ? 0x857f74 : 0x332d2c)
     const graniteWarm = stoneOf(human ? 0xb0a796 : 0x554a46)

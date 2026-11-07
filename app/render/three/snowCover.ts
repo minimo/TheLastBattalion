@@ -104,27 +104,46 @@ export function applyPlantSnow(material: THREE.MeshLambertMaterial | THREE.MeshS
  * 枝はそれぞれが別の部品なので、木の中での高さと木の立つ高さを、部品ごとの値 snowPlace（x: 根元 0 〜 梢 1 / y: 木の立つ高さ）で受け取る。
  */
 export function applyBranchSnow(material: THREE.MeshStandardMaterial) {
+    applyTopSnow(material, 'branchSnow')
+}
+
+/**
+ * 陣地・城・拠点・橋などの部材に積雪を描き足す。屋根や床のように上を向いた面に積もり、高い所にあるものほど早く白くなる。
+ * place: 雪が積もる順番（枯れ木の中での高さと同じ尺度。大きいほど早い）。
+ */
+export function applySurfaceSnow(material: THREE.MeshStandardMaterial, place = SURFACE_SNOW_PLACE) {
+    applyTopSnow(material, 'surfaceSnow', place)
+}
+
+/** 部材の雪が積もる順番。平地の地面より少し早く白くなる。 */
+const SURFACE_SNOW_PLACE = .6
+
+/** 上を向いた面に積もる雪。place がなければ、部品ごとの値 snowPlace から順番と立つ高さを受け取る。 */
+function applyTopSnow(material: THREE.MeshStandardMaterial, name: string, place?: number) {
     const before = material.onBeforeCompile.bind(material)
     const key = material.customProgramCacheKey()
-    material.customProgramCacheKey = () => `${key}:branchSnow`
+    material.customProgramCacheKey = () => `${key}:${name}`
     material.onBeforeCompile = (shader, renderer) => {
         before(shader, renderer)
         shader.uniforms.snowCover = snowCover
-        shader.vertexShader = 'attribute vec2 snowPlace; varying vec3 vBranchSnow;\n' + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+        shader.vertexShader = `${place === undefined ? 'attribute vec2 snowPlace; ' : ''}varying vec3 vBranchSnow;\n` + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
             vec3 branchSnowUp = objectNormal;
+            vec4 branchSnowAt = vec4(transformed, 1.0);
             #ifdef USE_INSTANCING
                 branchSnowUp = mat3(instanceMatrix) * branchSnowUp;
+                branchSnowAt = instanceMatrix * branchSnowAt;
             #endif
-            // x: 木の中での高さ / y: 木の立つ高さ / z: 面の上向きの度合い
-            vBranchSnow = vec3(snowPlace, normalize(mat3(modelMatrix) * branchSnowUp).y);`)
+            // x: 積もる順番 / y: 立つ高さ / z: 面の上向きの度合い
+            vBranchSnow = vec3(${place === undefined ? 'snowPlace' : `${place.toFixed(2)}, (modelMatrix * branchSnowAt).y`}, normalize(mat3(modelMatrix) * branchSnowUp).y);`)
         shader.fragmentShader = 'varying vec3 vBranchSnow; uniform float snowCover;\n' + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
             if (snowCover > 0.0) {
                 float branchLocal = min(1.0, snowCover * (1.0 + max(vBranchSnow.y, 0.0) / ${SNOW_COVER.rise.toFixed(1)}));
                 float branchEdge = 1.0 - branchLocal * 1.35;
                 float branchAmount = smoothstep(branchEdge, branchEdge + .25, clamp(vBranchSnow.x, 0.0, 1.0));
-                // 上の面から積もり、積もるほど横の面まで回り込む。下の面は地肌のまま。
-                branchAmount *= smoothstep(mix(.25, -.05, branchLocal), mix(.7, .35, branchLocal), vBranchSnow.z);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.92, .94, .97) * (.85 + .15 * vBranchSnow.z), branchAmount);
+                // 上の面から積もり、積もるほど横の面まで回り込む。下の面は地肌のまま（両面の布は、裏側を下の面として扱う）。
+                float branchUp = gl_FrontFacing ? vBranchSnow.z : -vBranchSnow.z;
+                branchAmount *= smoothstep(mix(.25, -.05, branchLocal), mix(.7, .35, branchLocal), branchUp);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.92, .94, .97) * (.85 + .15 * max(branchUp, 0.0)), branchAmount);
             }`)
     }
     material.needsUpdate = true

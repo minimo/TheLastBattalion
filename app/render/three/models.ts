@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { applySurfaceSnow } from './snowCover'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createSurfaceMaterials } from './materials'
@@ -22,7 +23,12 @@ export function createModelKit() {
     const metalMaterials = new Map<number, THREE.MeshStandardMaterial>()
     const clothMaterials = new Map<number, THREE.MeshStandardMaterial>()
     const material = (color: number) => {
-        if (!materials.has(color)) materials.set(color, new THREE.MeshStandardMaterial({ color, roughness: .82 }))
+        if (!materials.has(color)) {
+            const m = new THREE.MeshStandardMaterial({ color, roughness: .82 })
+            // 部材の上の面には、雪が降り続くと雪が積もる。
+            applySurfaceSnow(m)
+            materials.set(color, m)
+        }
         return materials.get(color)!
     }
     const metal = (color: number) => {
