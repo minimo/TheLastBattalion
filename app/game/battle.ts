@@ -4,7 +4,7 @@ import { createWeatherState, updateWeather } from './weather'
 import { getTerrainSpeedMultiplier, getTileCost, mobilityOf } from './terrain'
 import { BATTLEFIELD_MAX, BATTLEFIELD_MIN, clearConstructionTiles, fellTree, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
 import { cellPoint, constructionWorkSite, felledCells, planConstruction } from './construction'
-import { createFortGeometry, fortCenter, fortDims, fortFootprint, isFortBuildingCell, localToWorld } from './fortLayout'
+import { CAMP_CORE_RADIUS, createFortGeometry, fortCenter, fortDims, fortFootprint, isFortBuildingCell, localToWorld } from './fortLayout'
 import { CASTLE_CORE_RADIUS } from './castleLayout'
 import { createSpatialHash } from './spatialHash'
 import { clearVisionWalls, clearVisionWood, createVisionMap, isSiteKnown, isSquadSeen, knownSquadPosition, refreshVision, setVisionWalls, updateVision } from './vision'
@@ -56,7 +56,7 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
             id: `${site.owner}-fort`, owner: site.owner, kind: site.kind, front: site.front, originGx: site.originGx, originGy: site.originGy,
             x: center.x, y: center.y, groundHeight: Math.max(8, Math.min(70, sum / count)),
             hp: FORT_HP, maxHp: FORT_HP,
-            core: geometry.core, coreRadius: site.kind === 'castle' ? CASTLE_CORE_RADIUS : 0, assaultPoints: geometry.assaultPoints,
+            core: geometry.core, coreRadius: site.kind === 'castle' ? CASTLE_CORE_RADIUS : CAMP_CORE_RADIUS, assaultPoints: geometry.assaultPoints,
             towers: geometry.towers.map(t => ({ ...t, cooldown: random() * TOWER.cooldown })),
             spawnTimer: REINFORCEMENT_INTERVAL, reserves: armyPool(mode, site.owner) - deployedCount(deployments[site.owner]),
         }

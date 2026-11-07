@@ -121,38 +121,137 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
     const center = (s: FortStructure) => ({ x: cx(s.lx + (s.w - 1) / 2), z: cz(s.ly + (s.h - 1) / 2), w: s.w * TILE_PX, d: s.h * TILE_PX })
     const banners: THREE.Object3D[] = []
     const flames: THREE.Mesh[] = []
-    const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: .9 })
-    const emberMaterial = new THREE.MeshBasicMaterial({ color: 0xff5a1f })
+    const sparks: { mesh: THREE.Mesh; x: number; z: number; phase: number }[] = []
+    const glows: THREE.Mesh[] = []
+    const glowFire = (color: number, opacity: number) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false })
+    const flameMaterial = createFlameMaterial()
+    const flamePlane = track(new THREE.PlaneGeometry(1, 1))
+    flamePlane.translate(0, .5, 0)
+    const sparkMaterial = glowFire(0xffc060, 1)
+    const groundGlowMaterial = createGroundGlowMaterial()
+    const emberMaterial = new THREE.MeshBasicMaterial({ color: 0xd8461a })
+    const charcoal = material(0x231a16)
+    const flameMaterials = [flameMaterial, sparkMaterial, groundGlowMaterial]
+    const disc = track(new THREE.CircleGeometry(1, 24))
+    disc.rotateX(-Math.PI / 2)
     let labelHeight = 40
 
     for (const s of FORT_STRUCTURES) {
         const { x, z, w, d } = center(s)
         if (s.kind === 'command') {
-            labelHeight = 46
+            labelHeight = 56
+            const gold = kit.metal(0xd1b46a)
+            const rope = material(0xb9a57c)
+            const wall = human ? canvas : canvasAlt
+            const roofCloth = human ? trim : canvas
+            /** 方形の本陣。基壇・天幕の壁・屋根の半幅と高さ。 */
+            const floor = 1.4, deck = 29, half = 22, wallTop = 16, eave = 26, roofHeight = 19
+            const apex = wallTop + roofHeight
+            /** 2点を結ぶ細い棒（綱など）。 */
+            const strut = (g: THREE.Group, mat: THREE.Material, from: THREE.Vector3, to: THREE.Vector3, r: number) => {
+                const line = part(g, lowCylinder, mat, (from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2, r, from.distanceTo(to), r)
+                line.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize())
+            }
             place(x, z, 0, g => {
                 part(g, box, dirt, 0, .3, 0, w + 4, .4, d + 4)
-                part(g, lowCylinder, human ? canvas : canvasAlt, 0, 5.5, 0, 13, 10, 13)
-                part(g, cone, human ? trim : canvas, 0, 16.5, 0, 15.5, 12, 15.5)
-                part(g, lowCylinder, trim, 0, 10.6, 0, 13.4, 1, 13.4)
-                part(g, box, material(0x2b2420), 13.1, 4.5, 0, .4, 8, 5)
-                part(g, sphere, kit.metal(0xd1b46a), 0, 23.2, 0, .9, .9, .9)
+                // 方形の木の基壇と正面の段
+                part(g, box, darkTimber, 0, floor / 2, 0, deck * 2, floor, deck * 2)
+                part(g, box, timber, 0, floor + .05, 0, deck * 2 - 2, .1, deck * 2 - 2)
+                part(g, box, darkTimber, deck + 1.5, .45, 0, 3, .9, 16)
+                // 天幕の壁。四隅の柱と、各面の縦縞
+                part(g, box, wall, 0, (floor + wallTop) / 2, 0, half * 2, wallTop - floor, half * 2)
+                for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(g, lowCylinder, timber, sx * half, (floor + wallTop) / 2, sz * half, .8, wallTop - floor, .8)
+                for (let side = 0; side < 4; side++) {
+                    const a = side * Math.PI / 2
+                    for (let t = -15; t <= 15; t += 7.5) {
+                        if (side === 0 && Math.abs(t) < 5) continue // 入口
+                        const nx = Math.cos(a), nz = Math.sin(a)
+                        part(g, box, roofCloth, nx * (half + .1) - nz * t, (floor + wallTop) / 2 - .1, nz * (half + .1) + nx * t, .3, wallTop - floor - .2, 2.4).rotation.y = -a
+                    }
+                    const band = part(g, box, gold, Math.cos(a) * (half + .2), wallTop - .5, Math.sin(a) * (half + .2), .4, .6, half * 2 + .8)
+                    band.rotation.y = -a
+                }
+                // 張り出した方形屋根と、軒先から垂れる房飾り
+                part(g, pyramid, roofCloth, 0, wallTop + roofHeight / 2, 0, eave * Math.SQRT2, roofHeight, eave * Math.SQRT2)
+                for (let side = 0; side < 4; side++) {
+                    const a = side * Math.PI / 2, nx = Math.cos(a), nz = Math.sin(a)
+                    for (let t = -eave + 1.5, i = 0; t <= eave - 1.5; t += 3, i++) {
+                        part(g, cone, i % 2 ? wall : gold, nx * (eave - .4) - nz * t, wallTop - .6, nz * (eave - .4) + nx * t, .9, 1.6, .9).rotation.x = Math.PI
+                    }
+                }
+                // 屋根の頂の宝珠
+                part(g, sphere, gold, 0, apex + .6, 0, 1.2, 1.2, 1.2)
+                part(g, lowCylinder, iron, 0, apex + 3.6, 0, .18, 6, .18)
+                // 入口：幕を束ねた戸口と、柱で支えた張り出し屋根
+                part(g, box, material(0x2b2420), half, floor + 5, 0, .4, 10, 7)
                 for (const side of [-1, 1]) {
-                    part(g, lowCylinder, darkTimber, 15, 7, side * 5, .35, 14, .35)
-                    part(g, box, trim, 15.1, 10, side * 5, .1, 6, 2.6)
+                    part(g, box, canvasAlt, half + .3, floor + 5, side * 4.3, .3, 10, 1.8).rotation.x = side * .12
+                    part(g, kit.cylinder, gold, half + .5, floor + 5, side * 4.3, .4, .4, 1.1)
+                    part(g, lowCylinder, timber, 28.6, floor + 5.3, side * 9, .5, 10.6, .5)
+                    part(g, sphere, gold, 28.6, floor + 10.8, side * 9, .65, .65, .65)
+                    part(g, box, trim, 28.95, floor + 6.4, side * 9, .1, 5.5, 2.4)
+                }
+                const porch = part(g, box, roofCloth, 25.4, 13, 0, 7.4, .3, 20)
+                porch.rotation.z = -.28
+                part(g, box, wall, 28.9, 11.5, 0, .2, 1.4, 20)
+                part(g, box, gold, 29, 12.1, 0, .1, .3, 20)
+                // 軒先から基壇の縁へ張った綱と杭（入口側を除く）
+                for (let side = 1; side < 4; side++) {
+                    const a = side * Math.PI / 2, nx = Math.cos(a), nz = Math.sin(a)
+                    for (const t of [-18, -6, 6, 18]) {
+                        const from = new THREE.Vector3(nx * (eave - 1) - nz * t, wallTop + .6, nz * (eave - 1) + nx * t)
+                        const to = new THREE.Vector3(nx * (deck - .8) - nz * t, floor, nz * (deck - .8) + nx * t)
+                        strut(g, rope, from, to, .08)
+                        part(g, lowCylinder, darkTimber, to.x, floor + .4, to.z, .25, .9, .25)
+                    }
+                }
+                // 基壇の四隅の旗竿。後ろ左は本陣の大旗を掲げる
+                for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+                    const px = sx * (deck - 1.5), pz = sz * (deck - 1.5)
+                    if (sx < 0 && sz < 0) continue
+                    part(g, lowCylinder, iron, px, floor + 11, pz, .25, 22, .25)
+                    part(g, box, darkTimber, px, floor + 20.5, pz, .3, .3, 4)
+                    part(g, box, trim, px, floor + 15.5, pz, .12, 10, 3.6)
+                    if (human) part(g, sphere, gold, px, floor + 22.4, pz, .6, .6, .6)
+                    else part(g, sphere, bone, px, floor + 22.6, pz, 1, 1.1, 1)
                 }
                 if (!human) {
-                    for (let i = 0; i < 6; i++) {
-                        const a = i / 6 * Math.PI * 2
-                        part(g, lowCylinder, darkTimber, Math.cos(a) * 15.5, 6, Math.sin(a) * 15.5, .5, 12, .5)
-                        part(g, sphere, bone, Math.cos(a) * 15.5, 12.8, Math.sin(a) * 15.5, 1.1, 1.2, 1.1)
+                    for (const sx of [-1, 0, 1]) for (const sz of [-1, 0, 1]) {
+                        if ((sx === 0 && sz === 0) || (sx === 1 && sz === 0)) continue
+                        if (sx !== 0 && sz !== 0) continue
+                        for (const t of [-12, 12]) {
+                            const px = sx ? sx * (deck + 1.2) : t, pz = sz ? sz * (deck + 1.2) : t
+                            part(g, lowCylinder, darkTimber, px, 6, pz, .5, 12, .5)
+                            part(g, sphere, bone, px, 12.8, pz, 1.1, 1.2, 1.1)
+                        }
                     }
                 }
             })
-            // 本陣の大旗
-            part(group, lowCylinder, iron, x - 4, 20, z - 9, .3, 40, .3)
-            const flag = part(group, curveCloth(9, 6), cloth(faction), x + .6, 36, z - 9, 1, 1, 1)
+            // 入口の両脇の篝火
+            for (const side of [-1, 1]) {
+                const bx = x + 26, bz = z + side * 17
+                place(bx, bz, 0, g => {
+                    for (let i = 0; i < 3; i++) {
+                        const a = i / 3 * Math.PI * 2
+                        part(g, lowCylinder, iron, Math.cos(a) * 1.1, floor + 2.6, Math.sin(a) * 1.1, .18, 5.4, .18).rotation.set(Math.sin(a) * .25, 0, -Math.cos(a) * .25)
+                    }
+                    part(g, cone, iron, 0, floor + 5.8, 0, 2, 1.4, 2).rotation.x = Math.PI
+                })
+                const flame = new THREE.Mesh(flamePlane, flameMaterial)
+                flame.position.set(bx, floor + 6, bz); flame.scale.set(4, 6.2, 1)
+                flame.frustumCulled = false
+                group.add(flame); flames.push(flame)
+            }
+            // 本陣の大旗（基壇の後ろ左の隅）
+            const poleX = x - (deck - 1.5), poleZ = z - (deck - 1.5)
+            part(group, lowCylinder, iron, poleX, 22, poleZ, .35, 44, .35)
+            const flag = part(group, curveCloth(10, 6.5), cloth(faction), poleX + 5.2, 40, poleZ, 1, 1, 1)
             flag.name = 'banner'
             banners.push(flag)
+            // 頂の小旗
+            const pennant = part(group, curveCloth(4.4, 2.2), cloth(faction), x + 2.3, apex + 5.6, z, 1, 1, 1)
+            pennant.name = 'banner'
+            banners.push(pennant)
         } else if (s.kind === 'barracks') {
             place(x, z, 0, g => {
                 for (let i = -1; i <= 1; i++) {
@@ -186,10 +285,13 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
                         // 藁の的
                         const target = part(g, lowCylinder, straw, 18, 6, tz, 4.2, 1.6, 4.2)
                         target.rotation.z = Math.PI / 2
-                        for (const [r, c] of [[3, 0xf2efe6], [2, 0xb33a2c], [1, 0xf2efe6], [.45, 0xb33a2c]] as const) {
-                            const ring = part(g, lowCylinder, material(c), 18.85, 6, tz, r, .1, r)
+                        // 内側の輪ほど厚くして前面を少しずつ手前に出し、同じ面が重なって明滅しないようにする
+                        const rings = [[3, 0xf2efe6], [2, 0xb33a2c], [1, 0xf2efe6], [.45, 0xb33a2c]] as const
+                        rings.forEach(([r, c], i) => {
+                            const thick = .12 + i * .15
+                            const ring = part(g, lowCylinder, material(c), 18.8 + thick / 2, 6, tz, r, thick, r)
                             ring.rotation.z = Math.PI / 2
-                        }
+                        })
                         for (const dz of [-2.6, 2.6]) part(g, lowCylinder, darkTimber, 17.5, 3.5, tz + dz, .25, 7, .25).rotation.z = -.2
                     } else {
                         // 藁人形の訓練台
@@ -253,12 +355,26 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
                     part(g, lowCylinder, timber, Math.cos(a) * 8, 1, Math.sin(a) * 8, 1, 6, 1).rotation.set(Math.PI / 2, 0, a)
                 }
             })
-            const flame = new THREE.Mesh(cone, flameMaterial)
-            flame.position.set(x, 3.2, z); flame.scale.set(1.6, 4, 1.6)
+            // 薪の間に転がる炭。いくつかは赤く熾っている
+            for (let i = 0; i < 9; i++) {
+                const a = random() * Math.PI * 2, r = .4 + random() * 1.8, size = .35 + random() * .35
+                const coal = part(group, sphere, i % 3 === 0 ? charcoal : emberMaterial, x + Math.cos(a) * r, .55, z + Math.sin(a) * r, size, size * .6, size * .8)
+                coal.rotation.y = random() * Math.PI
+            }
+            // カメラを向く板にノイズの炎を描く（ビルボード炎）
+            const flame = new THREE.Mesh(flamePlane, flameMaterial)
+            flame.position.set(x, .8, z); flame.scale.set(7, 9, 1)
+            flame.frustumCulled = false
             group.add(flame); flames.push(flame)
-            const ember = new THREE.Mesh(sphere, emberMaterial)
-            ember.position.set(x, 1.4, z); ember.scale.set(1.8, .6, 1.8)
-            group.add(ember)
+            for (let i = 0; i < 4; i++) {
+                const mesh = new THREE.Mesh(sphere, sparkMaterial)
+                mesh.scale.setScalar(.18)
+                group.add(mesh)
+                sparks.push({ mesh, x, z, phase: random() })
+            }
+            const glow = new THREE.Mesh(disc, groundGlowMaterial)
+            glow.position.set(x, .4, z); glow.scale.setScalar(9)
+            group.add(glow); glows.push(glow)
         }
     }
 
@@ -272,7 +388,7 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
     }
 
     // 旗・炎以外の静的な部材を材質ごとに結合する。
-    const dynamic = new Set<THREE.Object3D>([...banners, ...flames])
+    const dynamic = new Set<THREE.Object3D>([...banners, ...flames, ...sparks.map(p => p.mesh), ...glows])
     const statics = new THREE.Group()
     for (const child of [...group.children]) if (!dynamic.has(child) && (child as THREE.Mesh).material !== emberMaterial) statics.add(child)
     bake(statics)
@@ -285,14 +401,117 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
         labelHeight,
         update(time: number) {
             banners.forEach((b, i) => { b.rotation.y = Math.sin(time * 2 + i * 1.3) * .2 })
-            flames.forEach((f, i) => {
-                const flicker = 1 + Math.sin(time * 13 + i * 2.1) * .12 + Math.sin(time * 23 + i) * .08
-                f.scale.set(1.6 * flicker, 4 * (2 - flicker), 1.6 * flicker)
-            })
+            flameMaterial.uniforms.uTime!.value = time
+            for (const s of sparks) {
+                const k = (time * .7 + s.phase) % 1
+                const a = s.phase * 40 + Math.floor(time * .7 + s.phase) * 2.4
+                s.mesh.position.set(s.x + Math.cos(a) * (.5 + k * 2) + Math.sin(time * 6 + a) * .3, 2 + k * 11, s.z + Math.sin(a) * (.5 + k * 2))
+                s.mesh.scale.setScalar(.22 * (1 - k))
+            }
+            groundGlowMaterial.uniforms.uStrength!.value = .32 + Math.sin(time * 9) * .04 + Math.sin(time * 17) * .03
         },
         destroy() {
             group.removeFromParent()
-            flameMaterial.dispose(); emberMaterial.dispose()
+            for (const m of flameMaterials) m.dispose()
+            emberMaterial.dispose()
         },
     }
+}
+
+/**
+ * 焚き火の炎。カメラを向く板に、上へ流れるノイズで揺らぎと千切れを作り、
+ * 熱さに応じて暗赤→橙→黄へ色を変える。背景を少し暗くしてから炎を足し、昼でも白く飛ばさずに光って見せる。
+ */
+function createFlameMaterial() {
+    return new THREE.ShaderMaterial({
+        uniforms: { uTime: { value: 0 } },
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneMinusSrcAlphaFactor,
+        vertexShader: /* glsl */`
+            varying vec2 vUv;
+            varying float vSeed;
+            void main() {
+                vUv = uv;
+                vec3 center = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+                vSeed = fract(sin(dot(center.xz, vec2(12.9898, 78.233))) * 43758.5453) * 50.0;
+                vec2 size = vec2(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz));
+                vec4 view = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                view.xy += position.xy * size;
+                gl_Position = projectionMatrix * view;
+            }
+        `,
+        fragmentShader: /* glsl */`
+            uniform float uTime;
+            varying vec2 vUv;
+            varying float vSeed;
+            float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+            float noise(vec2 p) {
+                vec2 i = floor(p), f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+            }
+            float fbm(vec2 p) {
+                float v = 0.0, a = 0.5;
+                for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; }
+                return v;
+            }
+            void main() {
+                float y = vUv.y;
+                float x = (vUv.x - 0.5) * 2.0;
+                float t = uTime;
+                // 上へ流れるノイズで横に揺らし、先端ほど大きく曲げる
+                float sway = fbm(vec2(x * 1.2 + vSeed, y * 1.6 - t * 1.8)) - 0.5;
+                x += sway * 0.9 * y;
+                // 縦に引き伸ばしたノイズを上へ流し、炎の舌の筋を作る
+                float n = fbm(vec2(x * 3.6 + vSeed, y * 1.6 - t * 2.6));
+                float fine = noise(vec2(x * 6.0 - vSeed, y * 3.0 - t * 4.5));
+                // 輪郭は中心から外へなだらかに冷める涙形（内側を平らに飽和させない）
+                float width = 0.6 * pow(1.0 - y, 0.55) + 0.02;
+                float shape = 1.0 - smoothstep(0.0, width, abs(x));
+                // 根元は薪の陰でやや暗く、少し上が最も熱い
+                float base = smoothstep(0.02, 0.3, y + (n - 0.5) * 0.2) * smoothstep(0.0, 0.06, y);
+                float body = shape * base;
+                // ノイズは輪郭の内側にだけ効かせ、上へいくほど冷えて千切れる
+                // 根元は安定させ、上へいくほどノイズで揺らぎ千切れる
+                float flicker = mix(0.85 + n * 0.3, 0.3 + n * 1.4, smoothstep(0.1, 0.6, y));
+                float heat = body * (1.1 - y * 0.8) * flicker - (1.0 - n) * y * 0.5 + (fine - 0.5) * 0.2 * body;
+                heat = clamp(heat * 1.4, 0.0, 1.0);
+                vec3 color = mix(vec3(0.5, 0.05, 0.0), vec3(1.0, 0.32, 0.02), smoothstep(0.0, 0.35, heat));
+                color = mix(color, vec3(1.0, 0.66, 0.15), smoothstep(0.35, 0.7, heat));
+                color = mix(color, vec3(1.0, 0.82, 0.42), smoothstep(0.85, 1.0, heat) * 0.35);
+                float alpha = smoothstep(0.02, 0.35, heat) * 0.85;
+                if (alpha < 0.01) discard;
+                // 背景を少し暗くしてから炎を足す（加算だけだと明るい地面の上で白く飛ぶ）
+                gl_FragColor = vec4(color * alpha, alpha * 0.55);
+            }
+        `,
+    })
+}
+
+/** 焚き火の地面の照り返し。中心から外へ滑らかに消え、円盤の縁を見せない。 */
+function createGroundGlowMaterial() {
+    return new THREE.ShaderMaterial({
+        uniforms: { uStrength: { value: .32 } },
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        vertexShader: /* glsl */`
+            varying vec2 vPos;
+            void main() {
+                vPos = position.xz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: /* glsl */`
+            uniform float uStrength;
+            varying vec2 vPos;
+            void main() {
+                float k = 1.0 - clamp(length(vPos), 0.0, 1.0);
+                gl_FragColor = vec4(vec3(1.0, 0.45, 0.12) * k * k * k * uStrength, 1.0);
+            }
+        `,
+    })
 }

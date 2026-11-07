@@ -34,7 +34,7 @@ const FRONT_GATE = [7, 8]
 const SIDE_GATE = [5, 6]
 
 export const FORT_STRUCTURES: FortStructure[] = [
-    { kind: 'command', lx: 2, ly: 7, w: 2, h: 2, blocking: true },
+    { kind: 'command', lx: 1, ly: 6, w: 4, h: 4, blocking: true },
     { kind: 'barracks', lx: 2, ly: 2, w: 2, h: 3, blocking: true },
     { kind: 'barracks', lx: 2, ly: 11, w: 2, h: 3, blocking: true },
     { kind: 'stable', lx: 6, ly: 2, w: 3, h: 2, blocking: true },
@@ -59,8 +59,10 @@ export const FORT_STRUCTURES: FortStructure[] = [
     { kind: 'barricade', lx: BARRICADE_LX, ly: 10, w: 1, h: 5, blocking: true },
 ]
 
-/** 本陣を囲む攻撃地点（ローカルセル）。 */
-const ASSAULT_CELLS: [number, number][] = [[4, 7], [4, 8], [2, 6], [3, 6], [2, 9], [3, 9], [1, 7], [1, 8]]
+/** 本陣を囲む攻撃地点（ローカルセル）。本陣の後ろは柵なので、前と左右に置く。 */
+const ASSAULT_CELLS: [number, number][] = [[5, 7], [5, 8], [2, 5], [3, 5], [2, 10], [3, 10], [1, 5], [1, 10]]
+/** 本陣の天幕の当たりの半径（px）。攻撃地点から天幕に取り付けば攻撃できる。 */
+export const CAMP_CORE_RADIUS = 20
 /** 歩兵・弓兵は兵舎の前、騎兵は厩舎の前から出撃する。 */
 export const FOOT_SPAWN_CELLS: [number, number][] = [[4, 2], [4, 3], [4, 4], [4, 11], [4, 12], [4, 13], [1, 3], [1, 12]]
 export const MOUNTED_SPAWN_CELLS: [number, number][] = [[6, 4], [7, 4], [8, 4], [6, 11], [7, 11], [8, 11]]
