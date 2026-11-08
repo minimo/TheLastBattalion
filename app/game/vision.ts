@@ -216,6 +216,8 @@ function finishCycle(battle: Battle, instant: boolean) {
     }
     for (const [squad, total] of sum) squad.lastSeen = { x: total.x / total.n, y: total.y / total.n }
     for (const site of battle.constructions) {
+        // 敵の建設物は工事が始まってから見つけられる（建設予定地だけでは見えない）。
+        if (!site.complete && site.progress <= 0) continue
         for (const army of ARMIES) {
             if (!site.seenBy[army] && siteInView(battle, site, army)) site.seenBy[army] = true
         }

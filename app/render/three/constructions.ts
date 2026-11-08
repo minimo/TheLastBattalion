@@ -46,7 +46,8 @@ export function createConstructionRenderer(kit: ModelKit, groundAt: Height) {
     const lowCylinder = track(new THREE.CylinderGeometry(1, 1, 1, 8))
     const plotGeometry = track(new THREE.BoxGeometry(TILE_PX - 1.5, 1, TILE_PX - 1.5))
     const plotMaterial = (color: number, opacity: number) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
-    const plotMaterials = { player: plotMaterial(FACTION.player, .3), cpu: plotMaterial(FACTION.cpu, .22) }
+    // 建設予定地の印は自軍の建設物にだけ付ける（敵の予定地は見せない）。
+    const ownPlotMaterial = plotMaterial(FACTION.player, .3)
     const flagGeometry = kit.curveCloth(6, 4)
     const flat = (p: Point) => Math.max(.4, groundAt(p.x, p.y))
 
@@ -223,14 +224,16 @@ export function createConstructionRenderer(kit: ModelKit, groundAt: Height) {
     const build = (site: Construction): Visual => {
         const visual: Visual = { site, owner: site.owner, group: new THREE.Group(), pieces: [], plot: new THREE.Group(), geometries: [], deck: new Set(site.deck.map(c => cellKey(c.gx, c.gy))) }
         visual.pieces = assemble(site, visual.group, visual.geometries, groundAt)
-        // 建設予定地の印
-        const plot = plotSurface(site.area)
-        visual.geometries.push(plot)
-        const mesh = new THREE.Mesh(plot, plotMaterials[site.owner])
-        mesh.renderOrder = 2
-        mesh.raycast = () => {}
-        visual.plot.add(mesh)
-        visual.group.add(visual.plot)
+        // 建設予定地の印（自軍の建設物だけ）
+        if (site.owner === 'player') {
+            const plot = plotSurface(site.area)
+            visual.geometries.push(plot)
+            const mesh = new THREE.Mesh(plot, ownPlotMaterial)
+            mesh.renderOrder = 2
+            mesh.raycast = () => {}
+            visual.plot.add(mesh)
+            visual.group.add(visual.plot)
+        }
         group.add(visual.group)
         return visual
     }
@@ -285,7 +288,8 @@ export function createConstructionRenderer(kit: ModelKit, groundAt: Height) {
                 // 新しい戦闘では同じIDの建設物が別物になる。
                 if (visual && (visual.site !== site || visual.owner !== site.owner)) { remove(visual); visual = undefined }
                 if (!visual) { visual = build(site); visuals.set(site.id, visual) }
-                const shown = site.complete ? visual.pieces.length : Math.floor(site.progress * visual.pieces.length)
+                // 工事が始まったら最初の部材を立てる（敵に見つかるのは工事が始まってからなので、見つかった建設物には必ず何か立っている）。
+                const shown = site.complete ? visual.pieces.length : Math.ceil(site.progress * visual.pieces.length)
                 visual.pieces.forEach((p, i) => { p.visible = i < shown })
                 visual.plot.visible = !site.complete
             }
@@ -332,7 +336,7 @@ export function createConstructionRenderer(kit: ModelKit, groundAt: Height) {
             clearPreview()
             previewMaterials.forEach(pair => { pair.ok.dispose(); pair.bad.dispose() })
             ;(previewPlate.material as THREE.Material).dispose()
-            Object.values(plotMaterials).forEach(m => m.dispose())
+            ownPlotMaterial.dispose()
             group.removeFromParent()
         },
     }

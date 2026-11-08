@@ -155,12 +155,17 @@ describe('視界', () => {
         expect(summarize(battle).cpu.found).toBe(true)
     })
 
-    it('敵の建設物は一度視界に入れば認識したままになる', () => {
+    it('敵の建設物は工事が始まってから視界に入ると認識し、以後も認識したままになる', () => {
         const battle = makeBattle()
         flatten(battle)
         const gx = Math.round(CENTER / TILE_PX)
-        const site = { area: [{ gx, gy: gx }], walls: [], deck: [], seenBy: { player: false, cpu: true }, kind: 'barricade', owner: 'cpu', complete: false, center: { x: CENTER, y: CENTER } } as never as TestBattle['constructions'][number]
+        const site = { area: [{ gx, gy: gx }], walls: [], deck: [], seenBy: { player: false, cpu: true }, kind: 'barricade', owner: 'cpu', complete: false, progress: 0, center: { x: CENTER, y: CENTER } } as never as TestBattle['constructions'][number]
         battle.constructions.push(site)
+        // 工事が始まる前の建設予定地は、視界の中でも見つからない
+        refreshVision(battle)
+        expect(isVisibleAt(battle.vision, 'player', CENTER, CENTER)).toBe(true)
+        expect(site.seenBy.player).toBe(false)
+        site.progress = .001
         refreshVision(battle)
         expect(site.seenBy.player).toBe(true)
         for (const squad of battle.squads) squad.count = 0
