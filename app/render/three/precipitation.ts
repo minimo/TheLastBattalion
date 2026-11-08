@@ -122,11 +122,11 @@ function createStreaks(scene: THREE.Scene, config: Streaks) {
             center: { value: new THREE.Vector3() }, size: { value: config.box }, time: { value: 0 },
             velocity: { value: new THREE.Vector3(config.wind.x, -config.fall, config.wind.z) }, streak: { value: config.length },
             color: { value: new THREE.Color(config.color) }, opacity: { value: config.opacity },
-            patch: { value: new THREE.Vector2(config.patch.amount, 1 / config.patch.size) },
+            clump: { value: new THREE.Vector2(config.patch.amount, 1 / config.patch.size) },
         },
         vertexShader: `
             attribute float tail;
-            uniform vec3 center; uniform float size; uniform float time; uniform vec3 velocity; uniform float streak; uniform vec2 patch;
+            uniform vec3 center; uniform float size; uniform float time; uniform vec3 velocity; uniform float streak; uniform vec2 clump;
             varying float alpha;
             void main() {
                 vec3 low = center - size * .5;
@@ -134,12 +134,12 @@ function createStreaks(scene: THREE.Scene, config: Streaks) {
                 vec3 edge = abs(p - center) / size;
                 // 箱の端では薄くして、回り込むときに筋が急に現れたり消えたりしないようにする。
                 alpha = (1.0 - smoothstep(.32, .5, max(edge.x, max(edge.y, edge.z)))) * (1.0 - tail * .7);
-                if (patch.x > 0.0) {
+                if (clump.x > 0.0) {
                     // 濃淡の模様は粒と一緒に風下へ流れる（粒の位置から風で進んだ分を戻して模様を引く）。
-                    vec2 q = (p.xz - velocity.xz * time * .9) * patch.y;
+                    vec2 q = (p.xz - velocity.xz * time * .9) * clump.y;
                     float dense = sin(q.x * 1.3 + sin(q.y * .9) * 1.6) * sin(q.y * 1.1 - q.x * .4 + sin(q.x * .7) * 1.2);
                     dense = smoothstep(-.4, .7, dense + sin(q.x * .37 + q.y * .29 + 1.7) * .45);
-                    alpha *= mix(1.0, dense * 1.6, patch.x);
+                    alpha *= mix(1.0, dense * 1.6, clump.x);
                 }
                 p -= normalize(velocity) * streak * tail;
                 gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);

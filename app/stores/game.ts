@@ -12,7 +12,7 @@ import { createCpuCommander, type CpuCommander } from '~/game/cpuCommander'
 import { createGuidelineDirector, markCommanded, setGuideline, type GuidelineDirector } from '~/game/squadGuidelines'
 import { cpuDeployment, defaultDeployment, normalizeDeployment, UNIT_TYPES, type DeploymentPlan } from '~/game/deployment'
 import { START_TIME_MINUTES } from '~/game/daynight'
-import { createWeatherState, resolveWeather } from '~/game/weather'
+import { createWeatherState, resolveWeather, skipWeather } from '~/game/weather'
 import { VISION } from '~/game/battleConfig'
 import { refreshVision } from '~/game/vision'
 import type { Army, ArmySummary, BattleMode, ConstructionAxis, ConstructionKind, Directive, FormationType, GameStatus, Guideline, MapType, Point, SquadOrder, StartTime, UnitType, Weather, WeatherChoice } from '~/types/game'
@@ -356,6 +356,11 @@ export const useGameStore = defineStore('game', {
                 this.summaryTimer = .25
                 this.refresh()
             }
+        },
+
+        /** デバッグ用。今の天候を終わらせ、次の天候へ移り変わらせる。 */
+        skipWeather(): void {
+            if (this.battle) skipWeather(this.battle.weather, this.battle.time)
         },
 
         step(deltaSeconds: number): void {

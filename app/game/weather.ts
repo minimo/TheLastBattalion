@@ -124,6 +124,14 @@ export function updateWeather(state: WeatherState, time: number, dt: number) {
     state.snow = Math.min(1, Math.max(0, state.snow + dt * (snowing / WEATHER_CHANGE.snowBuild - melt)))
 }
 
+/**
+ * デバッグ用。今の天候をここで終わらせ、次に進めたときに通常と同じように次の天候へ移り変わり始める。
+ * 移り変わりの途中なら、移り終わってからすぐに次の移り変わりが始まる。
+ */
+export function skipWeather(state: WeatherState, time: number) {
+    state.next = Math.min(state.next, time)
+}
+
 function pickWeather(choices: Weather[], roll: number) {
     const total = choices.reduce((sum, w) => sum + WEATHER_ODDS[w], 0)
     roll *= total

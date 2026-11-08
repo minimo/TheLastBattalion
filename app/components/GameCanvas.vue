@@ -300,7 +300,7 @@ onUnmounted(() => {
     <template v-if="ready && gameStore.status !== 'title'">
       <header class="battle-header">
         <ArmyStatus army="player" />
-        <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><span class="weather-label" :class="{ 'is-shifting': gameStore.weatherFrom }"><template v-if="gameStore.weatherFrom"><WeatherIcon :weather="gameStore.weatherFrom" />{{ WEATHER_NAME[gameStore.weatherFrom] }}<span class="weather-arrow" aria-label="から">→</span></template><WeatherIcon :weather="gameStore.weather" />{{ WEATHER_NAME[gameStore.weather] }}</span><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
+        <div class="clock"><TimePlate :day-time="gameStore.dayTime" /><button type="button" class="weather-label" :class="{ 'is-shifting': gameStore.weatherFrom }" @click="gameStore.skipWeather()"><template v-if="gameStore.weatherFrom"><WeatherIcon :weather="gameStore.weatherFrom" />{{ WEATHER_NAME[gameStore.weatherFrom] }}<span class="weather-arrow" aria-label="から">→</span></template><WeatherIcon :weather="gameStore.weather" />{{ WEATHER_NAME[gameStore.weather] }}</button><span v-if="gameStore.status === 'paused'" class="paused-label">一時停止</span></div>
         <ArmyStatus army="cpu" />
       </header>
       <DeploymentEditor v-if="deploying" :key="`${gameStore.mode}:${gameStore.seed}`" :mode="gameStore.mode" :mode-name="MODE_NAME[gameStore.mode]" :plan="gameStore.plans[gameStore.mode]" :unit-names="UNIT_NAME.player"
@@ -467,7 +467,7 @@ button:hover { transform: scale(1.05); }
 .battle-header > .army-status { pointer-events: auto; }
 .clock { position: absolute; left: 50%; top: 4px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; color: #e2cf9f; font-size: 11px; letter-spacing: .1em; }
 .paused-label { margin-top: 2px; text-shadow: 0 1px 3px #000; }
-.weather-label { display: flex; align-items: center; gap: 3px; margin-top: 1px; text-shadow: 0 1px 3px #000; }
+.weather-label { display: flex; align-items: center; gap: 3px; margin-top: 1px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-shadow: 0 1px 3px #000; cursor: pointer; pointer-events: auto; }
 .weather-label :deep(.weather-icon) { width: 16px; height: 16px; filter: drop-shadow(0 1px 2px #000); }
 /* 天候が移り変わっている間は「雪→雨」のように前後の天候を並べ、ゆっくり明滅させて変化中であることを示す。 */
 .weather-arrow { margin: 0 2px; color: #d9b56e; }

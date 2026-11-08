@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { UNIT_VISION } from './battleConfig'
 import { MAP_TYPES } from './mapType'
 import { visionRangeAt } from './vision'
-import { createWeatherState, MAP_WEATHERS, resolveWeather, updateWeather, WEATHER_CHANGE, WEATHER_EFFECT, weatherAmount, WEATHERS } from './weather'
+import { createWeatherState, MAP_WEATHERS, resolveWeather, skipWeather, updateWeather, WEATHER_CHANGE, WEATHER_EFFECT, weatherAmount, WEATHERS } from './weather'
 
 describe('天候', () => {
     it('選んだ天候はそのまま使い、その地形で起こらない天候は晴れにする', () => {
@@ -92,5 +92,16 @@ describe('天候', () => {
         expect(melted('clear', WEATHER_CHANGE.snowMelt.clear)).toBe(0)
         expect(melted('rain', WEATHER_CHANGE.snowMelt.rain)).toBe(0)
         expect(melted('cloudy', WEATHER_CHANGE.snowMelt.clear)).toBeGreaterThan(0)
+    })
+
+    it('デバッグ用に天候を終わらせると、通常と同じく次の天候へ移り変わり始める', () => {
+        const state = createWeatherState('clear', 'standard', 'skip')
+        const natural = createWeatherState('clear', 'standard', 'skip')
+        skipWeather(state, 10)
+        updateWeather(state, 10, .1)
+        updateWeather(natural, natural.next, .1)
+        expect(state.from).toBe('clear')
+        expect(state.to).toBe(natural.to)
+        expect(state.blend).toBeLessThan(1)
     })
 })
