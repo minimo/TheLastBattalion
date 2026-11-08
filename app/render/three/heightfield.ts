@@ -1,6 +1,7 @@
 import { createNoise2D } from 'simplex-noise'
 import { createMulberry32, hashString } from '../../game/random'
-import { LOGICAL_SIZE, TILE, TILE_PX } from '../../game/constants'
+import { LOGICAL_SIZE, TILE, TILE_PX, WORLD_SCALE as S } from '../../game/constants'
+import { DIMENSIONS, m } from '../../game/dimensions'
 import type { Base, MapType } from '../../types/game'
 import { mapTypeOf, TERRAIN_PROFILE } from '../../game/mapType'
 import { getFortGroundRadius } from './fortLayout'
@@ -8,12 +9,34 @@ import { marshFor } from '../../game/marsh'
 
 export const WATER_HEIGHT = 0
 export const BRIDGE_HEIGHT = 4
-export const MESH_STEP = TILE_PX / 4
+/** 地形の頂点の間隔。地形は遠景の端まで同じ細かさで作るので、マスの半分にする。 */
+export const MESH_STEP = TILE_PX / 2
 export const MAP_MIN = -TILE_PX / 2
 export const MAP_MAX = LOGICAL_SIZE + TILE_PX / 2
 
 type Noise = (x: number, y: number) => number
 const ease = (t: number) => t * t * (3 - 2 * t)
+const smoothstep = (a: number, b: number, v: number) => ease(Math.max(0, Math.min(1, (v - a) / (b - a))))
+
+/** 部隊の動ける範囲の半分の幅（playableArea の PLAYABLE_SIZE / 2。循環 import を避けて持つ）。 */
+const PLAYABLE_HALF = m(DIMENSIONS.battlefield) / 2 + m(DIMENSIONS.playableMargin)
+/** 遠景の山並みが上がり始める、動ける範囲の端からの距離と、上がりきる距離（px）。 */
+const RIM_FROM = m(60), RIM_TO = m(DIMENSIONS.landscapeMargin)
+
+/**
+ * 遠景の山並み: 部隊の動ける範囲の外で、地平線の手前に山がゆるく立ち上がる（内側と同じ地形・林の上に重ねる）。
+ */
+function rimAt(type: MapType, noise: Noise, x: number, y: number) {
+    const center = LOGICAL_SIZE / 2
+    const beyond = Math.max(Math.abs(x - center), Math.abs(y - center)) - PLAYABLE_HALF
+    if (beyond <= RIM_FROM) return 0
+    const { base, far, sharp } = TERRAIN_PROFILE[type].outerMountain
+    const warpX = x + noise(x * .0009 / S, y * .0009 / S) * 100 * S
+    const warpY = y + noise(x * .0009 / S + 60, y * .0009 / S) * 100 * S
+    const ridgeNoise = noise(warpX * .001 / S, warpY * .001 / S)
+    const ridge = 1 - ridgeNoise * ridgeNoise
+    return ridge ** sharp * (base + far * .15) * Math.sqrt(S) * smoothstep(RIM_FROM, RIM_TO, beyond)
+}
 
 /**
  * 地形の種類ごとの、山を除いた地面の起伏。戦場の外の地形（landscape）も同じ式で続ける。
@@ -78,6 +101,29 @@ export function createHeightfield(grid: number[][], bases: Base[], mapType: MapT
         const tile = grid[Math.max(0, Math.min(grid.length - 1, gy))]?.[Math.max(0, Math.min(grid.length - 1, gx))]
         return tile === TILE.WATER || tile === TILE.BRIDGE ? 1 : 0
     }
+    // 山と川の近くかどうか（山は3マス、川は4マス以内）。遠い所では周りのマスを調べずに済ませる。
+    const n = grid.length
+    const mountainNear = new Uint8Array(n * n), waterNear = new Uint8Array(n * n)
+    /** マスの山の高さ（高い山 130、低い山 72）。 */
+    const tileMountain = new Float32Array(n * n)
+    for (let gy = 0; gy < n; gy++) for (let gx = 0; gx < n; gx++) {
+        const t = grid[gy]![gx]!
+        tileMountain[gy * n + gx] = t >= 23 && t <= 24 ? 130 : t === 2 || t >= 21 && t <= 22 ? 72 : 0
+        const isMountain = t === 2 || t >= 21 && t <= 24, isWater = t === TILE.WATER || t === TILE.BRIDGE
+        if (!isMountain && !isWater) continue
+        const reach = isWater ? 4 : 3
+        for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) {
+            const x = gx + dx, y = gy + dy
+            if (x < 0 || y < 0 || x >= n || y >= n) continue
+            if (isMountain && Math.abs(dx) <= 3 && Math.abs(dy) <= 3) mountainNear[y * n + x] = 1
+            if (isWater) waterNear[y * n + x] = 1
+        }
+    }
+    const near = (flags: Uint8Array, x: number, y: number) => {
+        const gx = Math.round(x / TILE_PX), gy = Math.round(y / TILE_PX)
+        // マス目の外は、端のマスと同じに扱う（端の外側は調べる）。
+        return gx < 0 || gy < 0 || gx >= n || gy >= n || flags[gy * n + gx] === 1
+    }
     const smooth = (t: number) => t * t * (3 - 2 * t)
     // Cubic filtering rounds river bends without changing the navigation tiles.
     const kernel = (distance: number) => {
@@ -85,6 +131,7 @@ export function createHeightfield(grid: number[][], bases: Base[], mapType: MapT
         return d < 1 ? (4 - 6 * d * d + 3 * d * d * d) / 6 : d < 2 ? Math.pow(2 - d, 3) / 6 : 0
     }
     const waterMask = (x: number, y: number) => {
+        if (!near(waterNear, x, y)) return 0
         const gx = x / TILE_PX, gy = y / TILE_PX, i = Math.floor(gx), j = Math.floor(gy)
         let mask = 0
         for (let dy = -1; dy <= 2; dy++) for (let dx = -1; dx <= 2; dx++) {
@@ -96,24 +143,32 @@ export function createHeightfield(grid: number[][], bases: Base[], mapType: MapT
     const tileAt = (x: number, y: number) => grid[Math.max(0, Math.min(grid.length - 1, Math.round(y / TILE_PX)))]?.[Math.max(0, Math.min(grid.length - 1, Math.round(x / TILE_PX)))] ?? TILE.GRASS
     const raw = (x: number, y: number) => {
         // 湿地の沼・土手道・岸は、戦場の内外で同じ式で決まる。
-        if (marsh) return marsh.heightAt(x, y)
+        const rim = rimAt(mapType, noise, x, y)
+        if (marsh) return marsh.heightAt(x, y) + rim
+        // Gentle, broad undulations give the whole battlefield a little relief.
+        const rolling = reliefAt(mapType, noise, x, y)
+        // 山からも川からも離れた所は、なだらかな起伏だけ。
+        if (!near(mountainNear, x, y) && !near(waterNear, x, y)) return Math.max(7, rolling) + rim
         let mountain = 0
         let weight = 0
         let riverDistance = Infinity
+        const cx = Math.round(x / TILE_PX), cy = Math.round(y / TILE_PX), fx = x / TILE_PX, fy = y / TILE_PX
         for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
-            const gx = Math.round(x / TILE_PX) + dx
-            const gy = Math.round(y / TILE_PX) + dy
-            const t = grid[gy]?.[gx] ?? 0
-            const d = Math.hypot(x / TILE_PX - gx, y / TILE_PX - gy)
-            const w = Math.max(0, 3 - d)
-            mountain += (t >= 23 && t <= 24 ? 130 : t === 2 || t >= 21 && t <= 22 ? 72 : 0) * mountainScale * w
+            const gx = cx + dx, gy = cy + dy
+            const ox = fx - gx, oy = fy - gy
+            const d = Math.sqrt(ox * ox + oy * oy)
+            if (d >= 3) continue
+            const w = 3 - d
             weight += w
-            if (t === TILE.WATER || t === TILE.BRIDGE) riverDistance = Math.min(riverDistance, d)
+            const inGrid = gx >= 0 && gy >= 0 && gx < n && gy < n
+            if (!inGrid) continue
+            mountain += tileMountain[gy * n + gx]! * w
+            const t = grid[gy]![gx]!
+            if ((t === TILE.WATER || t === TILE.BRIDGE) && d < riverDistance) riverDistance = d
         }
-        // Gentle, broad undulations give the whole battlefield a little relief.
-        const rolling = reliefAt(mapType, noise, x, y)
+        mountain *= mountainScale
         const ridge = 1 + ridgeVariation * noise(x * .012, y * .012)
-        const height = Math.max(7, rolling) + mountain / Math.max(1, weight) * ridge
+        const height = Math.max(7, rolling) + mountain / Math.max(1, weight) * ridge + rim
         const bank = (.5 - waterMask(x, y)) * 12
         const riverBlend = smooth(Math.max(0, Math.min(1, (riverDistance - 1.3) / 2.7)))
         return bank + (height - bank) * riverBlend

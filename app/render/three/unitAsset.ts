@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { PartRole, UnitModel } from './unitModels'
+import { m } from '../../game/dimensions'
 
 interface AssetPart {
     role: string; pivot: number[]; positions: number[]; normals: number[]; colors: number[]; indices: number[]
@@ -16,8 +17,19 @@ export interface UnitAsset {
     lod?: AssetPart[]
 }
 
-/** Builds a Blender-exported unit, using the army's colour for the palette's faction entry. */
-export function createUnitAssetModel(asset: UnitAsset, name: string, faction: number): UnitModel {
+/** 胴体の部位（騎兵は乗り手と乗騎）の最も高い所。モデルの背丈。 */
+function bodyTop(asset: UnitAsset) {
+    const body = asset.parts.find(part => part.role === 'body')!
+    let top = -Infinity
+    for (let i = 1; i < body.positions.length; i += 3) top = Math.max(top, body.positions[i]! + body.pivot[1]!)
+    return top
+}
+
+/**
+ * Builds a Blender-exported unit, using the army's colour for the palette's faction entry.
+ * height（メートル）を渡すと、モデルの背丈がその高さになる縮尺で描く。省くとアセットの縮尺のまま。
+ */
+export function createUnitAssetModel(asset: UnitAsset, name: string, faction: number, height?: number): UnitModel {
     const factionColor = new THREE.Color(faction).multiplyScalar(asset.factionScale)
     const palette = asset.palette.map(entry => entry.name === 'faction'
         ? [factionColor.r, factionColor.g, factionColor.b] : entry.linear)
@@ -40,7 +52,7 @@ export function createUnitAssetModel(asset: UnitAsset, name: string, faction: nu
         return geometry
     }
     return {
-        scale: asset.scale,
+        scale: height === undefined ? asset.scale : m(height) / bodyTop(asset),
         parts: asset.parts.map(part => {
             const far = asset.lod?.find(entry => entry.role === part.role)
             return { role: part.role as PartRole, pivot: new THREE.Vector3().fromArray(part.pivot), geometry: build(part, `${name}:${part.role}`),

@@ -2,16 +2,18 @@ import { TILE_PX } from './constants'
 import type { Fort, FortKind, Point } from '../types/game'
 import {
     CASTLE_ASSAULT_CELLS, CASTLE_CORE, CASTLE_DEPTH, CASTLE_FOOT_SPAWN_CELLS, CASTLE_FRONT_GATE, CASTLE_MARGIN, CASTLE_MOUNTED_SPAWN_CELLS,
-    CASTLE_TOWER_CELLS, CASTLE_WIDTH, castleCell, isCastleBlocked, shapeCastleGround,
+    CASTLE_TOWER_CELLS, CASTLE_WIDTH, castleCellAt, castleGameCoord, isCastleBlocked, shapeCastleGroundAt,
 } from './castleLayout'
 
 /**
  * 砦はベースキャンプ型の陣地。セル単位のローカル座標で定義する。
  * lx: 0(後方) → FORT_DEPTH-1(前面、敵側)、ly: 0 → FORT_WIDTH-1。
  * 外周は柵で囲み、前面に正門、左右に通用門を設ける。
+ * 広さは千人規模の野営地の実寸（約130m × 175m）。正門から本陣へ大通りが、左右の通用門の間を横の通りが通り、
+ * 後ろ半分に兵舎が並ぶ。前半分の左に厩舎、右に射場と兵舎があり、正門の内側は出撃前に集まる広場。
  */
-export const FORT_DEPTH = 12
-export const FORT_WIDTH = 16
+export const FORT_DEPTH = 36
+export const FORT_WIDTH = 48
 /** 正門前のバリケード列（柵の外側）。 */
 export const BARRICADE_LX = FORT_DEPTH + 1
 /** 地形の平坦化・景観の除外に使う、外周からの余白（セル）。 */
@@ -30,42 +32,45 @@ export interface FortStructure {
     blocking: boolean
 }
 
-const FRONT_GATE = [7, 8]
-const SIDE_GATE = [5, 6]
+const MID = FORT_WIDTH / 2
+/** 正門（前面の柵の ly）と通用門（左右の柵の lx）。 */
+export const FRONT_GATE = [MID - 1, MID]
+export const SIDE_GATE = [17, 18]
+/** 左右を入れ替えた ly（h マスの施設の左端）。 */
+const mirror = (ly: number, h: number) => FORT_WIDTH - ly - h
+const structure = (kind: StructureKind, lx: number, ly: number, w: number, h: number, blocking = true): FortStructure => ({ kind, lx, ly, w, h, blocking })
+/** 左右対称に置く施設。 */
+const pair = (kind: StructureKind, lx: number, ly: number, w: number, h: number, blocking = true) =>
+    [structure(kind, lx, ly, w, h, blocking), structure(kind, lx, mirror(ly, h), w, h, blocking)]
 
 export const FORT_STRUCTURES: FortStructure[] = [
-    { kind: 'command', lx: 1, ly: 6, w: 4, h: 4, blocking: true },
-    { kind: 'barracks', lx: 2, ly: 2, w: 2, h: 3, blocking: true },
-    { kind: 'barracks', lx: 2, ly: 11, w: 2, h: 3, blocking: true },
-    { kind: 'stable', lx: 6, ly: 2, w: 3, h: 2, blocking: true },
-    { kind: 'range', lx: 6, ly: 12, w: 3, h: 2, blocking: true },
-    { kind: 'depot', lx: 5, ly: 5, w: 1, h: 1, blocking: true },
-    { kind: 'depot', lx: 5, ly: 10, w: 1, h: 1, blocking: true },
-    { kind: 'well', lx: 1, ly: 4, w: 1, h: 1, blocking: true },
-    { kind: 'rack', lx: 1, ly: 11, w: 1, h: 1, blocking: true },
-    { kind: 'campfire', lx: 9, ly: 4, w: 1, h: 1, blocking: false },
-    { kind: 'campfire', lx: 9, ly: 11, w: 1, h: 1, blocking: false },
-    { kind: 'campfire', lx: 4, ly: 1, w: 1, h: 1, blocking: false },
-    { kind: 'campfire', lx: 4, ly: 14, w: 1, h: 1, blocking: false },
-    // 四隅の物見櫓と正門の櫓は柵の上に立つ。
-    { kind: 'tower', lx: 0, ly: 0, w: 1, h: 1, blocking: true },
-    { kind: 'tower', lx: 0, ly: FORT_WIDTH - 1, w: 1, h: 1, blocking: true },
-    { kind: 'tower', lx: FORT_DEPTH - 1, ly: 0, w: 1, h: 1, blocking: true },
-    { kind: 'tower', lx: FORT_DEPTH - 1, ly: FORT_WIDTH - 1, w: 1, h: 1, blocking: true },
-    { kind: 'gateTower', lx: FORT_DEPTH - 1, ly: FRONT_GATE[0]! - 1, w: 1, h: 1, blocking: true },
-    { kind: 'gateTower', lx: FORT_DEPTH - 1, ly: FRONT_GATE[1]! + 1, w: 1, h: 1, blocking: true },
+    structure('command', 2, MID - 2, 4, 4),
+    // 後ろ半分の兵舎（左右に4列×5棟ずつ、間に1マスの路地）。
+    ...[2, 5, 8, 11].flatMap(lx => [2, 6, 10, 14, 18].flatMap(ly => pair('barracks', lx, ly, 2, 3))),
+    // 前半分: 左に厩舎、右に射場と兵舎。
+    ...[20, 24].flatMap(lx => [2, 5, 8, 11, 14, 17].map(ly => structure('stable', lx, ly, 3, 2))),
+    ...[2, 5, 8, 11, 14, 17].map(ly => structure('range', 20, mirror(ly, 2), 3, 2)),
+    ...[2, 6, 10, 14].map(ly => structure('barracks', 24, mirror(ly, 3), 2, 3)),
+    ...pair('depot', 14, 5, 1, 1), ...pair('depot', 14, 13, 1, 1), ...pair('depot', 14, 20, 1, 1),
+    structure('well', 1, MID - 4, 1, 1),
+    structure('rack', 1, MID + 3, 1, 1),
+    ...pair('campfire', 17, 8, 1, 1, false), ...pair('campfire', 30, 10, 1, 1, false), ...pair('campfire', 14, 9, 1, 1, false),
+    // 四隅と柵の途中の物見櫓、正門の櫓は柵の上に立つ。
+    ...[0, FORT_DEPTH - 1].flatMap(lx => [0, 12, FORT_WIDTH - 13, FORT_WIDTH - 1].map(ly => structure('tower', lx, ly, 1, 1))),
+    ...[0, FORT_WIDTH - 1].flatMap(ly => [9, 27].map(lx => structure('tower', lx, ly, 1, 1))),
+    structure('gateTower', FORT_DEPTH - 1, FRONT_GATE[0]! - 1, 1, 1),
+    structure('gateTower', FORT_DEPTH - 1, FRONT_GATE[1]! + 1, 1, 1),
     // 正門前のバリケード。中央の進入路は空けておく。
-    { kind: 'barricade', lx: BARRICADE_LX, ly: 1, w: 1, h: 5, blocking: true },
-    { kind: 'barricade', lx: BARRICADE_LX, ly: 10, w: 1, h: 5, blocking: true },
+    ...pair('barricade', BARRICADE_LX, 2, 1, 6), ...pair('barricade', BARRICADE_LX, 10, 1, 8),
 ]
 
 /** 本陣を囲む攻撃地点（ローカルセル）。本陣の後ろは柵なので、前と左右に置く。 */
-const ASSAULT_CELLS: [number, number][] = [[5, 7], [5, 8], [2, 5], [3, 5], [2, 10], [3, 10], [1, 5], [1, 10]]
+const ASSAULT_CELLS: [number, number][] = [[6, MID - 1], [6, MID], [3, MID - 3], [4, MID - 3], [3, MID + 2], [4, MID + 2], [2, MID - 3], [2, MID + 2]]
 /** 本陣の天幕の当たりの半径（px）。攻撃地点から天幕に取り付けば攻撃できる。 */
 export const CAMP_CORE_RADIUS = 20
-/** 歩兵・弓兵は兵舎の前、騎兵は厩舎の前から出撃する。 */
-export const FOOT_SPAWN_CELLS: [number, number][] = [[4, 2], [4, 3], [4, 4], [4, 11], [4, 12], [4, 13], [1, 3], [1, 12]]
-export const MOUNTED_SPAWN_CELLS: [number, number][] = [[6, 4], [7, 4], [8, 4], [6, 11], [7, 11], [8, 11]]
+/** 歩兵・弓兵は横の通りの兵舎の前、騎兵は厩舎の前から出撃する。 */
+export const FOOT_SPAWN_CELLS: [number, number][] = [4, 8, 12, 16].flatMap(ly => [[16, ly], [16, FORT_WIDTH - 1 - ly]] as [number, number][])
+export const MOUNTED_SPAWN_CELLS: [number, number][] = [21, 22, 23, 25, 26, 27].map(lx => [lx, MID - 4])
 
 export function isFortWallCell(lx: number, ly: number): boolean {
     const onRing = lx === 0 || lx === FORT_DEPTH - 1 || ly === 0 || ly === FORT_WIDTH - 1
@@ -125,7 +130,7 @@ export function fortCenter(fort: FortFrame): Point {
 export function isFortBuildingCell(fort: FortFrame, gx: number, gy: number): boolean {
     const { lx, ly } = gridToLocal(fort, gx, gy)
     if (fort.kind === 'castle') {
-        const cell = castleCell(lx, ly)
+        const cell = castleCellAt(lx, ly)
         return cell === 'house' || cell === 'keep' || cell === 'grove'
     }
     return FORT_STRUCTURES.some(s => s.blocking && s.kind !== 'tower' && s.kind !== 'gateTower' && s.kind !== 'barricade'
@@ -145,7 +150,7 @@ export function fortTileAt(fort: FortFrame, gx: number, gy: number): 'wall' | 'o
     const { lx, ly } = gridToLocal(fort, gx, gy)
     const { depth, width, back, front, side } = fortDims(fort.kind)
     if (lx < -back || lx > depth - 1 + front || ly < -side || ly > width - 1 + side) return undefined
-    if (fort.kind === 'castle') return isCastleBlocked(castleCell(lx, ly)) ? 'wall' : 'open'
+    if (fort.kind === 'castle') return isCastleBlocked(castleCellAt(lx, ly)) ? 'wall' : 'open'
     return isBlockedLocal(lx, ly) ? 'wall' : 'open'
 }
 
@@ -161,7 +166,7 @@ export function inForestClearing(fort: FortFrame, gx: number, gy: number): boole
 }
 
 /** キャンプの敷地の外で、元の地形へなだらかにつなぐ幅（px）。 */
-const CAMP_APRON = 36
+const CAMP_APRON = 72
 
 /**
  * 砦の地面の高さ。キャンプは敷地を平坦（ground）にし、外周の CAMP_APRON の幅で元の地形 h へつなぐ。
@@ -170,7 +175,7 @@ const CAMP_APRON = 36
 export function fortGroundAt(fort: FortFrame, x: number, y: number, ground: number, h: number): number | undefined {
     if (fort.kind === 'castle') {
         const { lx, ly } = gridToLocal(fort, x / TILE_PX, y / TILE_PX)
-        return shapeCastleGround(lx, ly, ground, h)
+        return shapeCastleGroundAt(lx, ly, ground, h)
     }
     const area = fortFootprint(fort)
     const outside = Math.hypot(Math.max(area.minX - x, 0, x - area.maxX), Math.max(area.minY - y, 0, y - area.maxY))
@@ -182,13 +187,15 @@ export function fortGroundAt(fort: FortFrame, x: number, y: number, ground: numb
 export function createFortGeometry(fort: FortFrame) {
     const toWorld = ([lx, ly]: [number, number]) => localToWorld(fort, lx, ly)
     if (fort.kind === 'castle') {
+        // 城の地点は設計のマスで決めてあるので、ゲームのマスへ直す。
+        const fromPlan = ([lx, ly]: [number, number]) => localToWorld(fort, castleGameCoord(lx), castleGameCoord(ly))
         return {
-            core: localToWorld(fort, CASTLE_CORE.x, CASTLE_CORE.y),
-            assaultPoints: CASTLE_ASSAULT_CELLS.map(toWorld),
-            towers: CASTLE_TOWER_CELLS.map(toWorld),
-            footSpawns: CASTLE_FOOT_SPAWN_CELLS.map(toWorld),
-            mountedSpawns: CASTLE_MOUNTED_SPAWN_CELLS.map(toWorld),
-            frontGate: localToWorld(fort, CASTLE_FRONT_GATE.x, CASTLE_FRONT_GATE.y),
+            core: fromPlan([CASTLE_CORE.x, CASTLE_CORE.y]),
+            assaultPoints: CASTLE_ASSAULT_CELLS.map(fromPlan),
+            towers: CASTLE_TOWER_CELLS.map(fromPlan),
+            footSpawns: CASTLE_FOOT_SPAWN_CELLS.map(fromPlan),
+            mountedSpawns: CASTLE_MOUNTED_SPAWN_CELLS.map(fromPlan),
+            frontGate: fromPlan([CASTLE_FRONT_GATE.x, CASTLE_FRONT_GATE.y]),
         }
     }
     const command = FORT_STRUCTURES.find(s => s.kind === 'command')!
@@ -199,6 +206,6 @@ export function createFortGeometry(fort: FortFrame) {
         footSpawns: FOOT_SPAWN_CELLS.map(toWorld),
         mountedSpawns: MOUNTED_SPAWN_CELLS.map(toWorld),
         /** 正門の外側。出撃した兵がまず目指す地点。 */
-        frontGate: localToWorld(fort, FORT_DEPTH + .5, 7.5),
+        frontGate: localToWorld(fort, FORT_DEPTH + .5, MID - .5),
     }
 }

@@ -1,12 +1,13 @@
 import { createNoise2D } from 'simplex-noise'
 import { createMulberry32, hashString } from '../../game/random'
-import { TILE, TILE_PX } from '../../game/constants'
+import { TILE, TILE_PX, WORLD_SCALE as S } from '../../game/constants'
+import { DIMENSIONS, m } from '../../game/dimensions'
 import { TERRAIN_PROFILE } from '../../game/mapType'
 import { MAP_MIN, MAP_MAX, reliefAt, type Heightfield } from './heightfield'
 import { marshFor } from '../../game/marsh'
 
-// Fix the full landscape width at 3,300, independently of the battlefield size.
-export const LANDSCAPE_RADIUS = 1650
+/** 遠景まで含めた地形の半分の幅（中心から四方へ）。部隊が動ける範囲の外に DIMENSIONS.landscapeMargin だけ続ける。 */
+export const LANDSCAPE_RADIUS = m(DIMENSIONS.battlefield) / 2 + m(DIMENSIONS.playableMargin) + m(DIMENSIONS.landscapeMargin)
 export const TERRAIN_CENTER = (MAP_MIN + MAP_MAX) / 2
 export const smooth = (a: number, b: number, value: number) => {
     const t = Math.max(0, Math.min(1, (value - a) / (b - a)))
@@ -50,14 +51,15 @@ export function createLandscape(grid: number[][], field: Heightfield, foundation
         if (inside(x, y)) return field.heightAt(x, y)
         const distance = distanceOutside(x, y)
         // Broad, gently warped ridges keep the distant silhouette rounded.
-        const warpX = x + noise(x * .0009, y * .0009) * 100
-        const warpY = y + noise(x * .0009 + 60, y * .0009) * 100
-        const ridgeNoise = noise(warpX * .001, warpY * .001)
+        // 遠くの山並みは戦場の倍率に合わせて大きく、高くする。
+        const warpX = x + noise(x * .0009 / S, y * .0009 / S) * 100 * S
+        const warpY = y + noise(x * .0009 / S + 60, y * .0009 / S) * 100 * S
+        const ridgeNoise = noise(warpX * .001 / S, warpY * .001 / S)
         const ridge = 1 - ridgeNoise * ridgeNoise
-        let mountain = ridge ** outer.sharp * (outer.base + outer.far * smooth(250, 1800, distance))
+        let mountain = ridge ** outer.sharp * (outer.base + outer.far * smooth(250 * S, 1800 * S, distance)) * Math.sqrt(S)
         if (mapType === 'wasteland') mountain = terrace(mountain)
         // 魔王城の周りの山は、鋸のように尖った岩山。
-        if (mapType === 'demonland') mountain += Math.abs(noise(x * .007, y * .007)) * 40 * ridge * smooth(100, 900, distance)
+        if (mapType === 'demonland') mountain += Math.abs(noise(x * .007, y * .007)) * 40 * Math.sqrt(S) * ridge * smooth(100 * S, 900 * S, distance)
         let h = mapType === 'standard'
             ? 18 + mountain + noise(x * .0018, y * .0018) * 12 + noise(x * .004, y * .004) * 2
             : reliefAt(mapType, noise, x, y) - 5 + mountain + noise(x * .0018, y * .0018) * 6
@@ -67,7 +69,7 @@ export function createLandscape(grid: number[][], field: Heightfield, foundation
             const along = (x - mouth.x) * mouth.dx + (y - mouth.y) * mouth.dy
             if (along < 0) continue
             const across = (x - mouth.x) * -mouth.dy + (y - mouth.y) * mouth.dx
-            const meander = noise(along * .0015, mouth.x * .013 + mouth.y * .017) * Math.min(110, along * .2)
+            const meander = noise(along * .0015 / S, mouth.x * .013 + mouth.y * .017) * Math.min(110 * S, along * .2)
             const width = mouth.width + Math.min(28, along * .012)
             const bank = Math.abs(across - meander) - width
             const riverbed = Math.max(-6, bank * .6)
@@ -78,10 +80,10 @@ export function createLandscape(grid: number[][], field: Heightfield, foundation
         if (marsh) {
             // 湿地は部隊の動ける範囲まで湿地の形のまま続き、その外で山並みに上がる。
             const reach = Math.max(Math.abs(x - TERRAIN_CENTER), Math.abs(y - TERRAIN_CENTER))
-            h = marsh.heightAt(x, y) + Math.max(0, h - 8) * smooth(900, 1250, reach)
+            h = marsh.heightAt(x, y) + Math.max(0, h - 8) * smooth(900 * S, 1250 * S, reach)
         } else {
             const boundary = field.heightAt(Math.max(MAP_MIN, Math.min(MAP_MAX, x)), Math.max(MAP_MIN, Math.min(MAP_MAX, y)))
-            h = boundary + (h - boundary) * smooth(0, 200, distance)
+            h = boundary + (h - boundary) * smooth(0, 200 * S, distance)
         }
         // 砦は平地に建ち、周りはなだらかに丘へつながる。戦場の縁で効果を弱め、内側の地形と段差なくつなぐ。
         for (const f of foundations) {

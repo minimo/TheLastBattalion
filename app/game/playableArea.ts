@@ -1,4 +1,5 @@
-import { GRID_MAX, TILE, TILE_PX, TILE_VARIANT } from './constants'
+import { GRID_MAX, TILE, TILE_PX, TILE_VARIANT, WORLD_SCALE } from './constants'
+import { DIMENSIONS, m } from './dimensions'
 import type { Army, Fort, FortKind } from '../types/game'
 import { fortDims, fortGroundAt, fortTileAt, inForestClearing, localToGrid } from './fortLayout'
 import { mapTypeOf, TERRAIN_PROFILE } from './mapType'
@@ -7,14 +8,14 @@ import { createHeightfield } from '../render/three/heightfield'
 import { createLandscape, TERRAIN_CENTER } from '../render/three/landscape'
 
 // Placement and navigation expand around the existing terrain and camera center.
-/** 両軍の砦を置く戦場の広さ（砦はこの範囲の東西の端に置く）。 */
-export const BATTLEFIELD_SIZE = 1400
+/** 戦場の広さ（城はこの範囲の東西の端に置く。陣地は DIMENSIONS.campDistance で向かい合う）。 */
+export const BATTLEFIELD_SIZE = m(DIMENSIONS.battlefield)
 export const BATTLEFIELD_MIN = TERRAIN_CENTER - BATTLEFIELD_SIZE / 2
 export const BATTLEFIELD_MAX = TERRAIN_CENTER + BATTLEFIELD_SIZE / 2
 const BATTLEFIELD_GRID_MIN = Math.ceil(BATTLEFIELD_MIN / TILE_PX)
 const BATTLEFIELD_GRID_MAX = Math.floor(BATTLEFIELD_MAX / TILE_PX)
 /** 部隊が動ける範囲。砦の背後の丘にも出られるよう、戦場より四方に広く取る。 */
-export const PLAYABLE_SIZE = BATTLEFIELD_SIZE + 240 * 2
+export const PLAYABLE_SIZE = BATTLEFIELD_SIZE + m(DIMENSIONS.playableMargin) * 2
 export const PLAYABLE_MIN = TERRAIN_CENTER - PLAYABLE_SIZE / 2
 export const PLAYABLE_MAX = TERRAIN_CENTER + PLAYABLE_SIZE / 2
 export const PLAYABLE_GRID_MIN = Math.ceil(PLAYABLE_MIN / TILE_PX)
@@ -162,9 +163,14 @@ export type FortSite = { owner: Army; kind: FortKind; front: 1 | -1; originGx: n
 const isLowland = (tile: number) => tile !== TILE.WATER && tile !== TILE.BRIDGE && tile !== TILE.MARSH && tile !== TILE.REEDS && tile !== TILE.REEDS_DENSE
     && !(tile === TILE.MOUNTAIN || tile >= TILE_VARIANT.LOW_MOUNTAIN_MIN && tile <= TILE_VARIANT.HIGH_MOUNTAIN_MAX)
 
-/** キャンプを戦場の端から内側へずらせる最大のマス数と、両軍の砦の中心どうしの目標の距離（px）。 */
-const CAMP_MAX_INSET = 6
-const TARGET_FORT_DISTANCE = 1050
+/**
+ * 両軍の陣地の中心どうしの目標の距離（px）。陣地はまずこの距離で向かい合う位置に置き、
+ * 地形が悪ければ外側（自軍の後ろ）へ CAMP_MAX_SHIFT マスまでずらせる。
+ */
+const TARGET_FORT_DISTANCE = m(DIMENSIONS.campDistance)
+const CAMP_MAX_SHIFT = 6 * WORLD_SCALE
+/** 組にして選ぶ前に、片軍ごとに残す砦の場所の候補の数（組の数を抑える）。 */
+const PAIR_CANDIDATES = 400
 
 type FortCandidate = FortSite & { score: number; x: number; y: number }
 
@@ -187,10 +193,11 @@ export function placeForts(grid: number[][], owners: Army[] = ['player', 'cpu'],
     candidates.forEach((list, i) => { if (!list.length) throw new Error(`No suitable site for the ${sides[i]!.owner} fort`) })
     const strip = ({ score: _score, x: _x, y: _y, ...site }: FortCandidate): FortSite => site
     if (candidates.length === 1) return [strip(candidates[0]!.reduce((a, b) => b.score < a.score ? b : a))]
+    const [left, right] = candidates.map(list => list.sort((a, b) => a.score - b.score).slice(0, PAIR_CANDIDATES))
     let best: [FortCandidate, FortCandidate] | undefined, bestScore = Infinity
-    for (const a of candidates[0]!) for (const b of candidates[1]!) {
+    for (const a of left!) for (const b of right!) {
         const distance = Math.hypot(b.x - a.x, b.y - a.y)
-        const score = a.score + b.score + Math.max(0, distance - TARGET_FORT_DISTANCE) / TILE_PX * 5
+        const score = a.score + b.score + Math.max(0, distance - TARGET_FORT_DISTANCE) / TILE_PX * 5 * WORLD_SCALE
         if (score < bestScore) { bestScore = score; best = [a, b] }
     }
     return best!.map(strip)
@@ -236,9 +243,12 @@ function fortCandidates(side: { owner: Army; kind: FortKind; front: 1 | -1 }, te
     const centerGy = Math.round(TERRAIN_CENTER / TILE_PX) - Math.floor(width / 2)
     const span = BATTLEFIELD_GRID_MAX - BATTLEFIELD_GRID_MIN - width - 4
     const list: FortCandidate[] = []
-    // 城は大きいので戦場の端に置く。キャンプは内側へずらしてもよい（少しだけ嫌う）。
-    for (let inset = 0; inset <= (kind === 'camp' ? CAMP_MAX_INSET : 0); inset++) {
-        const originGx = side.front === 1 ? BATTLEFIELD_GRID_MIN + inset : BATTLEFIELD_GRID_MAX - depth + 1 - inset
+    // 城は大きいので戦場の端に置く。キャンプは中心どうしが TARGET_FORT_DISTANCE になる位置に置き、外側へずらしてもよい（少しだけ嫌う）。
+    const campBackGx = Math.round((TERRAIN_CENTER - side.front * TARGET_FORT_DISTANCE / 2) / TILE_PX - side.front * depth / 2)
+    for (let inset = 0; inset <= (kind === 'camp' ? CAMP_MAX_SHIFT : 0); inset++) {
+        const originGx = kind === 'camp'
+            ? (side.front === 1 ? campBackGx - inset : campBackGx - depth + 1 + inset)
+            : (side.front === 1 ? BATTLEFIELD_GRID_MIN : BATTLEFIELD_GRID_MAX - depth + 1)
         for (let offset = 0; offset <= span; offset++) for (const sign of offset ? [-1, 1] : [1]) {
             const originGy = centerGy + offset * sign
             if (originGy - marginSide < BATTLEFIELD_GRID_MIN + 1 || originGy + width + marginSide > BATTLEFIELD_GRID_MAX - 1) continue
@@ -259,7 +269,9 @@ function fortCandidates(side: { owner: Army; kind: FortKind; front: 1 | -1 }, te
             const gate = localToGrid(frame, depth + marginFront + 1, Math.floor(width / 2) - 1)
             if (!reachable.has(`${gate.gx},${gate.gy}`)) continue
             const center = localToGrid(frame, (depth - 1) / 2, (width - 1) / 2)
-            list.push({ ...side, originGx, originGy, score: rough + offset * .4 + inset * 1.5 + water * 50 + spread * 3 + frontWater * 4, x: center.gx * TILE_PX, y: center.gy * TILE_PX })
+            // 敷地の広さ（マス数）は倍率の2乗で増えるので、マス数に比例しない項にも倍率を掛けて釣り合いを保つ。
+            const S = WORLD_SCALE
+            list.push({ ...side, originGx, originGy, score: rough + (offset * .4 + inset * 1.5) * S + water * 50 + spread * 3 * S * S + frontWater * 4, x: center.gx * TILE_PX, y: center.gy * TILE_PX })
         }
     }
     return list

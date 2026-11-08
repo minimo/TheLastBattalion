@@ -1,4 +1,5 @@
 import type { Point } from '../types/game'
+import { DIMENSIONS, m } from './dimensions'
 
 /**
  * 攻城戦・防衛戦で守り手が籠もる城。セル単位のローカル座標で定義する。
@@ -7,17 +8,29 @@ import type { Point } from '../types/game'
  * 門を入った広場から、家並みの間を登る大通りと、城壁沿いを回って登る道の二筋が山を巻いて登り、
  * 頂の本陣を囲む前庭（テラス）へ出る。本陣の裏手には高い棟が建つ。
  */
-export const CASTLE_DEPTH = 24
-export const CASTLE_WIDTH = 28
-/** 地形の置き換え（通行・平坦化）に使う、外周からの余白（セル）。 */
-export const CASTLE_MARGIN = { back: 1, front: 3, side: 1 }
-/** 岩山の頂（本陣の建つ岩盤）の、城壁の内側の地面からの高さ（px）。 */
+export const CASTLE_PLAN_DEPTH = 24
+export const CASTLE_PLAN_WIDTH = 28
+/** 設計図での家の1階分の高さ（設計の px）。 */
+export const CASTLE_PLAN_STOREY = 6.2
+/**
+ * 城の縮尺。城は上の設計図（設計のマス）のまま、建物ごとこの倍率で大きくして建てる。
+ * 家の1階分が実際の高さ（DIMENSIONS.castleStorey）になる倍率で、設計の1マスがゲームの整数マスに収まるよう整数にする。
+ * ゲームのマスでは、設計の1マスが CASTLE_SCALE × CASTLE_SCALE マスになる。
+ * 以下の CASTLE_ で始まる値と関数は、ことわりがなければ設計のマスと設計の px（描画では城ごと拡大する）で表す。
+ */
+export const CASTLE_SCALE = Math.max(1, Math.round(m(DIMENSIONS.castleStorey) / CASTLE_PLAN_STOREY))
+/** ゲームのマスでの城の大きさ。 */
+export const CASTLE_DEPTH = CASTLE_PLAN_DEPTH * CASTLE_SCALE
+export const CASTLE_WIDTH = CASTLE_PLAN_WIDTH * CASTLE_SCALE
+/** 地形の置き換え（通行・平坦化）に使う、外周からの余白（ゲームのマス）。 */
+export const CASTLE_MARGIN = { back: CASTLE_SCALE, front: 3 * CASTLE_SCALE, side: CASTLE_SCALE }
+/** 岩山の頂（本陣の建つ岩盤）の、城壁の内側の地面からの高さ（設計の px）。 */
 export const CASTLE_SUMMIT = 64
-/** 城の外周から、元の地形へなだらかにつなぐ幅（px）。 */
+/** 城の外周から、元の地形へなだらかにつなぐ幅（設計の px）。 */
 export const CASTLE_APRON = 60
 
-const CX = (CASTLE_DEPTH - 1) / 2
-const CY = (CASTLE_WIDTH - 1) / 2
+const CX = (CASTLE_PLAN_DEPTH - 1) / 2
+const CY = (CASTLE_PLAN_WIDTH - 1) / 2
 /** 岩山の輪郭の基準の楕円の半径（セル）。輪郭は向きによって少し出入りする（castleOutline）。 */
 const RX = 11.4
 const RY = 13.3
@@ -100,7 +113,7 @@ function classify(lx: number, ly: number): CastleCell {
     return 'house'
 }
 
-const CELLS: CastleCell[][] = Array.from({ length: CASTLE_DEPTH }, (_, lx) => Array.from({ length: CASTLE_WIDTH }, (_, ly) => classify(lx, ly)))
+const CELLS: CastleCell[][] = Array.from({ length: CASTLE_PLAN_DEPTH }, (_, lx) => Array.from({ length: CASTLE_PLAN_WIDTH }, (_, ly) => classify(lx, ly)))
 
 export function castleCell(lx: number, ly: number): CastleCell {
     return CELLS[lx]?.[ly] ?? 'outside'
@@ -131,7 +144,7 @@ export function shapeCastleGround(lx: number, ly: number, ground: number, h: num
 /** 地点に最も近い、条件を満たすマス。 */
 function nearestCell(target: { lx: number; ly: number }, accept: (cell: CastleCell, lx: number, ly: number) => boolean): [number, number] {
     let best: [number, number] = [Math.round(target.lx), Math.round(target.ly)], bestDistance = Infinity
-    for (let lx = 0; lx < CASTLE_DEPTH; lx++) for (let ly = 0; ly < CASTLE_WIDTH; ly++) {
+    for (let lx = 0; lx < CASTLE_PLAN_DEPTH; lx++) for (let ly = 0; ly < CASTLE_PLAN_WIDTH; ly++) {
         if (!accept(castleCell(lx, ly), lx, ly)) continue
         const d = Math.hypot(lx - target.lx, ly - target.ly)
         if (d < bestDistance) { bestDistance = d; best = [lx, ly] }
@@ -151,10 +164,33 @@ export const CASTLE_FOOT_SPAWN_CELLS = [6, -6, 14, -14, 20, -20].map(d => neares
 export const CASTLE_MOUNTED_SPAWN_CELLS = [0, 10, -10].map(d => nearestCell(castlePoint(.86, deg(d)), square))
 /** 本陣の中心と、正門の外側（ローカルセル）。 */
 export const CASTLE_CORE: Point = { x: CX, y: CY }
-export const CASTLE_FRONT_GATE: Point = { x: CASTLE_DEPTH + .5, y: CY }
-/** 本陣の岩盤の半径（px）。前庭から本陣に取り付けば攻撃できる。 */
-export const CASTLE_CORE_RADIUS = 50
+export const CASTLE_FRONT_GATE: Point = { x: CASTLE_PLAN_DEPTH + .5, y: CY }
+/** 本陣の岩盤の半径（ゲームの px）。前庭から本陣に取り付けば攻撃できる。 */
+export const CASTLE_CORE_RADIUS = 50 * CASTLE_SCALE
 /** 正門の幅の半分（セル）。描画用。 */
 export const CASTLE_GATE_HALF = FRONT_GATE_HALF
 /** 基準の楕円の半径（ローカルセル）。描画用。 */
 export const CASTLE_RADII = { x: RX, y: RY }
+
+/** ゲームのマス（城のローカル、小数可）→ 設計のマス（小数）。 */
+export const castlePlanCoord = (cell: number) => (cell + .5) / CASTLE_SCALE - .5
+/** 設計のマス（小数可）→ ゲームのマス（城のローカル）。 */
+export const castleGameCoord = (plan: number) => (plan + .5) * CASTLE_SCALE - .5
+
+/** ゲームのマス（城のローカル）の区分。 */
+export function castleCellAt(lx: number, ly: number): CastleCell {
+    return castleCell(Math.round(castlePlanCoord(lx)), Math.round(castlePlanCoord(ly)))
+}
+
+/** ゲームのマス（城のローカル、小数可）の、基準の楕円での正規化半径。 */
+export function castleRadiusAt(lx: number, ly: number) {
+    return castleRadius(castlePlanCoord(lx), castlePlanCoord(ly))
+}
+
+/** shapeCastleGround のゲームのマス・ゲームの px 版。岩山の高さも城の縮尺で大きくなる。 */
+export function shapeCastleGroundAt(lx: number, ly: number, ground: number, h: number) {
+    const planLx = castlePlanCoord(lx), planLy = castlePlanCoord(ly)
+    const over = castleRadius(planLx, planLy) - castleOutline(castleAngle(planLx, planLy))
+    if (over <= 0) return ground + castleRise(planLx, planLy) * CASTLE_SCALE
+    return shapeCastleGround(planLx, planLy, ground, h)
+}

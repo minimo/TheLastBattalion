@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle, orderAttack, summarize, updateBattle } from './battle'
 import { UNIT_VISION } from './battleConfig'
-import { TILE_PX } from './constants'
+import { LOGICAL_SIZE, TILE_PX } from './constants'
 import { generateMap } from './mapGenerator'
 import { PLAYABLE_GRID_MIN } from './playableArea'
 import { createMulberry32, hashString } from './random'
@@ -13,7 +13,8 @@ const makeBattle = (seed = 'vision') => {
 }
 type TestBattle = ReturnType<typeof makeBattle>
 
-const CENTER = 416
+/** マップの中央。 */
+const CENTER = LOGICAL_SIZE / 2
 /** 平らで遮るもののない戦場に、人間軍の視点を中央に1つだけ置く。 */
 const flatten = (battle: TestBattle) => {
     const { ground, kinds, baseKinds, owners } = battle.vision

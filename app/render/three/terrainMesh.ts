@@ -50,7 +50,7 @@ export function createTerrainMeshes(field: Heightfield, landscape: ReturnType<ty
     const radii = [half]
     let radius = half
     while (radius < LANDSCAPE_RADIUS) {
-        radius = Math.min(LANDSCAPE_RADIUS, radius + Math.min(20, Math.max(12, (radius - half) * .055)))
+        radius = Math.min(LANDSCAPE_RADIUS, radius + Math.min(40, Math.max(12, (radius - half) * .055)))
         radii.push(radius)
     }
     radii.forEach((r, ring) => {

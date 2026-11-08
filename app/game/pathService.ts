@@ -191,9 +191,9 @@ export function createPathService(grid: number[][]) {
     }
 
     return {
-        /** 戦略目標を登録する。以後この目標への経路は即座に返る。 */
+        /** 戦略目標を登録する。コスト場は初めて経路を求めたときに作り、以後この目標への経路は即座に返る。 */
         addGoal(goalKey: string, goal: Point) {
-            if (!fields.has(goalKey)) fields.set(goalKey, { goal: { ...goal }, cost: { foot: buildField(goal, 'foot') }, version })
+            if (!fields.has(goalKey)) fields.set(goalKey, { goal: { ...goal }, cost: {}, version })
         },
         /** 建設物の完成・破壊でマスの地形が変わったら読み直す。コスト場は使うときに順次作り直す。 */
         refresh(cells: { gx: number; gy: number }[]) {

@@ -1,9 +1,9 @@
-import { castleCell } from './castleLayout'
+import { castleCellAt } from './castleLayout'
 import { WEATHER_EFFECT, type WeatherState } from './weather'
 import { FORT_VISION, OUTPOST_VISION, UNIT_VISION, VISION, type VisionRange } from './battleConfig'
 import { TILE, TILE_PX } from './constants'
 import { getNightAlpha } from './daynight'
-import { FORT_STRUCTURES, fortTileAt, gridToLocal, isFortWallCell } from './fortLayout'
+import { FORT_STRUCTURES, fortDims, fortTileAt, gridToLocal, isFortWallCell } from './fortLayout'
 import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import type { Army, Construction, FortCell, Fort, Point, Soldier, Squad, Weather } from '../types/game'
 import type { Battle } from './battle'
@@ -28,7 +28,7 @@ function fortCellKind(fort: Fort, gx: number, gy: number): number | undefined {
     if (!tile) return undefined
     if (tile === 'open') return OPEN
     const { lx, ly } = gridToLocal(fort, gx, gy)
-    if (fort.kind === 'castle') return castleCell(lx, ly) === 'grove' ? WOOD_DENSE : SOLID
+    if (fort.kind === 'castle') return castleCellAt(lx, ly) === 'grove' ? WOOD_DENSE : SOLID
     const at = FORT_STRUCTURES.find(s => s.blocking && lx >= s.lx && lx < s.lx + s.w && ly >= s.ly && ly < s.ly + s.h)
     if (at?.kind === 'barricade') return FENCE
     return isFortWallCell(lx, ly) && at?.kind !== 'tower' && at?.kind !== 'gateTower' ? FENCE : SOLID
@@ -127,7 +127,11 @@ function collectSources(battle: Battle): VisionSource[] {
         const at = leader && leader.state !== 'dead' ? leader : squad.center
         sources.push({ army: squad.owner, x: at.x, y: at.y, range: visionRangeAt(UNIT_VISION[squad.owner][squad.type], battle.dayTime, weather), eye: VISION.eye })
     }
-    for (const fort of battle.forts) sources.push({ army: fort.owner, x: fort.x, y: fort.y, range: visionRangeAt(FORT_VISION[fort.owner], battle.dayTime, weather), eye: VISION.structureEye })
+    // 砦の見張りは外周に立つので、砦の大きさの半分だけ遠くまで見える。
+    for (const fort of battle.forts) {
+        const { depth, width } = fortDims(fort.kind)
+        sources.push({ army: fort.owner, x: fort.x, y: fort.y, range: visionRangeAt(FORT_VISION[fort.owner], battle.dayTime, weather) + Math.max(depth, width) * TILE_PX / 2, eye: VISION.structureEye })
+    }
     for (const site of battle.constructions) {
         if (site.kind === 'outpost' && site.complete) sources.push({ army: site.owner, x: site.center.x, y: site.center.y, range: visionRangeAt(OUTPOST_VISION[site.owner], battle.dayTime, weather), eye: VISION.structureEye })
     }

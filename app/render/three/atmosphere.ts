@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { MapTheme } from './mapTheme'
+import { WORLD_SCALE } from '../../game/constants'
 import { WEATHER_LOOK, type WeatherLook } from './weatherLook'
 
 /**
@@ -38,7 +39,8 @@ export function sunDirectionAt(dayTime: number, target = new THREE.Vector3()) {
 /** Horizon and distance haze use the same color so the landscape has no visible edge. */
 export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
     const dayHorizon = new THREE.Color(), nightHorizon = new THREE.Color()
-    const fog = new THREE.FogExp2(0xffffff, initial.fog)
+    // 霞の濃さは戦場の倍率で割り、戦場全体を見渡したときの霞み方をそろえる。
+    const fog = new THREE.FogExp2(0xffffff, initial.fog / WORLD_SCALE)
     scene.fog = fog
     const geometry = new THREE.SphereGeometry(10000, 32, 16)
     const material = new THREE.ShaderMaterial({
@@ -111,14 +113,14 @@ export function createAtmosphere(scene: THREE.Scene, initial: MapTheme['sky']) {
         hasSun = !!theme.sun
         if (theme.sun) { u.sunColor!.value.set(theme.sun.color); u.sunGlow!.value.set(theme.sun.glow) }
         fogDensity = theme.fog
-        fog.density = fogDensity * look.fog
+        fog.density = fogDensity * look.fog / WORLD_SCALE
         if (scene.background instanceof THREE.Color) scene.background.copy(dayHorizon)
     }
     setTheme(initial)
     /** 天候の見た目を変える（地形の見た目を変えたあとも、そのまま掛かる）。 */
     const setWeather = (next: WeatherLook) => {
         look = next
-        fog.density = fogDensity * look.fog
+        fog.density = fogDensity * look.fog / WORLD_SCALE
         u.overcast!.value = look.overcast
     }
     return { setTheme, setWeather, update(camera: THREE.Camera, night: number, dayTime: number) {

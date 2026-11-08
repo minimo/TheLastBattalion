@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { Army, UnitType } from '../../types/game'
 import { FACTION } from './models'
 import { createUnitAssetModel as asset, type UnitAsset } from './unitAsset'
+import { DIMENSIONS } from '../../game/dimensions'
 import humanInfantryAsset from './assets/humanInfantry.json'
 import humanArcherAsset from './assets/humanArcher.json'
 import humanPikemanAsset from './assets/humanPikeman.json'
@@ -39,10 +40,27 @@ export interface UnitModel {
     scale: number
 }
 
+/** 兵の背丈（メートル、DIMENSIONS.height）。 */
+const H = DIMENSIONS.height
+
 export function createUnitModels(): Record<Army, Record<UnitType, UnitModel>> {
     return {
-        player: { infantry: asset(humanInfantryAsset, 'human-infantry', FACTION.player), pikeman: asset(humanPikemanAsset, 'human-pikeman', FACTION.player), archer: asset(humanArcherAsset, 'human-archer', FACTION.player), cavalry: asset(humanCavalryAsset, 'human-cavalry', FACTION.player), supply: asset(humanPorterAsset, 'human-porter', FACTION.player), engineer: asset(humanEngineerAsset, 'human-engineer', FACTION.player) },
-        cpu: { infantry: asset(orcInfantryAsset, 'orc-infantry', FACTION.cpu), pikeman: asset(orcPikemanAsset, 'orc-pikeman', FACTION.cpu), archer: asset(goblinArcherAsset, 'goblin-archer', FACTION.cpu), cavalry: asset(wolfRiderAsset, 'wolf-rider', FACTION.cpu), supply: asset(goblinPorterAsset, 'goblin-porter', FACTION.cpu), engineer: asset(orcEngineerAsset, 'orc-engineer', FACTION.cpu) },
+        player: {
+            infantry: asset(humanInfantryAsset, 'human-infantry', FACTION.player, H.human),
+            pikeman: asset(humanPikemanAsset, 'human-pikeman', FACTION.player, H.human),
+            archer: asset(humanArcherAsset, 'human-archer', FACTION.player, H.human),
+            cavalry: asset(humanCavalryAsset, 'human-cavalry', FACTION.player, H.humanRider),
+            supply: asset(humanPorterAsset, 'human-porter', FACTION.player, H.human),
+            engineer: asset(humanEngineerAsset, 'human-engineer', FACTION.player, H.human),
+        },
+        cpu: {
+            infantry: asset(orcInfantryAsset, 'orc-infantry', FACTION.cpu, H.orc),
+            pikeman: asset(orcPikemanAsset, 'orc-pikeman', FACTION.cpu, H.orc),
+            archer: asset(goblinArcherAsset, 'goblin-archer', FACTION.cpu, H.goblin),
+            cavalry: asset(wolfRiderAsset, 'wolf-rider', FACTION.cpu, H.wolfRider),
+            supply: asset(goblinPorterAsset, 'goblin-porter', FACTION.cpu, H.goblin),
+            engineer: asset(orcEngineerAsset, 'orc-engineer', FACTION.cpu, H.orc),
+        },
     }
 }
 

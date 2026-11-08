@@ -1,10 +1,12 @@
 import type { FormationType, Point, UnitType } from '../types/game'
+import { m } from './dimensions'
 
 /** 部隊の定員。 */
 export const SQUAD_SIZE: Record<UnitType, number> = { infantry: 70, pikeman: 50, archer: 60, cavalry: 35, supply: 20, engineer: 30 }
 /** 部隊の隊列（横の人数と間隔）。槍兵は横に長い横隊で、肩を並べて隙間なく並ぶ。 */
 const SQUAD_COLUMNS: Record<UnitType, number> = { infantry: 10, pikeman: 12, archer: 12, cavalry: 6, supply: 5, engineer: 6 }
-const SQUAD_SPACING: Record<UnitType, number> = { infantry: 4.9, pikeman: 4.6, archer: 5.2, cavalry: 7.5, supply: 5.2, engineer: 5.2 }
+/** 隊列の中の兵と兵の間隔（メートルで決める）。 */
+const SQUAD_SPACING: Record<UnitType, number> = { infantry: m(1.22), pikeman: m(1.15), archer: m(1.3), cavalry: m(1.9), supply: m(1.3), engineer: m(1.3) }
 /** 部隊同士の間隔。 */
 const GAP = 10
 /** 横一列に並べる部隊の数。超えた分は後ろの列に並べる。 */

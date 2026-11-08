@@ -290,17 +290,16 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
     if (style.style === 'dead') return createDeadTrees(trees, kit, style.barkColor ?? 0x4d463e)
     if (style.style === 'woodland') return createWoodlandTrees(trees, kit)
     if (style.style === 'snowy') return createWoodlandTrees(trees, kit, true)
-    const group = new THREE.Group()
-    // A branch spray with individual leaf silhouettes, shared by all crowns.
-    const leafMap = createLeafMap()
-    const leafMaterial = new THREE.MeshStandardMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .95, color: 0xced3b5 })
-    applyPlantSnow(leafMaterial, BROADLEAF_SNOW.low, BROADLEAF_SNOW.high)
+    return createBroadleafTrees(trees, kit)
+}
+
+/** 広葉樹の樹冠: 枝先の葉の房（count 枚）を、いびつな塊の中に散らして重ねる。遠くの木は枚数を減らし、1枚を大きくする。 */
+function broadleafCrown(count: number, size: number) {
     const parts: THREE.BufferGeometry[] = []
-    // Layer sprays throughout an irregular volume, rather than stacking cones.
-    for (let i = 0; i < 170; i++) {
-        const a = i * 2.399963, v = 1 - 2 * (i + .5) / 170
+    for (let i = 0; i < count; i++) {
+        const a = i * 2.399963, v = 1 - 2 * (i + .5) / count
         const r = Math.sqrt(1 - v * v), radius = .6 + .4 * (.5 + .5 * Math.sin(i * 13.7))
-        const geometry = new THREE.PlaneGeometry(4.8, 6, 1, 2)
+        const geometry = new THREE.PlaneGeometry(4.8 * size, 6 * size, 1, 2)
         const position = geometry.getAttribute('position')
         for (let j = 0; j < position.count; j++) position.setZ(j, Math.abs(position.getY(j)) * .18)
         geometry.rotateY(a + .8)
@@ -309,40 +308,111 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
         geometry.computeVertexNormals()
         parts.push(geometry)
     }
-    const crownGeometry = mergeGeometries(parts)!
+    const crown = mergeGeometries(parts)!
     parts.forEach(g => g.dispose())
-    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 12)
-    const trunks = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, trees.length)
-    const branches = new THREE.InstancedMesh(trunkGeometry, kit.surfaces.bark, trees.length * 5)
-    const leaves = new THREE.InstancedMesh(crownGeometry, leafMaterial, trees.length)
-    const dummy = new THREE.Object3D(), color = new THREE.Color(), up = new THREE.Vector3(0, 1, 0)
+    return crown
+}
+
+/** 広葉樹を区画に分ける大きさ（px）と、遠くの木に切り替える距離（px）。 */
+const BROADLEAF_CHUNK = 256
+const BROADLEAF_FAR = 520, BROADLEAF_MARGIN = 40
+
+/**
+ * 広葉樹。木を区画に分けて画面外の区画を描かず、遠くの区画は枝を省いて葉の房の少ない樹冠にする。
+ * 近い形と遠い形は同じ配置を共有する（拠点の建設で木を消すと両方から消える）。
+ */
+function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
+    const group = new THREE.Group()
+    // A branch spray with individual leaf silhouettes, shared by all crowns.
+    const leafMap = createLeafMap()
+    const leafMaterial = new THREE.MeshStandardMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .95, color: 0xced3b5 })
+    applyPlantSnow(leafMaterial, BROADLEAF_SNOW.low, BROADLEAF_SNOW.high)
+    const nearCrown = broadleafCrown(170, 1), farCrown = broadleafCrown(28, 1.9)
+    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 12), farTrunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 5)
+    const byChunk = new Map<string, number[]>()
     trees.forEach((tree, i) => {
-        dummy.rotation.set(0, 0, 0)
-        dummy.position.set(tree.x, tree.h + 8 * tree.scale, tree.z)
-        dummy.scale.set(.85 * tree.scale, 16 * tree.scale, .85 * tree.scale)
-        dummy.updateMatrix(); trunks.setMatrixAt(i, dummy.matrix)
-        for (let j = 0; j < 5; j++) {
-            const angle = j * 2.4 + i
-            const start = new THREE.Vector3(tree.x, tree.h + (7 + j * 1.2) * tree.scale, tree.z)
-            const end = new THREE.Vector3(tree.x + Math.cos(angle) * 5 * tree.scale, tree.h + (16 + j * .6) * tree.scale, tree.z + Math.sin(angle) * 5 * tree.scale)
-            const direction = end.clone().sub(start)
-            dummy.position.copy(start).lerp(end, .5)
-            dummy.quaternion.setFromUnitVectors(up, direction.clone().normalize())
-            dummy.scale.set(.28 * tree.scale, direction.length(), .28 * tree.scale)
-            dummy.updateMatrix(); branches.setMatrixAt(i * 5 + j, dummy.matrix)
-        }
-        dummy.rotation.set(0, i * 1.7, 0)
-        dummy.position.set(tree.x, tree.h + 19 * tree.scale, tree.z)
-        dummy.scale.set(tree.scale, tree.scale * (1 + .15 * Math.sin(i)), tree.scale)
-        dummy.updateMatrix(); leaves.setMatrixAt(i, dummy.matrix)
-        leaves.setColorAt(i, color.setHSL(.22 + .03 * Math.sin(i), .22, .54 + .1 * Math.sin(i * 2.8)))
+        const key = `${Math.floor(tree.x / BROADLEAF_CHUNK)},${Math.floor(tree.z / BROADLEAF_CHUNK)}`
+        byChunk.set(key, [...byChunk.get(key) ?? [], i])
     })
-    trunks.castShadow = branches.castShadow = leaves.castShadow = true
-    leaves.receiveShadow = true
-    group.add(trunks, branches, leaves)
-    return { group, parts: [[trunks, 1], [branches, 5], [leaves, 1]], destroy() {
-        trunks.dispose(); branches.dispose(); leaves.dispose()
-        trunkGeometry.dispose(); crownGeometry.dispose(); leafMaterial.dispose(); leafMap.dispose()
+    const dummy = new THREE.Object3D(), color = new THREE.Color(), up = new THREE.Vector3(0, 1, 0)
+    const start = new THREE.Vector3(), end = new THREE.Vector3(), direction = new THREE.Vector3()
+    const where: TreeInstance[][] = []
+    const meshes: THREE.InstancedMesh[] = []
+    const chunks = [...byChunk.values()].map(members => {
+        const trunkMatrices = new THREE.InstancedBufferAttribute(new Float32Array(members.length * 16), 16)
+        const branchMatrices = new THREE.InstancedBufferAttribute(new Float32Array(members.length * 5 * 16), 16)
+        const crownMatrices = new THREE.InstancedBufferAttribute(new Float32Array(members.length * 16), 16)
+        const colors = new THREE.InstancedBufferAttribute(new Float32Array(members.length * 3), 3)
+        const box = new THREE.Box3()
+        members.forEach((i, local) => {
+            const tree = trees[i]!
+            dummy.rotation.set(0, 0, 0)
+            dummy.position.set(tree.x, tree.h + 8 * tree.scale, tree.z)
+            dummy.scale.set(.85 * tree.scale, 16 * tree.scale, .85 * tree.scale)
+            dummy.updateMatrix(); dummy.matrix.toArray(trunkMatrices.array, local * 16)
+            box.expandByPoint(dummy.position)
+            for (let j = 0; j < 5; j++) {
+                const angle = j * 2.4 + i
+                start.set(tree.x, tree.h + (7 + j * 1.2) * tree.scale, tree.z)
+                end.set(tree.x + Math.cos(angle) * 5 * tree.scale, tree.h + (16 + j * .6) * tree.scale, tree.z + Math.sin(angle) * 5 * tree.scale)
+                direction.copy(end).sub(start)
+                dummy.position.copy(start).lerp(end, .5)
+                dummy.quaternion.setFromUnitVectors(up, direction.clone().normalize())
+                dummy.scale.set(.28 * tree.scale, direction.length(), .28 * tree.scale)
+                dummy.updateMatrix(); dummy.matrix.toArray(branchMatrices.array, (local * 5 + j) * 16)
+            }
+            dummy.rotation.set(0, i * 1.7, 0)
+            dummy.position.set(tree.x, tree.h + 19 * tree.scale, tree.z)
+            dummy.scale.set(tree.scale, tree.scale * (1 + .15 * Math.sin(i)), tree.scale)
+            dummy.updateMatrix(); dummy.matrix.toArray(crownMatrices.array, local * 16)
+            color.setHSL(.22 + .03 * Math.sin(i), .22, .54 + .1 * Math.sin(i * 2.8)).toArray(colors.array, local * 3)
+            box.expandByPoint(dummy.position)
+        })
+        box.expandByScalar(30)
+        const sphere = box.getBoundingSphere(new THREE.Sphere())
+        const instanced = (geometry: THREE.BufferGeometry, material: THREE.Material, matrices: THREE.InstancedBufferAttribute, count: number) => {
+            const mesh = new THREE.InstancedMesh(geometry, material, count)
+            mesh.instanceMatrix = matrices
+            mesh.boundingSphere = sphere
+            mesh.castShadow = true
+            meshes.push(mesh)
+            return mesh
+        }
+        const leavesOf = (geometry: THREE.BufferGeometry) => {
+            const leaves = instanced(geometry, leafMaterial, crownMatrices, members.length)
+            leaves.instanceColor = colors
+            leaves.receiveShadow = true
+            return leaves
+        }
+        const near = new THREE.Group(), far = new THREE.Group()
+        const trunks = instanced(trunkGeometry, kit.surfaces.bark, trunkMatrices, members.length)
+        const branches = instanced(trunkGeometry, kit.surfaces.bark, branchMatrices, members.length * 5)
+        const leaves = leavesOf(nearCrown)
+        near.add(trunks, branches, leaves)
+        far.add(instanced(farTrunkGeometry, kit.surfaces.bark, trunkMatrices, members.length), leavesOf(farCrown))
+        far.visible = false
+        group.add(near, far)
+        members.forEach((i, local) => {
+            where[i] = [[trunks, local], ...Array.from({ length: 5 }, (_, j) => [branches, local * 5 + j] as TreeInstance), [leaves, local]]
+        })
+        return { near, far, box, isFar: false }
+    })
+    const lastCamera = new THREE.Vector3(Infinity, 0, 0)
+    const update = (camera: THREE.Vector3) => {
+        if (lastCamera.distanceToSquared(camera) < 64) return
+        lastCamera.copy(camera)
+        for (const chunk of chunks) {
+            const distance = chunk.box.distanceToPoint(camera)
+            const isFar = distance > BROADLEAF_FAR + (chunk.isFar ? -BROADLEAF_MARGIN : BROADLEAF_MARGIN)
+            if (isFar === chunk.isFar) continue
+            chunk.isFar = isFar
+            chunk.near.visible = !isFar
+            chunk.far.visible = isFar
+        }
+    }
+    return { group, update, locate: (tree: number): TreeInstance[] => where[tree]!, destroy() {
+        meshes.forEach(mesh => mesh.dispose())
+        trunkGeometry.dispose(); farTrunkGeometry.dispose(); nearCrown.dispose(); farCrown.dispose(); leafMaterial.dispose(); leafMap.dispose()
     } }
 }
 

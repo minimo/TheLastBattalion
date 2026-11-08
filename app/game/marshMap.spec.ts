@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle } from './battle'
-import { TILE, TILE_PX } from './constants'
+import { LOGICAL_SIZE, TILE, TILE_PX } from './constants'
 import { generateMap } from './mapGenerator'
 import { marshFor } from './marsh'
 import { getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
@@ -77,7 +77,7 @@ describe('湿地', () => {
         // 周りの5×5マスがすべて沼か葦原で、敵陣から遠い所を探す。
         const wet = (x: number, y: number) => [TILE.MARSH, TILE.REEDS, TILE.REEDS_DENSE].includes(getPlayableTile(grid, x, y) as never)
         let spot: { x: number; y: number } | undefined
-        for (let y = PLAYABLE_GRID_MIN + 3; y <= PLAYABLE_GRID_MAX - 3 && !spot; y++) for (let x = PLAYABLE_GRID_MIN + 3; x <= 26 && !spot; x++) {
+        for (let y = PLAYABLE_GRID_MIN + 3; y <= PLAYABLE_GRID_MAX - 3 && !spot; y++) for (let x = PLAYABLE_GRID_MIN + 3; x <= LOGICAL_SIZE / 2 / TILE_PX && !spot; x++) {
             if ([-2, -1, 0, 1, 2].every(dy => [-2, -1, 0, 1, 2].every(dx => wet(x + dx, y + dy)))) spot = { x, y }
         }
         const plan = planConstruction(battle, 'player', 'outpost', { x: spot!.x * TILE_PX, y: spot!.y * TILE_PX })

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { WATER_HEIGHT } from './heightfield'
 import { TERRAIN_CENTER } from './landscape'
+import { WORLD_SCALE } from '../../game/constants'
 
 /**
  * 濃霧の日に地面の上を漂うもや。地形の起伏に沿わせた半透明の膜を高さを変えて重ね、膜ごとに違う速さと向きで、
@@ -9,7 +10,7 @@ import { TERRAIN_CENTER } from './landscape'
  */
 const MIST = {
     /** もやを置く範囲（戦場の中心からの半分の幅、px）、膜の頂点の間隔（px）、膜の高さを決めるために地面を測る間隔（px、地形の網と同じ細かさ）。 */
-    reach: 1248, spacing: 16, ground: 4,
+    reach: 1248 * WORLD_SCALE, spacing: 24, ground: 8,
     /**
      * 膜は low から high までの間に count 枚、等しい間隔で重ねる。上の膜ほど薄く（opacity）、模様が小さく（scale）、速く流れる（drift、px/秒、実時間）。
      * 横から見ると膜の高さで濃さが段になって帯に見えるので、薄い膜を多く重ねて濃さがなだらかに変わるようにする。

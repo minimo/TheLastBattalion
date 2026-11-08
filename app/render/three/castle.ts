@@ -2,14 +2,14 @@ import * as THREE from 'three'
 import { applySurfaceSnow } from './snowCover'
 import type { Fort } from '../../types/game'
 import {
-    CASTLE_DEPTH, CASTLE_GATE_HALF, CASTLE_RADII, CASTLE_SUMMIT, CASTLE_TOWER_ANGLES,
-    CASTLE_WIDTH, castleCell, castleOutline, castlePoint, castleRadius, castleRise,
+    CASTLE_PLAN_DEPTH, CASTLE_PLAN_STOREY, CASTLE_GATE_HALF, CASTLE_RADII, CASTLE_SCALE, CASTLE_SUMMIT, CASTLE_TOWER_ANGLES,
+    CASTLE_PLAN_WIDTH, castleCell, castleOutline, castlePoint, castleRadius, castleRise,
 } from '../../game/castleLayout'
 import { TILE_PX } from '../../game/constants'
 import { FACTION, type ModelKit } from './models'
 
-const CX = (CASTLE_DEPTH - 1) / 2
-const CY = (CASTLE_WIDTH - 1) / 2
+const CX = (CASTLE_PLAN_DEPTH - 1) / 2
+const CY = (CASTLE_PLAN_WIDTH - 1) / 2
 /** ローカルセル → 城のローカル座標（+X が前面、Z がセルの ly 方向）。 */
 const toLocal = (lx: number, ly: number) => ({ x: (lx - CX) * TILE_PX, z: (ly - CY) * TILE_PX })
 const surfaceAt = (x: number, z: number) => castleRise(x / TILE_PX + CX, z / TILE_PX + CY)
@@ -242,14 +242,14 @@ export function createCastle(fort: Fort, kit: ModelKit) {
         banner(gateX + 2, 56, 0, 14, 9)
 
         // ---- 山腹の家並み: 石造りの細長い家（3〜4階建て）、急勾配のスレート屋根、屋根窓と煙突 ----
-        for (let lx = 0; lx < CASTLE_DEPTH; lx++) for (let ly = 0; ly < CASTLE_WIDTH; ly++) {
+        for (let lx = 0; lx < CASTLE_PLAN_DEPTH; lx++) for (let ly = 0; ly < CASTLE_PLAN_WIDTH; ly++) {
             if (castleCell(lx, ly) !== 'house') continue
             const { x: cx, z: cz } = toLocal(lx, ly)
             const x = cx + (random() - .5) * 2, z = cz + (random() - .5) * 2
             const corners = [[-7, -7], [-7, 7], [7, -7], [7, 7]].map(([dx, dz]) => surfaceAt(x + dx!, z + dz!))
             const bottom = Math.min(...corners) - 6, floor = Math.max(...corners)
             const storeys = 2 + Math.floor(random() * 2.2) + (radiusAt(x, z) < .5 ? 1 : 0)
-            const top = floor + storeys * 6.2
+            const top = floor + storeys * CASTLE_PLAN_STOREY
             const width = 12.5 + random() * 3.5, depth = 11 + random() * 3
             const timbered = random() < .22
             const stone = pick(houseStones)
@@ -257,18 +257,18 @@ export function createCastle(fort: Fort, kit: ModelKit) {
             const facing = Math.atan2(z, x) + Math.PI / 2 + (random() - .5) * .25
             place(x, 0, z, -facing, g => {
                 if (timbered) {
-                    const upper = floor + 6.2
+                    const upper = floor + CASTLE_PLAN_STOREY
                     part(g, stoneBox(width, upper - bottom, depth), stone, 0, (upper + bottom) / 2, 0, 1, 1, 1)
                     part(g, box, plaster, 0, (top + upper) / 2, 0, width + .6, top - upper, depth + .6)
                     for (let t = -width / 2; t <= width / 2 + .01; t += width / 4) for (const side of [-1, 1]) part(g, box, beam, t, (top + upper) / 2, side * (depth / 2 + .35), .6, top - upper, .25)
-                    for (let y = upper; y <= top + .01; y += 6.2) for (const side of [-1, 1]) part(g, box, beam, 0, y, side * (depth / 2 + .4), width + .8, .6, .3)
+                    for (let y = upper; y <= top + .01; y += CASTLE_PLAN_STOREY) for (const side of [-1, 1]) part(g, box, beam, 0, y, side * (depth / 2 + .4), width + .8, .6, .3)
                 } else {
                     part(g, stoneBox(width, top - bottom, depth), stone, 0, (top + bottom) / 2, 0, 1, 1, 1)
-                    part(g, stoneBox(width + .5, .7, depth + .5), graniteDark, 0, floor + 6.2, 0, 1, 1, 1)
+                    part(g, stoneBox(width + .5, .7, depth + .5), graniteDark, 0, floor + CASTLE_PLAN_STOREY, 0, 1, 1, 1)
                 }
                 // 窓（階ごと）と、谷側の戸口
                 for (let k = 0; k < storeys; k++) {
-                    const y = floor + 3.6 + k * 6.2
+                    const y = floor + 3.6 + k * CASTLE_PLAN_STOREY
                     for (const t of width > 14 ? [-width / 3, 0, width / 3] : [-width / 4, width / 4]) {
                         for (const side of [-1, 1]) {
                             if (random() < .15) continue
@@ -479,14 +479,14 @@ export function createCastle(fort: Fort, kit: ModelKit) {
         banner(gateX + 2, 56, 0, 14, 9)
 
         // ---- 山腹の家並み: 屋根の落ちた石の家と、細い廃塔 ----
-        for (let lx = 0; lx < CASTLE_DEPTH; lx++) for (let ly = 0; ly < CASTLE_WIDTH; ly++) {
+        for (let lx = 0; lx < CASTLE_PLAN_DEPTH; lx++) for (let ly = 0; ly < CASTLE_PLAN_WIDTH; ly++) {
             if (castleCell(lx, ly) !== 'house') continue
             const { x: cx, z: cz } = toLocal(lx, ly)
             const x = cx + (random() - .5) * 2, z = cz + (random() - .5) * 2
             const corners = [[-7, -7], [-7, 7], [7, -7], [7, 7]].map(([dx, dz]) => surfaceAt(x + dx!, z + dz!))
             const bottom = Math.min(...corners) - 6, floor = Math.max(...corners)
             const storeys = 2 + Math.floor(random() * 2.2) + (radiusAt(x, z) < .5 ? 1 : 0)
-            const top = floor + storeys * 6.2
+            const top = floor + storeys * CASTLE_PLAN_STOREY
             const facing = Math.atan2(z, x) + Math.PI / 2 + (random() - .5) * .25
             if (random() < .2) {
                 ruinTower(x, z, 8 + random() * 2, bottom, top + 12 + random() * 18, random() < .5, -facing)
@@ -496,9 +496,9 @@ export function createCastle(fort: Fort, kit: ModelKit) {
             const stone = pick(houseStones)
             place(x, 0, z, -facing, g => {
                 part(g, stoneBox(width, top - bottom, depth), stone, 0, (top + bottom) / 2, 0, 1, 1, 1)
-                part(g, stoneBox(width + .5, .7, depth + .5), graniteDark, 0, floor + 6.2, 0, 1, 1, 1)
+                part(g, stoneBox(width + .5, .7, depth + .5), graniteDark, 0, floor + CASTLE_PLAN_STOREY, 0, 1, 1, 1)
                 for (let k = 0; k < storeys; k++) {
-                    const y = floor + 3.6 + k * 6.2
+                    const y = floor + 3.6 + k * CASTLE_PLAN_STOREY
                     for (const t of width > 14 ? [-width / 3, 0, width / 3] : [-width / 4, width / 4]) {
                         for (const side of [-1, 1]) if (random() < .8) opening(g, t, y, side * (depth / 2 + .1), 2.8)
                     }
@@ -620,12 +620,14 @@ export function createCastle(fort: Fort, kit: ModelKit) {
         mistUpdate = placeMist
     }
 
+    // 城は設計の寸法で組み、城の縮尺で建物ごと大きくする。
+    group.scale.setScalar(CASTLE_SCALE)
     group.position.set(fort.x, fort.groundHeight, fort.y)
     group.rotation.y = fort.front === 1 ? 0 : Math.PI
     return {
         group,
         /** 本陣の耐久の表示を、本陣の最も高い所の上に出す（本陣の地面からの高さ）。 */
-        labelHeight: crown + 8 - S,
+        labelHeight: (crown + 8 - S) * CASTLE_SCALE,
         update(time: number) {
             banners.forEach((b, i) => { b.rotation.y = Math.sin(time * 2 + i * 1.3) * .2 })
             mistUpdate?.(time)

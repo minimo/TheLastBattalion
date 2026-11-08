@@ -1,3 +1,4 @@
+import { m } from './dimensions'
 import type { Army, ConstructionKind, FortKind, UnitType } from '../types/game'
 
 export interface UnitStats {
@@ -18,20 +19,20 @@ export interface UnitStats {
 /** 人間軍: 歩兵・槍兵・弓兵・騎兵・補給兵・工兵 / 魔王軍: オーク歩兵・オーク槍兵・ゴブリン弓兵・狼騎兵・ゴブリン運び手・オーク工兵 */
 export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
     player: {
-        infantry: { hp: 110, attack: 12, cooldown: 1.0, range: 1.2, speed: 15, sight: 70, radius: 2.1 },
-        pikeman: { hp: 130, attack: 13, cooldown: 1.2, range: 4, speed: 12, sight: 60, radius: 2.2 },
-        archer: { hp: 65, attack: 9, cooldown: 1.8, range: 125, speed: 14, sight: 140, radius: 2 },
-        cavalry: { hp: 150, attack: 14, cooldown: 1.1, range: 1.6, speed: 45, sight: 100, radius: 3.4 },
-        supply: { hp: 70, attack: 3, cooldown: 1.6, range: 1.2, speed: 15, sight: 40, radius: 2.2 },
-        engineer: { hp: 90, attack: 6, cooldown: 1.3, range: 1.2, speed: 14, sight: 50, radius: 2.2 },
+        infantry: { hp: 110, attack: 12, cooldown: 1.0, range: 1.2, speed: 15, sight: 70, radius: m(.52) },
+        pikeman: { hp: 130, attack: 13, cooldown: 1.2, range: 4, speed: 12, sight: 60, radius: m(.55) },
+        archer: { hp: 65, attack: 9, cooldown: 1.8, range: 125, speed: 14, sight: 140, radius: m(.5) },
+        cavalry: { hp: 150, attack: 14, cooldown: 1.1, range: 1.6, speed: 45, sight: 100, radius: m(.85) },
+        supply: { hp: 70, attack: 3, cooldown: 1.6, range: 1.2, speed: 15, sight: 40, radius: m(.55) },
+        engineer: { hp: 90, attack: 6, cooldown: 1.3, range: 1.2, speed: 14, sight: 50, radius: m(.55) },
     },
     cpu: {
-        infantry: { hp: 125, attack: 12, cooldown: 1.1, range: 1.2, speed: 13.5, sight: 70, radius: 2.4 },
-        pikeman: { hp: 145, attack: 13, cooldown: 1.3, range: 4, speed: 11.5, sight: 60, radius: 2.4 },
-        archer: { hp: 55, attack: 8, cooldown: 1.7, range: 115, speed: 15, sight: 130, radius: 1.8 },
-        cavalry: { hp: 140, attack: 14, cooldown: 1.0, range: 1.6, speed: 49.5, sight: 100, radius: 3.4 },
-        supply: { hp: 60, attack: 2.5, cooldown: 1.6, range: 1.2, speed: 16, sight: 40, radius: 2 },
-        engineer: { hp: 100, attack: 7, cooldown: 1.4, range: 1.2, speed: 13, sight: 50, radius: 2.4 },
+        infantry: { hp: 125, attack: 12, cooldown: 1.1, range: 1.2, speed: 13.5, sight: 70, radius: m(.6) },
+        pikeman: { hp: 145, attack: 13, cooldown: 1.3, range: 4, speed: 11.5, sight: 60, radius: m(.6) },
+        archer: { hp: 55, attack: 8, cooldown: 1.7, range: 115, speed: 15, sight: 130, radius: m(.45) },
+        cavalry: { hp: 140, attack: 14, cooldown: 1.0, range: 1.6, speed: 49.5, sight: 100, radius: m(.85) },
+        supply: { hp: 60, attack: 2.5, cooldown: 1.6, range: 1.2, speed: 16, sight: 40, radius: m(.5) },
+        engineer: { hp: 100, attack: 7, cooldown: 1.4, range: 1.2, speed: 13, sight: 50, radius: m(.6) },
     },
 }
 

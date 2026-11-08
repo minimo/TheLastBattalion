@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle } from './battle'
-import { TILE, TILE_PX } from './constants'
+import { GRID_MAX, TILE, TILE_PX } from './constants'
 import { generateMap } from './mapGenerator'
 import { getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from './playableArea'
 import { createMulberry32, hashString } from './random'
@@ -36,7 +36,7 @@ describe('大河', () => {
             expect(battle.forts).toHaveLength(2)
             const [a, b] = battle.forts
             let water = 0, bridges = 0
-            for (let gy = 0; gy <= 52; gy++) for (let gx = 0; gx <= 52; gx++) {
+            for (let gy = 0; gy <= GRID_MAX; gy++) for (let gx = 0; gx <= GRID_MAX; gx++) {
                 const tile = battle.grid[gy]![gx]
                 if (tile === TILE.WATER) water++
                 if (tile === TILE.BRIDGE) bridges++

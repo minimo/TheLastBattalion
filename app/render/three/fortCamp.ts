@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Fort } from '../../types/game'
-import { FORT_DEPTH, FORT_STRUCTURES, FORT_WIDTH, isFortWallCell, type FortStructure } from '../../game/fortLayout'
+import { DIMENSIONS, m } from '../../game/dimensions'
+import { FORT_DEPTH, FORT_STRUCTURES, FORT_WIDTH, FRONT_GATE, isFortWallCell, SIDE_GATE, type FortStructure } from '../../game/fortLayout'
 import { TILE_PX } from '../../game/constants'
 import { FACTION, type ModelKit } from './models'
 
@@ -49,7 +50,7 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
 
     // 踏み固められた地面
     part(group, box, dirt, 0, .1, 0, FORT_DEPTH * TILE_PX, .3, FORT_WIDTH * TILE_PX)
-    part(group, box, dirt, cx(FORT_DEPTH + 1), .1, cz(7.5), TILE_PX * 4, .25, TILE_PX * 6)
+    part(group, box, dirt, cx(FORT_DEPTH + 1), .1, (cz(FRONT_GATE[0]!) + cz(FRONT_GATE[1]!)) / 2, TILE_PX * 4, .25, TILE_PX * 6)
 
     // ---- 柵（盛り土＋尖った丸太） ----
     for (let lx = 0; lx < FORT_DEPTH; lx++) for (let ly = 0; ly < FORT_WIDTH; ly++) {
@@ -60,8 +61,9 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
         const o = alongZ ? (lx === 0 ? -1 : 1) : (ly === 0 ? 1 : -1)
         place(cx(lx), cz(ly), alongZ ? 0 : Math.PI / 2, g => {
             part(g, box, dirt, 0, 1.2, 0, 9, 2.6, TILE_PX + .2)
+            // 丸太の尖った先まで柵の高さ（盛り土 2、尖り 1.8 を除いた分が丸太）。
             for (let t = -7.2; t <= 7.2; t += 1.8) {
-                const h = 10 + random() * 2.5
+                const h = m(DIMENSIONS.camp.palisade) - 3.8 + (random() - .5) * 2.5
                 const stake = part(g, lowCylinder, timber, .6 * o, 2 + h / 2, t, .85, h, .85)
                 stake.rotation.z = -.08 * o
                 part(g, cone, timber, stake.position.x - Math.sin(stake.rotation.z) * h / 2, 2 + h + .9, t, .85, 1.8, .85)
@@ -69,7 +71,7 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
             for (const y of [5, 9]) part(g, box, darkTimber, -.4 * o, y, 0, .5, .6, TILE_PX)
             // 内側の足場
             part(g, box, timber, -3.2 * o, 5.5, 0, 2.4, .5, TILE_PX)
-            if (!human && (lx + ly) % 3 === 0) part(g, sphere, bone, .6 * o, 14.4, 0, 1, 1.1, 1)
+            if (!human && (lx + ly) % 3 === 0) part(g, sphere, bone, .6 * o, m(DIMENSIONS.camp.palisade), 0, 1, 1.1, 1)
         })
     }
 
@@ -80,7 +82,7 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
             const post = part(g, lowCylinder, timber, x, tall / 2 + 2, z, .8, tall, .8)
             post.rotation.set(z * -.012, 0, x * .012)
         }
-        for (const y of [7, 13]) for (const side of [-1, 1]) {
+        for (let y = 7; y < tall; y += 6) for (const side of [-1, 1]) {
             part(g, box, darkTimber, side * 4, y, 0, .5, .5, 8.5)
             part(g, box, darkTimber, 0, y, side * 4, 8.5, .5, .5)
         }
@@ -98,11 +100,11 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
         if (!human) for (const x of [-5.4, 5.4]) part(g, sphere, bone, x, tall + 9.3, -5.4, .9, 1, .9)
         part(g, lowCylinder, iron, 0, tall + 16, 0, .15, 6, .15)
     })
-    for (const s of FORT_STRUCTURES) if (s.kind === 'tower') tower(s.lx, s.ly, 16)
-    for (const s of FORT_STRUCTURES) if (s.kind === 'gateTower') tower(s.lx, s.ly, 19)
+    for (const s of FORT_STRUCTURES) if (s.kind === 'tower') tower(s.lx, s.ly, m(DIMENSIONS.camp.tower))
+    for (const s of FORT_STRUCTURES) if (s.kind === 'gateTower') tower(s.lx, s.ly, m(DIMENSIONS.camp.gateTower))
 
     // ---- 正門と通用門 ----
-    const gateX = cx(FORT_DEPTH - 1), gateZ = (cz(7) + cz(8)) / 2
+    const gateX = cx(FORT_DEPTH - 1), gateZ = (cz(FRONT_GATE[0]!) + cz(FRONT_GATE[1]!)) / 2
     part(group, box, darkTimber, gateX, 23.5, gateZ, 2.4, 2.2, TILE_PX * 2 + 10)
     part(group, box, trim, gateX + 1.3, 19.5, gateZ, .2, 6, 12)
     for (const side of [-1, 1]) {
@@ -112,7 +114,7 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
     }
     if (!human) for (const z of [-10, 0, 10]) part(group, sphere, bone, gateX + 1.5, 26, gateZ + z, 1.3, 1.4, 1.3)
     for (const ly of [0, FORT_WIDTH - 1]) {
-        const z = cz(ly), x = (cx(5) + cx(6)) / 2
+        const z = cz(ly), x = (cx(SIDE_GATE[0]!) + cx(SIDE_GATE[1]!)) / 2
         for (const dx of [-14, 14]) part(group, lowCylinder, timber, x + dx, 8, z, 1.1, 16, 1.1)
         part(group, box, darkTimber, x, 15.5, z, 30, 1.4, 1.6)
     }
@@ -379,7 +381,7 @@ export function createFortCamp(fort: Fort, kit: ModelKit) {
     }
 
     // 外周の旗
-    for (const ly of [2, 13]) {
+    for (const ly of [2, FORT_WIDTH - 3]) {
         const x = cx(FORT_DEPTH - 1) - 4, z = cz(ly)
         part(group, lowCylinder, iron, x, 13, z, .22, 26, .22)
         const flag = part(group, curveCloth(5, 3.4), cloth(faction), x + 2.5, 23.5, z, 1, 1, 1)

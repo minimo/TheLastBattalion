@@ -8,8 +8,8 @@ import { createTerrainMeshes } from './terrainMesh'
 import { createScenery } from './scenery'
 import type { ModelKit } from './models'
 import { fortFootprint, fortGroundAt, gridToLocal, inForestClearing, localToWorld } from '../../game/fortLayout'
-import { getTerrainTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN } from '../../game/playableArea'
-import { CASTLE_DEPTH, CASTLE_WIDTH, castleCell, castleRadius } from '../../game/castleLayout'
+import { getTerrainTile } from '../../game/playableArea'
+import { CASTLE_DEPTH, CASTLE_WIDTH, castleCellAt, castleRadiusAt } from '../../game/castleLayout'
 import { mapTypeOf } from '../../game/mapType'
 import { MAP_THEME } from './mapTheme'
 import { marshCell, marshFor } from '../../game/marsh'
@@ -31,7 +31,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     } : undefined
     const inCastle = (x: number, y: number) => castles.some(fort => {
         const { lx, ly } = gridToLocal(fort, x / TILE_PX, y / TILE_PX)
-        return castleRadius(lx, ly) < 1.25
+        return castleRadiusAt(lx, ly) < 1.25
     })
     // 砦の敷地と正門前、城の周りには木・岩・草を置かない。
     const reserved = (x: number, y: number) => inCastle(x, y) || foundations.some(f => x > f.minX - 14 && x < f.maxX + 14 && y > f.minY - 14 && y < f.maxY + 14)
@@ -96,9 +96,9 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
             }
         }
     }
-    // 森林: 部隊の動ける範囲のすべての林のマスに木を1本ずつ立て、陣地の周りの伐採地には切り株を残す。
+    // 森林: 遠景の端まで、すべての林のマスに木を1本ずつ立て、陣地の周りの伐採地には切り株を残す。
     const stumps: typeof trees = []
-    if (mapType === 'forest') for (let j = PLAYABLE_GRID_MIN; j <= PLAYABLE_GRID_MAX; j++) for (let i = PLAYABLE_GRID_MIN; i <= PLAYABLE_GRID_MAX; i++) {
+    if (mapType === 'forest') for (let j = 0; j < grid.length; j++) for (let i = 0; i < grid.length; i++) {
         const t = getTerrainTile(source, i, j)
         const tx = i * TILE_PX + Math.sin(i * 17 + j * 31) * 5, tz = j * TILE_PX + Math.cos(i * 13 + j * 7) * 5
         if (reserved(tx, tz)) continue
@@ -114,7 +114,7 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     if (reeds) group.add(reeds.mesh)
     // 城の裏手の斜面の林（本陣の棟が建つ頂の裏手には植えない）。
     for (const fort of castles) for (let lx = 0; lx < CASTLE_DEPTH; lx++) for (let ly = 0; ly < CASTLE_WIDTH; ly++) {
-        if (castleCell(lx, ly) !== 'grove' || castleRadius(lx, ly) < .5 || Math.sin(lx * 12.9898 + ly * 78.233) * 43758.5453 % 1 > .1) continue
+        if (castleCellAt(lx, ly) !== 'grove' || castleRadiusAt(lx, ly) < .5 || Math.sin(lx * 12.9898 + ly * 78.233) * 43758.5453 % 1 > .1) continue
         const p = localToWorld(fort, lx + Math.sin(lx * 7.1 + ly) * .3, ly + Math.cos(ly * 5.3 + lx) * .3)
         trees.push({ x: p.x, z: p.y, h: field.heightAt(p.x, p.y) - 1, scale: .6 + .25 * (1 + Math.sin(lx * 3 + ly)) })
     }

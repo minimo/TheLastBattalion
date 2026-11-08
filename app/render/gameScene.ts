@@ -2,6 +2,9 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getNightAlpha } from '~/game/daynight'
+import { LOGICAL_SIZE, WORLD_SCALE } from '~/game/constants'
+import { m } from '~/game/dimensions'
+import { BATTLEFIELD_SIZE, PLAYABLE_MAX, PLAYABLE_MIN } from '~/game/playableArea'
 import { isSiteKnown, isSpotted, isSquadSeen, isVisibleAt, siteInView } from '~/game/vision'
 import type { useGameStore } from '~/stores/game'
 import type { BattleInput } from '~/composables/useBattleInput'
@@ -48,6 +51,15 @@ const TYPE_ORDER: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'sup
 const COMPANY_LABEL_HEIGHT = 34
 /** カメラから中隊までがこれより遠いと、その中隊の小隊の旗を隠して中隊の旗だけを出す（選んでいる小隊・中隊の小隊の旗は出す）。 */
 const SQUAD_LABEL_DISTANCE = 800
+/**
+ * 最初の視点（画面が横長のとき）。自陣を画面の下に置き、敵の方を向く。
+ * ahead: 注視点を自陣の本拠地から敵の方へ出す距離 / back・up: カメラを自陣の本拠地から後ろへ引く距離と高さ。
+ */
+const INITIAL_VIEW = { ahead: m(300), back: m(320), up: m(360) }
+/** 両軍の陣地が収まる、注視点からカメラまでの距離（メートル）。いちばん引いた視点の目安。 */
+const OVERVIEW_DISTANCE = 850
+/** 編成中に画面の右を覆う編成パネルの幅（右端の余白を含む、px）。DeploymentEditor の .deploy-dock と合わせる。 */
+const DEPLOY_PANEL_WIDTH = 560
 /** 兵の中心（兵がいなければ undefined）。 */
 const membersCenter = (members: { x: number; y: number }[] | undefined) => members?.length
     ? { x: members.reduce((sum, s) => sum + s.x, 0) / members.length, y: members.reduce((sum, s) => sum + s.y, 0) / members.length }
@@ -81,7 +93,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     environmentScene.dispose()
     pmrem.dispose()
     // 手前の描画距離を詰めすぎると遠くの深度の精度が落ち、壁と窓のように近接した面がちらつく。
-    const camera = new THREE.PerspectiveCamera(42, 16 / 9, 8, 12000)
+    const camera = new THREE.PerspectiveCamera(42, 16 / 9, 8, 12000 * WORLD_SCALE)
     const controls = new OrbitControls(camera, canvasEl)
     controls.enableDamping = true
     controls.enablePan = true
@@ -216,18 +228,29 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         zoomOrigin = null
         controls.enableDamping = false
         controls.update() // Flush any rotation momentum before restoring the view.
-        // 自軍の真後ろから敵軍の方を望む。注視点は両軍の本拠地の中間。
+        // 自軍の後ろ上空から陣地の正面の方を望む。自陣が画面の下に来るよう、注視点は自陣の少し前。
         const homes = gameStore.battle?.homes
-        const own = homes?.player ?? { x: 416 - 700, y: 416 }, enemy = homes?.cpu ?? { x: 416 + 700, y: 416 }
-        const toEnemy = new THREE.Vector2(enemy.x - own.x, enemy.y - own.y)
+        const center = LOGICAL_SIZE / 2
+        const own = homes?.player ?? { x: center - BATTLEFIELD_SIZE / 2, y: center }, enemy = homes?.cpu ?? { x: center + BATTLEFIELD_SIZE / 2, y: center }
+        // 陣地の正面（front: +1 は +X、-1 は -X）の向きを見る。陣地と敵の位置がずれていても、陣地をまっすぐ見下ろす。
+        const toEnemy = homes?.player ? new THREE.Vector2(homes.player.front, 0) : new THREE.Vector2(enemy.x - own.x, enemy.y - own.y)
         if (toEnemy.lengthSq() < 1) toEnemy.set(1, 0)
         toEnemy.normalize()
-        const midX = (own.x + enemy.x) / 2, midZ = (own.y + enemy.y) / 2
-        controls.target.set(midX, 24, midZ)
         const fit = Math.max(1, 1.6 / camera.aspect)
-        camera.position.set(midX - toEnemy.x * 1480 * fit, 24 + 820 * fit, midZ - toEnemy.y * 1480 * fit)
-        // Allow only a little extra zoom-out beyond the view fitted to the screen.
-        controls.maxDistance = camera.position.distanceTo(controls.target) * 1.1
+        const target = new THREE.Vector3(own.x + toEnemy.x * INITIAL_VIEW.ahead, 24, own.y + toEnemy.y * INITIAL_VIEW.ahead)
+        camera.position.set(own.x - toEnemy.x * INITIAL_VIEW.back * fit, 24 + INITIAL_VIEW.up * fit, own.y - toEnemy.y * INITIAL_VIEW.back * fit)
+        // 編成中は右側が編成パネルで隠れるので、カメラごと右へずらして景色を左へ寄せる（パネルの幅の4分の1）。
+        // ずらす幅は自陣までの距離で決める（近くの物ほど画面で大きく動くので、注視点の距離で決めると自陣が寄りすぎる）。
+        const width = canvasEl.clientWidth
+        if (gameStore.status === 'deploying' && width > DEPLOY_PANEL_WIDTH * 1.5) {
+            const visibleWidth = 2 * camera.position.distanceTo(new THREE.Vector3(own.x, 24, own.y)) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect
+            const shift = visibleWidth * DEPLOY_PANEL_WIDTH / width / 4
+            const right = new THREE.Vector3(-toEnemy.y, 0, toEnemy.x).multiplyScalar(shift)
+            target.add(right); camera.position.add(right)
+        }
+        controls.target.copy(target)
+        // 引けるのは、戦場全体（両軍の陣地）を見渡せる距離の少し先まで。
+        controls.maxDistance = Math.max(camera.position.distanceTo(controls.target), m(OVERVIEW_DISTANCE) * fit) * 1.1
         camera.zoom = 1
         camera.updateProjectionMatrix()
         controls.update()
@@ -242,12 +265,20 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     }
     const sky = new THREE.HemisphereLight(0xc8e5e4, 0x56634d, 2.2)
     const sun = new THREE.DirectionalLight(0xffdeb3, 3)
-    sun.position.set(200, 750, 200)
-    sun.target.position.set(416, 0, 416)
+    // 影を落とす範囲は戦場全体には広げず、カメラの注視点の周りに付いて動かす（影の細かさを保つ）。
+    const SUN_OFFSET = new THREE.Vector3(-216, 750, -216), SHADOW_HALF = 1200
+    sun.position.set(LOGICAL_SIZE / 2, 0, LOGICAL_SIZE / 2).add(SUN_OFFSET)
+    sun.target.position.set(LOGICAL_SIZE / 2, 0, LOGICAL_SIZE / 2)
     sun.castShadow = true
-    // Cover both camps at the edges of the battlefield.
     sun.shadow.mapSize.set(4096, 4096)
-    Object.assign(sun.shadow.camera, { left: -800, right: 800, top: 800, bottom: -800, near: 1, far: 2000 })
+    Object.assign(sun.shadow.camera, { left: -SHADOW_HALF, right: SHADOW_HALF, top: SHADOW_HALF, bottom: -SHADOW_HALF, near: 1, far: 2600 })
+    /** 影の範囲を注視点へ寄せる。影の網目の大きさ単位で動かし、動かすたびに影の縁がちらつかないようにする。 */
+    const shadowTexel = SHADOW_HALF * 2 / 4096
+    const followShadow = () => {
+        const x = Math.round(controls.target.x / shadowTexel) * shadowTexel, z = Math.round(controls.target.z / shadowTexel) * shadowTexel
+        sun.target.position.set(x, 0, z)
+        sun.position.set(x, 0, z).add(SUN_OFFSET)
+    }
     sun.shadow.bias = -.0004
     sun.shadow.normalBias = 1.2
     scene.add(sky, sun, sun.target)
@@ -688,6 +719,14 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         updateFocus(delta)
         const targetBefore = controls.target.clone()
         controls.update()
+        // 注視点は部隊の動ける範囲の中に留める（外へ出る分だけ、カメラごと押し戻す）。
+        const clampedX = Math.max(PLAYABLE_MIN, Math.min(PLAYABLE_MAX, controls.target.x))
+        const clampedZ = Math.max(PLAYABLE_MIN, Math.min(PLAYABLE_MAX, controls.target.z))
+        if (clampedX !== controls.target.x || clampedZ !== controls.target.z) {
+            const shiftX = clampedX - controls.target.x, shiftZ = clampedZ - controls.target.z
+            controls.target.x += shiftX; controls.target.z += shiftZ
+            camera.position.x += shiftX; camera.position.z += shiftZ
+        }
         // パンで注視点が動いたら、引いたときに戻る先を忘れる。
         if (controls.target.distanceToSquared(targetBefore) > 1e-4) zoomOrigin = null
         // Keep the camera above hills when orbiting close to the terrain.
@@ -703,7 +742,8 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2, gameStore.dayTime)
         const visible = gameStore.status !== 'title'
         precipitation.update(camera, visible ? weather : NO_FALL, getNightAlpha(gameStore.dayTime) * 2, delta)
-        if (scene.fog) mist.update(visible ? weather.mist : 0, world.field.heightAt, scene.fog.color, getNightAlpha(gameStore.dayTime) * 2, delta)
+        // 白く保つ霧は、夜でも薄くしない。
+        if (scene.fog) mist.update(visible ? weather.mist : 0, world.field.heightAt, scene.fog.color, getNightAlpha(gameStore.dayTime) * 2 * (1 - weather.pale), delta)
         labels.hidden = !visible
         world.group.visible = visible
         army.group.visible = visible
@@ -719,6 +759,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             sky.intensity = (1.7 - night * .9) * light.sunScale * weather.sky
             sun.intensity = (2.5 - night * 1.8) * light.sunScale * weather.sun
             sun.color.copy(night > .5 ? sunNight : sunDay)
+            followShadow()
             world.update(animationTime)
             const battle = gameStore.battle!
             // 雪原はもとから白いので積もらせない。

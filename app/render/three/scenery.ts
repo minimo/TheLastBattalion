@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { PLAYABLE_MAX, PLAYABLE_MIN } from '../../game/playableArea'
 import { createMulberry32, hashString } from '../../game/random'
+import { WORLD_SCALE as S } from '../../game/constants'
+import { TERRAIN_CENTER } from './landscape'
 import { createLandscape } from './landscape'
 import type { ModelKit } from './models'
 import type { MapTheme } from './mapTheme'
@@ -14,17 +16,19 @@ export function createScenery(grid: number[][], reserved: (x: number, y: number)
     const trees: { x: number; z: number; h: number; scale: number }[] = []
     const rocks: { x: number; y: number; h: number; size: number }[] = []
     const grass: { x: number; y: number; h: number; size: number }[] = []
-    for (let i = 0; i < 9000; i++) {
-        const x = -750 + random() * 2350, y = -750 + random() * 2350
+    // 戦場が広いほど、同じ密度になるよう数を増やす。
+    const area = S * S, half = 1175 * S
+    for (let i = 0; i < 9000 * area; i++) {
+        const x = TERRAIN_CENTER - half + random() * half * 2, y = TERRAIN_CENTER - half + random() * half * 2
         const h = heightAt(x, y), outside = landscape.distanceOutside(x, y)
         if (h < 5 || reserved(x, y)) continue
         const slope = Math.hypot(heightAt(x + 3, y) - heightAt(x - 3, y), heightAt(x, y + 3) - heightAt(x, y - 3)) / 6
         if (slope > .85) continue
         const patch = landscape.noise(x * .011, y * .011)
         const inPlayable = x > PLAYABLE_MIN && x < PLAYABLE_MAX && y > PLAYABLE_MIN && y < PLAYABLE_MAX
-        if (outside > 4 && outside < 650 && patch > .1 && !(theme.trees.style === 'woodland' && inPlayable) && trees.length < theme.trees.outsideCount) trees.push({ x, z: y, h: h - .5, scale: .85 + random() * .7 })
-        if (h > theme.rocks.above && patch < -.3 && rocks.length < theme.rocks.count) rocks.push({ x, y, h, size: (outside > 100 ? 5 : 1.8) + random() * (outside > 100 ? 12 : 3) })
-        if (h < 100 && outside < 350 && grass.length < theme.grass.count) grass.push({ x, y, h, size: .6 + random() * 1.2 })
+        if (outside > 4 && outside < 650 * S && patch > .1 && !(theme.trees.style === 'woodland' && inPlayable) && trees.length < theme.trees.outsideCount * area) trees.push({ x, z: y, h: h - .5, scale: .85 + random() * .7 })
+        if (h > theme.rocks.above && patch < -.3 && rocks.length < theme.rocks.count * area) rocks.push({ x, y, h, size: (outside > 100 ? 5 : 1.8) + random() * (outside > 100 ? 12 : 3) })
+        if (h < 100 && outside < 350 * S && grass.length < theme.grass.count * area) grass.push({ x, y, h, size: .6 + random() * 1.2 })
     }
     const group = new THREE.Group()
     const stoneGeometry = new THREE.IcosahedronGeometry(1, 2)

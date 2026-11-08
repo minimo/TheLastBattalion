@@ -1,9 +1,14 @@
 import { createNoise2D } from 'simplex-noise'
-import { GRID_MAX, GRID_SIZE, LOGICAL_SIZE, RANK_CONFIG, TILE, TILE_PX } from './constants'
+import { GENERATION_SPAN as SPAN, GRID_MAX, GRID_SIZE, RANK_CONFIG, TILE, TILE_PX, WORLD_SCALE as S } from './constants'
 import { registerMapType, TERRAIN_PROFILE } from './mapType'
 import type { Base, MapType, Owner, Rank } from '../types/game'
 
 export type RandomFn = () => number
+
+/** 生成の基準の範囲（SPAN マス四方）の、マス目の中での左上の位置。マス目は基準の範囲より広く、地形は外へも同じ作り方で続く。 */
+const ORIGIN = (GRID_MAX - SPAN) / 2
+/** マス目の一辺が、基準の範囲の何倍か。 */
+const EXTENT = GRID_MAX / SPAN
 
 export function createBase(id: string, owner: Owner, rank: Rank, isCore: boolean, x: number, y: number, initialProduction?: number): Base {
     const config = RANK_CONFIG[rank]
@@ -27,17 +32,16 @@ export function createBase(id: string, owner: Owner, rank: Rank, isCore: boolean
 
 /**
  * 大河: 両軍の砦の間（グリッドの中央の列の辺り）を、上の端から下の端までゆるく蛇行して流れる。
- * 端から先は描画の地形が川を延ばすので、部隊の動ける範囲の端まで切れ目なく続く。
- * 橋は2〜3本で、3列の幅で架ける（両岸の取り付けの周りは平地にする）。
+ * 橋は基準の範囲の中に2〜3本で、3列の幅で架ける（両岸の取り付けの周りは平地にする）。
  */
 function carveGreatRiver(mapGrid: number[][], rnd: RandomFn) {
     const meander = createNoise2D(rnd)
-    const centerAt = (y: number) => GRID_MAX / 2 + meander(y / 22, 3.7) * 4
-    const halfWidthAt = (y: number) => 4.6 + meander(y / 9, 11.3) * .6
+    const centerAt = (y: number) => GRID_MAX / 2 + meander(y / (22 * S), 3.7) * 4 * S
+    const halfWidthAt = (y: number) => (4.6 + meander(y / (9 * S), 11.3) * .6) * S
     for (let y = 0; y <= GRID_MAX; y++) for (let x = 0; x <= GRID_MAX; x++) {
         if (Math.abs(x - centerAt(y)) <= halfWidthAt(y)) mapGrid[y]![x] = TILE.WATER
     }
-    const slots = rnd() < .5 ? [[8, 15], [22, 30], [37, 44]] : [[11, 19], [33, 41]]
+    const slots = (rnd() < .5 ? [[8, 15], [22, 30], [37, 44]] : [[11, 19], [33, 41]]).map(([from, to]) => [ORIGIN + from! * S, ORIGIN + to! * S])
     for (const [from, to] of slots) {
         const middle = from! + Math.floor(rnd() * (to! - from! + 1))
         for (let y = middle - 1; y <= middle + 1; y++) {
@@ -56,20 +60,21 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
     const bases: Base[] = []
     const profile = TERRAIN_PROFILE[type]
 
-    // Logical coordinate system: 0 to 832 (52 * 16)
-    const size = LOGICAL_SIZE
-    const margin = 100
-    const minDistance = 100
+    // 拠点は基準の範囲（左上が offset px、一辺が size px）の中に置く。
+    const size = SPAN * TILE_PX, offset = ORIGIN * TILE_PX
+    const margin = 100 * S
+    const minDistance = 100 * S
 
-    // 1. Generate Map (51x51 logic grid for 800x800 area with step 16)
+    // 1. Generate Map（GRID_SIZE 四方のマス目。1マス TILE_PX）
     const noise2D_elev = createNoise2D(rnd)
     const noise2D_moist = createNoise2D(rnd)
     const mapGrid = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(0))
 
     for (let y = 0; y <= GRID_MAX; y++) {
         for (let x = 0; x <= GRID_MAX; x++) {
-            const nx = x / GRID_MAX - 0.5
-            const ny = y / GRID_MAX - 0.5
+            // 基準の範囲で -0.5〜0.5。外へも同じ細かさで続く。
+            const nx = (x - GRID_MAX / 2) / SPAN
+            const ny = (y - GRID_MAX / 2) / SPAN
             // FBM (Fractal Brownian Motion)
             let e = noise2D_elev(nx * 3, ny * 3) + 0.5 * noise2D_elev(nx * 6, ny * 6)
             e = e / 1.5 // normalize
@@ -97,15 +102,19 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
         const isHorizontal = rnd() < 0.5
         let startX: number, startY: number, endX: number, endY: number
 
+        // 基準の範囲の両端での位置を決め、同じ向きのままマス目の端まで延ばす。
+        const from = ORIGIN + Math.floor(rnd() * 42 * S) + 5 * S
+        const to = ORIGIN + Math.floor(rnd() * 42 * S) + 5 * S
+        const slope = (to - from) / SPAN
         if (isHorizontal) {
             startX = 0
-            startY = Math.floor(rnd() * 42) + 5
+            startY = from - slope * ORIGIN
             endX = GRID_MAX
-            endY = Math.floor(rnd() * 42) + 5
+            endY = to + slope * ORIGIN
         } else {
-            startX = Math.floor(rnd() * 42) + 5
+            startX = from - slope * ORIGIN
             startY = 0
-            endX = Math.floor(rnd() * 42) + 5
+            endX = to + slope * ORIGIN
             endY = GRID_MAX
         }
 
@@ -114,7 +123,7 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
         const recordPoint = (nx: number, ny: number) => {
             if (mapGrid[ny] && mapGrid[ny]![nx] !== undefined) {
                 mapGrid[ny]![nx] = TILE.WATER // Water
-                if (nx >= 2 && nx <= 50 && ny >= 2 && ny <= 50) {
+                if (nx >= 2 && nx <= GRID_MAX - 2 && ny >= 2 && ny <= GRID_MAX - 2) {
                     if (!riverPoints.find(p => p.x === nx && p.y === ny)) {
                         riverPoints.push({ x: nx, y: ny })
                     }
@@ -135,8 +144,8 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
                 const ly = y0 + (y1 - y0) * t
                 // Decreased frequency (lx/20) and amplitude (4) for smoother rivers
                 // Fade the meander out at both ends so the river starts and ends exactly on its endpoints (map edge / parent river).
-                const taper = Math.min(1, t * dist / 6, (1 - t) * dist / 6)
-                const offset = riverNoise(lx / 20, ly / 20) * 4 * taper
+                const taper = Math.min(1, t * dist / (6 * S), (1 - t) * dist / (6 * S))
+                const offset = riverNoise(lx / (20 * S), ly / (20 * S)) * 4 * S * taper
                 const pdx = -(y1 - y0) / (dist || 1)
                 const pdy = (x1 - x0) / (dist || 1)
                 const nx = Math.round(lx + pdx * offset)
@@ -168,11 +177,11 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
             let branchEndX: number, branchEndY: number
 
             if (isHorizontal) {
-                branchEndX = Math.max(0, Math.min(GRID_MAX, branchStartX + (rnd() - 0.5) * GRID_MAX))
+                branchEndX = Math.max(0, Math.min(GRID_MAX, branchStartX + (rnd() - 0.5) * SPAN))
                 branchEndY = rnd() < 0.5 ? 0 : GRID_MAX
             } else {
                 branchEndX = rnd() < 0.5 ? 0 : GRID_MAX
-                branchEndY = Math.max(0, Math.min(GRID_MAX, branchStartY + (rnd() - 0.5) * GRID_MAX))
+                branchEndY = Math.max(0, Math.min(GRID_MAX, branchStartY + (rnd() - 0.5) * SPAN))
             }
             carveRiverPath(branchStartX, branchStartY, branchEndX, branchEndY)
         }
@@ -180,7 +189,8 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
 
     // 川が全て生成された後に橋をかける
     // Add 2 to 4 bridges per river system
-    const maxBridges = profile.water === 'ice' ? 0 : numRivers * (2 + Math.floor(rnd() * 3)) // numRivers * (2 to 4)
+    // 川1本あたり (2〜4) × 戦場の倍率。川は基準の範囲の外へも続くので、長さの分だけ増やす。
+    const maxBridges = profile.water === 'ice' ? 0 : Math.round(numRivers * (2 + Math.floor(rnd() * 3)) * S * EXTENT)
     for (let b = 0; b < maxBridges; b++) {
         if (riverPoints.length === 0) break
 
@@ -221,31 +231,32 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
             if (point) {
                 mapGrid[point.y]![point.x] = TILE.BRIDGE // Set to bridge
                 // Remove surrounding points to avoid clustered bridges
-                riverPoints.splice(Math.max(0, validIdx - 8), 16)
+                riverPoints.splice(Math.max(0, validIdx - 8 * S), 16 * S)
                 continue
             }
         }
 
         // If no valid straight point found after attempts, just remove a random one to prevent infinite loops on tiny rivers
         const failIdx = Math.floor(rnd() * riverPoints.length)
-        riverPoints.splice(Math.max(0, failIdx - 8), 16)
+        riverPoints.splice(Math.max(0, failIdx - 8 * S), 16 * S)
     }
     // オアシス: 丸い池をヤシの林が囲む。中央から離して置く（砦の配置は中央から陸を辿る）。
     const [minOases, maxOases] = profile.oases
-    const oasisCount = maxOases ? minOases + Math.floor(rnd() * (maxOases - minOases + 1)) : 0
+    // 数は基準の範囲あたり。マス目全体の広さの分だけ増やす。
+    const oasisCount = maxOases ? Math.round((minOases + Math.floor(rnd() * (maxOases - minOases + 1))) * EXTENT * EXTENT) : 0
     const oases: { x: number; y: number }[] = []
-    for (let attempt = 0; oases.length < oasisCount && attempt < 100; attempt++) {
-        const cx = 8 + rnd() * (GRID_MAX - 16), cy = 8 + rnd() * (GRID_MAX - 16)
-        if (Math.hypot(cx - GRID_MAX / 2, cy - GRID_MAX / 2) < 10 || oases.some(o => Math.hypot(o.x - cx, o.y - cy) < 16)) continue
+    for (let attempt = 0; oases.length < oasisCount && attempt < 100 * EXTENT * EXTENT; attempt++) {
+        const cx = 8 * S + rnd() * (GRID_MAX - 16 * S), cy = 8 * S + rnd() * (GRID_MAX - 16 * S)
+        if (Math.hypot(cx - GRID_MAX / 2, cy - GRID_MAX / 2) < 10 * S || oases.some(o => Math.hypot(o.x - cx, o.y - cy) < 16 * S)) continue
         oases.push({ x: cx, y: cy })
-        const radius = 1.8 + rnd() * 1.2, phase = rnd() * Math.PI * 2
-        for (let y = Math.floor(cy - radius - 4); y <= Math.ceil(cy + radius + 4); y++) for (let x = Math.floor(cx - radius - 4); x <= Math.ceil(cx + radius + 4); x++) {
+        const radius = (1.8 + rnd() * 1.2) * S, phase = rnd() * Math.PI * 2
+        for (let y = Math.floor(cy - radius - 4 * S); y <= Math.ceil(cy + radius + 4 * S); y++) for (let x = Math.floor(cx - radius - 4 * S); x <= Math.ceil(cx + radius + 4 * S); x++) {
             if (!mapGrid[y] || mapGrid[y]![x] === undefined) continue
             const angle = Math.atan2(y - cy, x - cx), d = Math.hypot(x - cx, y - cy)
             const edge = radius * (1 + .2 * Math.sin(angle * 3 + phase))
             if (d <= edge) mapGrid[y]![x] = TILE.WATER
-            else if (d <= edge + 2.6 && rnd() < .75) mapGrid[y]![x] = TILE.WOOD
-            else if (d <= edge + 3.2 && mapGrid[y]![x] === TILE.MOUNTAIN) mapGrid[y]![x] = TILE.GRASS
+            else if (d <= edge + 2.6 * S && rnd() < .75) mapGrid[y]![x] = TILE.WOOD
+            else if (d <= edge + 3.2 * S && mapGrid[y]![x] === TILE.MOUNTAIN) mapGrid[y]![x] = TILE.GRASS
         }
     }
 
@@ -323,7 +334,7 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
     while (!landsConnected && landConnectAttempts < 10) {
         landConnectAttempts++;
         const visitedGrid = new Set<number>();
-        const key = (x: number, y: number) => y * 53 + x;
+        const key = (x: number, y: number) => y * GRID_SIZE + x;
         const landGroups: { x: number, y: number }[][] = [];
 
         for (let y = 0; y <= GRID_MAX; y++) {
@@ -356,7 +367,7 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
                         }
                     }
                     // 一定以上の広さを持つ陸地のみ（広さ20超）
-                    if (group.length > 20) {
+                    if (group.length > 20 * S * S) {
                         landGroups.push(group);
                     }
                 }
@@ -472,14 +483,14 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
     }
 
     // Player Core (Bottom-Left map corner)
-    placeCore('p-core', 'player', 48, size - 48, 16, -16)
+    placeCore('p-core', 'player', offset + 48 * S, offset + size - 48 * S, 16, -16)
 
     // CPU Core (Top-Right map corner)
-    placeCore('c-core', 'cpu', size - 48, 48, -16, 16)
+    placeCore('c-core', 'cpu', offset + size - 48 * S, offset + 48 * S, -16, 16)
 
     // 固定の中立砦 (左上と右下)
     // 左上: (margin, margin) 付近
-    let luX = margin, luY = margin;
+    let luX = offset + margin, luY = offset + margin;
     let luAttempts = 0;
     while (!isValidBaseLocation(luX, luY) && luAttempts < 50) {
         luX += TILE_PX; luY += TILE_PX; luAttempts++;
@@ -487,7 +498,7 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
     bases.push(createBase('n-fort-lu', 'neutral', 2, false, luX, luY, 50));
 
     // 右下: (size - margin, size - margin) 付近
-    let rdX = size - margin, rdY = size - margin;
+    let rdX = offset + size - margin, rdY = offset + size - margin;
     let rdAttempts = 0;
     while (!isValidBaseLocation(rdX, rdY) && rdAttempts < 50) {
         rdX -= TILE_PX; rdY -= TILE_PX; rdAttempts++;
@@ -499,8 +510,8 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
     let fortAttempts = 0;
     while (bases.filter(b => b.owner === 'neutral' && b.rank === 2).length < 2 + extraFortsCount && fortAttempts < 200) {
         fortAttempts++;
-        const x = margin + rnd() * (size - margin * 2);
-        const y = margin + rnd() * (size - margin * 2);
+        const x = offset + margin + rnd() * (size - margin * 2);
+        const y = offset + margin + rnd() * (size - margin * 2);
         if (isValidBaseLocation(x, y)) {
             const id = `n-fort-${bases.length}`;
             bases.push(createBase(id, 'neutral', 2, false, x, y, 50));
@@ -512,8 +523,8 @@ export function generateMap(rnd: RandomFn, type: MapType = 'standard'): { mapGri
     let neutralAttempts = 0;
     while (bases.filter(b => b.owner === 'neutral' && b.rank === 1).length < villageCount && neutralAttempts < 500) {
         neutralAttempts++
-        const x = margin + rnd() * (size - margin * 2)
-        const y = margin + rnd() * (size - margin * 2)
+        const x = offset + margin + rnd() * (size - margin * 2)
+        const y = offset + margin + rnd() * (size - margin * 2)
 
         // Check terrain validity and distance
         if (!isValidBaseLocation(x, y)) continue

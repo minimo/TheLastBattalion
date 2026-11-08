@@ -1,5 +1,6 @@
 import { createNoise2D } from 'simplex-noise'
-import { LOGICAL_SIZE } from './constants'
+import { LOGICAL_SIZE, WORLD_SCALE as S } from './constants'
+import { DIMENSIONS, m } from './dimensions'
 import { TERRAIN_PROFILE, mapTypeOf } from './mapType'
 import { createMulberry32, hashString } from './random'
 import type { MapType } from '../types/game'
@@ -7,7 +8,7 @@ import type { MapType } from '../types/game'
 /** 戦場の中心（playableArea の TERRAIN_CENTER と同じ値。循環 import を避けて持つ）。 */
 const CENTER = LOGICAL_SIZE / 2
 /** 部隊の動ける範囲の半分の幅（playableArea の PLAYABLE_SIZE / 2）。沼はこの内側だけに広がる。 */
-const PLAYABLE_HALF = 940
+const PLAYABLE_HALF = m(DIMENSIONS.battlefield) / 2 + m(DIMENSIONS.playableMargin)
 /** 乾いた地面の高さと、沼の水面下の地面の高さ（水面は0）。 */
 const DRY_HEIGHT = 7
 const MARSH_FLOOR = -1.4
@@ -15,7 +16,9 @@ const MARSH_FLOOR = -1.4
 const CAUSEWAY_RISE = 4
 const CAUSEWAY_HALF_WIDTH = 20
 /** 両軍の陣地の建つ乾いた土地の中心（陣地の敷地と正門前の中心）。 */
-const KNOLLS = [{ x: CENTER - 560, y: CENTER }, { x: CENTER + 560, y: CENTER }]
+/** 陣地の中心は、戦場の中心から両軍の陣地の距離の半分だけ東西。 */
+const KNOLL_OFFSET = m(DIMENSIONS.campDistance) / 2
+const KNOLLS = [{ x: CENTER - KNOLL_OFFSET, y: CENTER }, { x: CENTER + KNOLL_OFFSET, y: CENTER }]
 
 type Point = { x: number; y: number }
 
@@ -47,11 +50,11 @@ export function createMarsh(seed: number): Marsh {
     // 土手道: 0〜2本。戦場のどこかを通り、向きはまちまちで、ゆるく蛇行する。
     const roll = rnd(), count = roll < .35 ? 0 : roll < .75 ? 1 : 2
     const causeways = Array.from({ length: count }, (_, i) => {
-        const angle = rnd() * Math.PI, length = 700 + rnd() * 600
-        const mx = CENTER + (rnd() - .5) * 700, my = CENTER + (rnd() - .5) * 700
-        const dx = Math.cos(angle), dy = Math.sin(angle), steps = 40
+        const angle = rnd() * Math.PI, length = (700 + rnd() * 600) * S
+        const mx = CENTER + (rnd() - .5) * 700 * S, my = CENTER + (rnd() - .5) * 700 * S
+        const dx = Math.cos(angle), dy = Math.sin(angle), steps = 40 * S
         return Array.from({ length: steps + 1 }, (_, k) => {
-            const t = k / steps, along = (t - .5) * length, swing = noise(t * 2.2, i * 9.1 + 4) * 80
+            const t = k / steps, along = (t - .5) * length, swing = noise(t * 2.2, i * 9.1 + 4) * 80 * S
             return { x: mx + dx * along - dy * swing, y: my + dy * along + dx * swing }
         })
     })
@@ -69,10 +72,10 @@ export function createMarsh(seed: number): Marsh {
     const wetness = (x: number, y: number) => {
         // 沼と陸は戦場全体に入り組む。動ける範囲の外では乾く。
         const m = noise(x * .0045 + 50, y * .0045) * .85 + noise(x * .012, y * .012 + 30) * .15
-        const edge = smooth(PLAYABLE_HALF - 140, PLAYABLE_HALF - 20, Math.max(Math.abs(x - CENTER), Math.abs(y - CENTER)))
+        const edge = smooth(PLAYABLE_HALF - 140 * S, PLAYABLE_HALF - 20 * S, Math.max(Math.abs(x - CENTER), Math.abs(y - CENTER)))
         // 両軍の陣地は、東西の端の真ん中あたりの乾いた土地に建つ。陣地の四角い敷地を少し囲むだけの広さで、縁は不揃い。
         const knoll = Math.min(...KNOLLS.map(k => ((x - k.x) ** 4 + (y - k.y) ** 4) ** .25)) + noise(x * .012 - 40, y * .012) * 12
-        return m + .05 - edge - .9 * (1 - smooth(170, 330, knoll))
+        return m + .05 - edge - 1.1 * (1 - smooth(170 * S, 330 * S, knoll))
     }
     const reeds = (x: number, y: number) => {
         const r = noise(x * .009 + 7, y * .009 - 3) * .7 + noise(x * .03 - 11, y * .03) * .3
