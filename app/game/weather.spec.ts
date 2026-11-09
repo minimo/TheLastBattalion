@@ -72,7 +72,7 @@ describe('天候', () => {
     it('霧への移り変わりでは、霧の濃さに比例して視界が狭くなる', () => {
         const state = createWeatherState('clear', 'standard', '1')
         state.to = 'fog'; state.blend = 0; state.duration = WEATHER_CHANGE.fogShift; state.next = Infinity
-        run(state, 0, WEATHER_CHANGE.fogShift / 2)
+        run(state, 0, WEATHER_CHANGE.fogShift / 2, WEATHER_CHANGE.fogShift / 40)
         const fog = weatherAmount(state, 'fog')
         expect(fog).toBeCloseTo(.5)
         expect(state.effect.vision).toBeCloseTo(1 + (WEATHER_EFFECT.fog.vision - 1) * fog)

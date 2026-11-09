@@ -54,9 +54,9 @@ const WEATHER_ODDS: Record<Weather, number> = { clear: 40, cloudy: 25, rain: 20,
  * snowMelt: 雪が止んでから溶けきるまでの長さ（そのときの天候ごと。日の差す晴れと、雪を流す雨では早く消える）。
  */
 export const WEATHER_CHANGE = {
-    hold: [30, 150] as [number, number], shift: 20, fogShift: 45,
-    snowBuild: 170,
-    snowMelt: { clear: 45, cloudy: 70, rain: 35, fog: 70, sandstorm: 45 } as Record<Exclude<Weather, 'snow'>, number>,
+    hold: [15, 150] as [number, number], shift: 10, fogShift: 22.5,
+    snowBuild: 100,
+    snowMelt: { clear: 26, cloudy: 41, rain: 21, fog: 41, sandstorm: 26 } as Record<Exclude<Weather, 'snow'>, number>,
 }
 
 /**
