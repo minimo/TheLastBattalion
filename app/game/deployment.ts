@@ -6,7 +6,7 @@ import type { Army, BattleMode, FormationType, Guideline, UnitType } from '../ty
 /**
  * 開戦時の編成: 全軍の陣形と、布陣する小隊（兵種と人数）。人数は軍の兵（予備兵）から割り当て、残りが増援になる。
  * company は編成で組んだ中隊の番号（1から）。同じ番号の小隊が1つの中隊になり（兵種を混ぜてよい）、陣でもひとかたまりに並ぶ。
- * 歩兵・槍兵・弓兵・騎兵の小隊は必ず中隊に入る（編成を整えるときに、中隊のない小隊は同じ兵種ごとに中隊へまとめる）。工兵と補給兵は中隊に入らない。
+ * 歩兵・槍兵・弓兵・騎兵の小隊は必ず中隊に入る（編成を整えるときに、中隊のない小隊は同じ兵種ごとに中隊へまとめる）。工兵・補給兵・偵察兵は中隊に入らない。
  * guideline は選んだ行動（中隊はその小隊がみな同じ行動を持つ）。なければ既定の行動。
  */
 export interface PlannedSquad { type: UnitType; size: number; company?: number; guideline?: Guideline }
@@ -15,11 +15,11 @@ export interface DeploymentPlan {
     squads: PlannedSquad[]
 }
 
-export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
-/** 編成で決められる1部隊の人数の範囲と刻み。 */
-export const SQUAD_SIZE_MIN = 10
-export const squadSizeMax = (type: UnitType) => SQUAD_SIZE[type] * 2
-export const SQUAD_SIZE_STEP = 5
+export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer', 'scout']
+/** 編成で決められる1部隊の人数の範囲と刻み。ふつうは10人〜定員の2倍を5人刻みで、偵察兵は1〜5人を1人刻みで決める。 */
+export const squadSizeMin = (type: UnitType) => type === 'scout' ? 1 : 10
+export const squadSizeMax = (type: UnitType) => type === 'scout' ? SQUAD_SIZE.scout : SQUAD_SIZE[type] * 2
+export const squadSizeStep = (type: UnitType) => type === 'scout' ? 1 : 5
 /** 編成で兵種ごとに布陣できる部隊の数の上限（陣形で10部隊ずつ2列に並ぶ）。 */
 export const SQUADS_PER_TYPE_MAX = 20
 
@@ -89,9 +89,9 @@ export function plannedGuideline(plan: DeploymentPlan, indices: number[]): Guide
 /** 編成のプリセット。兵種の割合で、既定の編成と同じ人数の部隊を組む（標準は既定の編成そのもの）。 */
 export const DEPLOYMENT_PRESETS: { key: string; name: string; description: string; formation: FormationType; mix?: Record<UnitType, number>; companies?: UnitType[][] }[] = [
     { key: 'default', name: '標準', description: '既定の編成（横陣）', formation: 'line' },
-    { key: 'pike', name: '堅陣', description: '槍兵と歩兵で前線を固める（方円）', formation: 'circle', mix: { infantry: .38, pikeman: .3, archer: .2, cavalry: .04, supply: .04, engineer: .04 } },
-    { key: 'archer', name: '弓兵重視', description: '槍兵の壁の後ろから矢を浴びせる（横陣）', formation: 'line', mix: { infantry: .22, pikeman: .2, archer: .4, cavalry: .06, supply: .08, engineer: .04 } },
-    { key: 'cavalry', name: '騎兵重視', description: '騎兵を先頭に一気に突き崩す（鋒矢）', formation: 'arrow', mix: { infantry: .36, pikeman: .06, archer: .16, cavalry: .36, supply: .03, engineer: .03 } },
+    { key: 'pike', name: '堅陣', description: '槍兵と歩兵で前線を固める（方円）', formation: 'circle', mix: { infantry: .38, pikeman: .3, archer: .2, cavalry: .04, supply: .04, engineer: .04, scout: .005 } },
+    { key: 'archer', name: '弓兵重視', description: '槍兵の壁の後ろから矢を浴びせる（横陣）', formation: 'line', mix: { infantry: .22, pikeman: .2, archer: .4, cavalry: .06, supply: .08, engineer: .04, scout: .005 } },
+    { key: 'cavalry', name: '騎兵重視', description: '騎兵を先頭に一気に突き崩す（鋒矢）', formation: 'arrow', mix: { infantry: .36, pikeman: .06, archer: .16, cavalry: .36, supply: .03, engineer: .03, scout: .005 } },
     {
         key: 'combined', name: '混成中隊', description: '槍・歩・弓を組んだ中隊で戦線を張る（横陣）', formation: 'line',
         companies: [['pikeman', 'infantry', 'archer'], ['pikeman', 'infantry', 'archer'], ['pikeman', 'infantry', 'archer'], ['infantry', 'infantry', 'infantry'], ['archer', 'archer'], ['cavalry', 'cavalry'], ['cavalry', 'cavalry']],
@@ -102,11 +102,11 @@ export function presetDeployment(key: string, mode: BattleMode, owner: Army): De
     const preset = DEPLOYMENT_PRESETS.find(p => p.key === key)
     const base = defaultDeployment(mode, owner)
     if (preset?.companies) {
-        // 中隊のひな形どおりに組み、補給兵と工兵は既定の数だけ中隊に入れずに加える（砦を持たない攻め手は中隊の数を増やす）。
+        // 中隊のひな形どおりに組み、補給兵・工兵・偵察兵は既定の数だけ中隊に入れずに加える（砦を持たない攻め手は中隊の数を増やす）。
         const repeat = hasFort(mode, owner) ? 1 : Math.max(1, Math.floor(deployLimit(mode, owner) / deployedCount(base)))
         const squads: PlannedSquad[] = []
         for (let r = 0; r < repeat; r++) preset.companies.forEach((types, i) => types.forEach(type => squads.push({ type, size: SQUAD_SIZE[type], company: r * preset.companies!.length + i + 1 })))
-        for (const sq of base.squads) if (sq.type === 'supply' || sq.type === 'engineer') squads.push({ type: sq.type, size: sq.size })
+        for (const sq of base.squads) if (!joinsCompany(sq.type)) squads.push({ type: sq.type, size: sq.size })
         return normalizeDeployment({ formation: preset.formation, squads }, mode, owner)
     }
     if (!preset?.mix) return base
@@ -122,7 +122,7 @@ export function presetDeployment(key: string, mode: BattleMode, owner: Army): De
 
 /**
  * 編成を兵種の順に並べ、人数を範囲に収め、兵種ごとの部隊数と布陣できる上限を超えた分の部隊を後ろから削る。
- * 中隊は1中隊 COMPANY_MAX_SQUADS 小隊・PLANNED_COMPANIES_MAX 中隊までにし（工兵と補給兵は中隊に入れない）、番号を出てくる順に1から振り直す。
+ * 中隊は1中隊 COMPANY_MAX_SQUADS 小隊・PLANNED_COMPANIES_MAX 中隊までにし（工兵・補給兵・偵察兵は中隊に入れない）、番号を出てくる順に1から振り直す。
  * 中隊に入っていない歩兵・槍兵・弓兵・騎兵の小隊は、兵種ごとに COMPANY_MAX_SQUADS 小隊以下の同じくらいの数の中隊にまとめて、組んだ中隊の後ろに加える
  * （中隊の数の上限で入らない小隊は削る）。
  */
@@ -143,7 +143,7 @@ export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owne
     members.clear()
     let total = 0
     for (const sq of sorted) {
-        const size = Math.max(SQUAD_SIZE_MIN, Math.min(squadSizeMax(sq.type), Math.round(sq.size)))
+        const size = Math.max(squadSizeMin(sq.type), Math.min(squadSizeMax(sq.type), Math.round(sq.size)))
         if (total + size > limit) continue
         const squad: PlannedSquad = { type: sq.type, size }
         if (sq.guideline) squad.guideline = sq.guideline

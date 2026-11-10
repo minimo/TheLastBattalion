@@ -16,7 +16,10 @@ export interface UnitStats {
     radius: number
 }
 
-/** 人間軍: 歩兵・槍兵・弓兵・騎兵・補給兵・工兵 / 魔王軍: オーク歩兵・オーク槍兵・ゴブリン弓兵・狼騎兵・ゴブリン運び手・オーク工兵 */
+/**
+ * 人間軍: 歩兵・槍兵・弓兵・騎兵・補給兵・工兵・偵察兵 / 魔王軍: オーク歩兵・オーク槍兵・ゴブリン弓兵・狼騎兵・ゴブリン運び手・オーク工兵・狼の斥候
+ * 偵察兵は戦わない（攻撃0で、敵を狙わない）。守りもなく打たれ弱いが、兵種で一番速く、視界も一番広い（UNIT_VISION）。
+ */
 export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
     player: {
         infantry: { hp: 110, attack: 12, cooldown: 1.0, range: 1.2, speed: 15, sight: 70, radius: m(.52) },
@@ -25,6 +28,7 @@ export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
         cavalry: { hp: 150, attack: 14, cooldown: 1.1, range: 1.6, speed: 45, sight: 100, radius: m(.85) },
         supply: { hp: 70, attack: 3, cooldown: 1.6, range: 1.2, speed: 15, sight: 40, radius: m(.55) },
         engineer: { hp: 90, attack: 6, cooldown: 1.3, range: 1.2, speed: 14, sight: 50, radius: m(.55) },
+        scout: { hp: 40, attack: 0, cooldown: 1, range: 0, speed: 55, sight: 60, radius: m(.85) },
     },
     cpu: {
         infantry: { hp: 125, attack: 12, cooldown: 1.1, range: 1.2, speed: 13.5, sight: 70, radius: m(.6) },
@@ -33,23 +37,26 @@ export const UNIT_STATS: Record<Army, Record<UnitType, UnitStats>> = {
         cavalry: { hp: 140, attack: 14, cooldown: 1.0, range: 1.6, speed: 49.5, sight: 100, radius: m(.85) },
         supply: { hp: 60, attack: 2.5, cooldown: 1.6, range: 1.2, speed: 16, sight: 40, radius: m(.5) },
         engineer: { hp: 100, attack: 7, cooldown: 1.4, range: 1.2, speed: 13, sight: 50, radius: m(.6) },
+        scout: { hp: 40, attack: 0, cooldown: 1, range: 0, speed: 60, sight: 60, radius: m(.85) },
     },
 }
 
 /** 昼と夜の視界の広さ（px）。朝夕はこの間を少しずつ変わる。 */
 export interface VisionRange { day: number; night: number }
 /**
- * 部隊の視界。敵味方で同じ値から始めるが、後で別々に調整できるよう軍ごと・兵種ごとに持つ。
+ * 部隊の視界。偵察兵が一番広い。敵味方で同じ値から始めるが、後で別々に調整できるよう軍ごと・兵種ごとに持つ。
  * 兵が敵を狙い始める距離は UNIT_STATS の sight で、これとは別（視界の中の敵だけを狙う）。
  */
 export const UNIT_VISION: Record<Army, Record<UnitType, VisionRange>> = {
     player: {
         infantry: { day: 600, night: 150 }, pikeman: { day: 600, night: 150 }, archer: { day: 600, night: 150 },
         cavalry: { day: 600, night: 150 }, supply: { day: 600, night: 150 }, engineer: { day: 600, night: 150 },
+        scout: { day: 900, night: 250 },
     },
     cpu: {
         infantry: { day: 600, night: 150 }, pikeman: { day: 600, night: 150 }, archer: { day: 600, night: 150 },
         cavalry: { day: 600, night: 150 }, supply: { day: 600, night: 150 }, engineer: { day: 600, night: 150 },
+        scout: { day: 900, night: 250 },
     },
 }
 /** 砦の視界。本陣守備の指針が砦から300px以内の敵に反応するので、夜も広めに見る。 */
@@ -71,9 +78,9 @@ export const VISION = {
 }
 
 /** 開戦時に砦の前へ布陣する部隊数（片軍）。定員は formation.ts の SQUAD_SIZE。 */
-export const INITIAL_SQUADS: Record<UnitType, number> = { infantry: 6, pikeman: 3, archer: 5, cavalry: 4, supply: 2, engineer: 2 }
+export const INITIAL_SQUADS: Record<UnitType, number> = { infantry: 6, pikeman: 3, archer: 5, cavalry: 4, supply: 2, engineer: 2, scout: 1 }
 /** 持ち場を守る兵が敵を追う範囲（持ち場からの距離）。弓兵は射程まで。槍兵は隊列を崩さないよう、ほとんど追わない。 */
-export const LEASH: Record<UnitType, number> = { infantry: 45, pikeman: 8, cavalry: 80, archer: 0, supply: 12, engineer: 15 }
+export const LEASH: Record<UnitType, number> = { infantry: 45, pikeman: 8, cavalry: 80, archer: 0, supply: 12, engineer: 15, scout: 0 }
 /**
  * 部隊のまとまり。兵は隊列のまん中に立つ幟を持つ隊長から（隊列の対角線の半分＋追う範囲×leashShare＋margin）より離れない。
  * 離れた兵は敵に構わず隊長のもとへ戻り、rejoin の割合まで近づいたら戦いに戻る。突撃中の横の広がりも laneShare の割合までに抑える。
@@ -99,7 +106,7 @@ export const DESERTION = {
 /** 開戦後に砦から送り出せる予備兵の総数（片軍）。これが最後の大隊。 */
 export const RESERVES = 2500
 /** 攻城戦・防衛戦の攻め手の部隊数。砦も増援もないので、守り手より多い兵で攻める。 */
-export const SIEGE_ATTACKER_SQUADS: Record<UnitType, number> = { infantry: 10, pikeman: 4, archer: 8, cavalry: 6, supply: 3, engineer: 3 }
+export const SIEGE_ATTACKER_SQUADS: Record<UnitType, number> = { infantry: 10, pikeman: 4, archer: 8, cavalry: 6, supply: 3, engineer: 3, scout: 1 }
 /** 攻城戦・防衛戦の攻め手の兵の総数（編成で布陣できる上限。増援がないので全員を開戦時に割り当てられる）。 */
 export const SIEGE_ATTACKER_POOL = 2500
 /** 攻城戦・防衛戦の守り手の予備兵。 */
@@ -111,7 +118,7 @@ export const SIEGE_CAMP_BACK = 120
 export const ARMY_CAP = 1600
 /** 増援の間隔（秒）。1回に1部隊が砦から出撃する。 */
 export const REINFORCEMENT_INTERVAL = 9
-export const REINFORCEMENT_MIX: Record<UnitType, number> = { infantry: .4, pikeman: .1, archer: .3, cavalry: .12, supply: .05, engineer: .03 }
+export const REINFORCEMENT_MIX: Record<UnitType, number> = { infantry: .4, pikeman: .1, archer: .3, cavalry: .12, supply: .05, engineer: .03, scout: 0 }
 
 // ---- 槍兵 ----
 export const PIKEMAN = {

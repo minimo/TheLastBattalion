@@ -43,6 +43,9 @@ export interface UnitModel {
 /** 兵の背丈（メートル、DIMENSIONS.height）。 */
 const H = DIMENSIONS.height
 
+/** 武器を持たない騎乗の兵（偵察兵）。騎兵のモデルから武器を外して使う。 */
+const unarmed = (model: UnitModel): UnitModel => ({ ...model, parts: model.parts.filter(p => p.role !== 'weapon') })
+
 export function createUnitModels(): Record<Army, Record<UnitType, UnitModel>> {
     return {
         player: {
@@ -52,6 +55,7 @@ export function createUnitModels(): Record<Army, Record<UnitType, UnitModel>> {
             cavalry: asset(humanCavalryAsset, 'human-cavalry', FACTION.player, H.humanRider),
             supply: asset(humanPorterAsset, 'human-porter', FACTION.player, H.human),
             engineer: asset(humanEngineerAsset, 'human-engineer', FACTION.player, H.human),
+            scout: unarmed(asset(humanCavalryAsset, 'human-scout', FACTION.player, H.humanRider)),
         },
         cpu: {
             infantry: asset(orcInfantryAsset, 'orc-infantry', FACTION.cpu, H.orc),
@@ -60,6 +64,7 @@ export function createUnitModels(): Record<Army, Record<UnitType, UnitModel>> {
             cavalry: asset(wolfRiderAsset, 'wolf-rider', FACTION.cpu, H.wolfRider),
             supply: asset(goblinPorterAsset, 'goblin-porter', FACTION.cpu, H.goblin),
             engineer: asset(orcEngineerAsset, 'orc-engineer', FACTION.cpu, H.orc),
+            scout: unarmed(asset(wolfRiderAsset, 'wolf-scout', FACTION.cpu, H.wolfRider)),
         },
     }
 }

@@ -1,5 +1,7 @@
 import { orderArmy, orderAttack, orderCharge, orderFormation, orderRetreat, type Battle } from './battle'
 import { createEngineerDirector } from './engineers'
+import { isSupportType } from './formation'
+import { createGuidelineDirector } from './squadGuidelines'
 import { knownSquadPosition, seenEnemySquads } from './vision'
 import type { Point, Squad } from '../types/game'
 
@@ -12,6 +14,7 @@ const PURSUIT_RADIUS = 420
  * 魔王軍の指揮官。プレイヤーと同じく部隊単位で指示を出す。
  * 陣を組んで待ち、時機を見て全軍突撃。消耗した部隊は下げ、立て直したら再び突撃させる。
  * 工兵は自軍の砦と敵本陣の間の前線に拠点を築いて前にバリケードを並べ、傷んだ建設物を直す。近くに人間軍の工兵がいない拠点があれば占領する。
+ * 偵察兵は人間軍の「偵察」の行動と同じく、開戦してすぐ敵陣の方へ進んで見張る。
  * 攻城戦で砦を守るときは打って出ず、陣や砦に迫った敵部隊を迎え撃つ。
  */
 export function createCpuCommander(battle: Battle) {
@@ -22,6 +25,7 @@ export function createCpuCommander(battle: Battle) {
     const holdSince = new Map<number, number>()
 
     const directEngineers = createEngineerDirector(battle, 'cpu')
+    const scouts = createGuidelineDirector(battle, 'cpu', true)
     /** 砦と陣に近い敵部隊へ、近い部隊から向かわせる。遠くまで追った部隊は陣に戻す。 */
     const defend = () => {
         const formation = battle.formations.cpu
@@ -30,7 +34,7 @@ export function createCpuCommander(battle: Battle) {
             Math.hypot(p.x - formation.anchor.x, p.y - formation.anchor.y) < radius || Math.hypot(p.x - fort.x, p.y - fort.y) < radius
         const threats = seenEnemySquads(battle, 'cpu').filter(sq => near(sq.center, DEFEND_RADIUS))
         for (const squad of battle.squads) {
-            if (squad.owner !== 'cpu' || squad.type === 'supply' || squad.type === 'engineer' || squad.order === 'resupply') continue
+            if (squad.owner !== 'cpu' || isSupportType(squad.type) || squad.order === 'resupply') continue
             if (squad.order === 'attack') {
                 const target = battle.squadById.get(squad.targetSquadId)
                 if (!target || !near(knownSquadPosition(target), PURSUIT_RADIUS)) orderFormation(battle, squad.id)
@@ -49,6 +53,7 @@ export function createCpuCommander(battle: Battle) {
     }
     return {
         update(dt: number) {
+            scouts.update(dt)
             timer -= dt
             if (timer > 0) return
             timer = THINK_INTERVAL
@@ -63,8 +68,8 @@ export function createCpuCommander(battle: Battle) {
                 return
             }
             for (const squad of battle.squads) {
-                // 補給部隊・工兵と補給中の部隊は、それぞれの役目に任せる。
-                if (squad.owner !== 'cpu' || squad.type === 'supply' || squad.type === 'engineer' || squad.order === 'resupply') continue
+                // 補給部隊・工兵・偵察兵と補給中の部隊は、それぞれの役目に任せる。
+                if (squad.owner !== 'cpu' || isSupportType(squad.type) || squad.order === 'resupply') continue
                 if (squad.order === 'charge' && squad.count < squad.size * .2) orderRetreat(battle, squad.id)
                 else if (squad.order === 'hold' || squad.order === 'formation') {
                     const since = holdSince.get(squad.id) ?? battle.time

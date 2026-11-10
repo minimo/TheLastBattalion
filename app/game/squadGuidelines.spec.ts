@@ -3,7 +3,7 @@ import { generateMap } from './mapGenerator'
 import { createMulberry32, hashString } from './random'
 import { companyPosition, companySquads, createBattle, orderCompany, orderCompanyMove, updateBattle, type Battle } from './battle'
 import { createCpuCommander } from './cpuCommander'
-import { normalizeDeployment, plannedCompanies, type DeploymentPlan } from './deployment'
+import { defaultDeployment, normalizeDeployment, plannedCompanies, type DeploymentPlan } from './deployment'
 import { toWorld } from './formation'
 import { defaultGuideline } from './guidelines'
 import { createGuidelineDirector, markCommanded, setGuideline } from './squadGuidelines'
@@ -34,6 +34,7 @@ describe('既定の行動', () => {
         expect(defaultGuideline([{ type: 'cavalry', size: 35 }])).toBe('skirmish')
         expect(defaultGuideline([{ type: 'engineer', size: 30 }])).toBe('fortify')
         expect(defaultGuideline([{ type: 'supply', size: 20 }])).toBe('supply')
+        expect(defaultGuideline([{ type: 'scout', size: 5 }])).toBe('scout')
         // 混成（槍50・歩70・弓60）は歩兵、槍弓（槍50×2・弓60）は槍兵、騎弓（騎35・弓60）は弓兵。
         expect(defaultGuideline([{ type: 'pikeman', size: 50 }, { type: 'infantry', size: 70 }, { type: 'archer', size: 60 }])).toBe('assault')
         expect(defaultGuideline([{ type: 'pikeman', size: 50 }, { type: 'pikeman', size: 50 }, { type: 'archer', size: 60 }])).toBe('guard')
@@ -76,8 +77,11 @@ describe('行動に沿って動く', () => {
     }, 120000)
 
     it('命令も敵の接近もなければ人間軍は陣で構えたまま。魔王軍の動きは行動の判断があってもなくても同じ', () => {
+        // 偵察兵は開戦してすぐ動き出すので、偵察兵のいない編成で比べる。
+        const base = defaultDeployment('field', 'player')
+        const plan = { ...base, squads: base.squads.filter(sq => sq.type !== 'scout') }
         const orders = (withDirector: boolean) => {
-            const battle = makeBattle('123456')
+            const battle = makeBattle('123456', plan)
             const director = createGuidelineDirector(battle)
             run(battle, 10, ...(withDirector ? [director] : []))
             return { battle, director }
@@ -87,6 +91,24 @@ describe('行動に沿って動く', () => {
         expect(battle.squads.filter(sq => sq.owner === 'player' && sq.type !== 'supply').every(sq => sq.order === 'formation')).toBe(true)
         const cpu = (b: Battle) => b.squads.filter(sq => sq.owner === 'cpu').map(sq => `${sq.id}:${sq.order}:${Math.round(sq.center.x)},${Math.round(sq.center.y)}`)
         expect(cpu(battle)).toEqual(cpu(orders(false).battle))
+    }, 120000)
+
+    it('偵察兵の小隊は中隊に入らず、開戦してすぐ敵陣の方へ進み、敵を狙わない', () => {
+        const battle = makeBattle('123456')
+        const director = createGuidelineDirector(battle)
+        const scout = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'scout')!
+        expect(scout.companyId).toBe(-1)
+        expect(scout.guidance.guideline).toBe('scout')
+        const enemy = battle.homes.cpu
+        const before = Math.hypot(scout.center.x - enemy.x, scout.center.y - enemy.y)
+        run(battle, 10, director)
+        expect(director.awake).toBe(false)
+        expect(scout.order).toBe('move')
+        expect(Math.hypot(scout.center.x - enemy.x, scout.center.y - enemy.y)).toBeLessThan(before - 200)
+        for (let t = 0; t < 40; t += 1) {
+            run(battle, 1, director)
+            expect(battle.soldiers.filter(s => s.squadId === scout.id).every(s => s.targetId === -1 && s.constructionId === -1)).toBe(true)
+        }
     }, 120000)
 
     it('敵が近づくと全軍が動き出し、攻勢の中隊は敵を攻める', () => {

@@ -23,7 +23,7 @@ export interface Base {
     radius: number
 }
 
-export type UnitType = 'infantry' | 'pikeman' | 'archer' | 'cavalry' | 'supply' | 'engineer'
+export type UnitType = 'infantry' | 'pikeman' | 'archer' | 'cavalry' | 'supply' | 'engineer' | 'scout'
 
 export type SoldierState = 'advance' | 'hold' | 'fight' | 'assault' | 'flee' | 'dead'
 
@@ -353,6 +353,7 @@ export interface ArmySummary {
     fortMaxHp: number
     supply: number
     engineer: number
+    scout: number
     killed: number
     /** 部隊を見捨てて戦場から逃げ去った自軍の兵の数。 */
     deserted: number

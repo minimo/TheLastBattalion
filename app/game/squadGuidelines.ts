@@ -1,8 +1,8 @@
 import {
-    companyPosition, companySquads, enemyOf, orderCompany, orderCompanyAttack, orderCompanyMove, orderSupport, squadPosition, type Battle,
+    companyPosition, companySquads, enemyOf, orderCompany, orderCompanyAttack, orderCompanyMove, orderMove, orderResupply, orderSupport, squadPosition, type Battle,
 } from './battle'
 import { createEngineerDirector, directRepairs } from './engineers'
-import { squadBlock, toWorld } from './formation'
+import { isSupportType, squadBlock, toWorld } from './formation'
 import { UNIT_VISION } from './battleConfig'
 import { knownSquadPosition, seenEnemySquads, visionRangeAt } from './vision'
 import type { Army, Company, Directive, Guidance, Guideline, Point, Squad } from '../types/game'
@@ -35,10 +35,10 @@ const SCOUT_SHIFT = 60
 const ARRIVE = 45
 
 const MELEE = new Set(['infantry', 'pikeman', 'cavalry'])
-const isFighter = (sq: Squad) => sq.type !== 'supply' && sq.type !== 'engineer'
+const isFighter = (sq: Squad) => !isSupportType(sq.type)
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 
-/** 行動に沿って動く部隊: 中隊、または中隊に入らない小隊（工兵・補給兵）。 */
+/** 行動に沿って動く部隊: 中隊、または中隊に入らない小隊（工兵・補給兵・偵察兵）。 */
 interface Unit { guidance: Guidance; squads: Squad[]; company?: Company }
 
 function unitsOf(battle: Battle, owner: Army): Unit[] {
@@ -73,8 +73,9 @@ export function setGuideline(guidance: Guidance, guideline: Guideline) {
  * 部隊の行動（人間軍）。魔王軍の指揮官と同じく、部隊単位で既存の指示を出す（中隊のまとまりの決まりはそのまま効く）。
  * - プレイヤーの命令が優先。命令をやり終えたら行動に戻る（「待機」は次の命令まで行動を止める）。補給に戻っている部隊は補給を終えるまで待つ
  * - 開戦直後は陣で構え、敵の部隊が近づいたら全軍が動き出す（偵察は開戦してすぐ動き出す）。それより前でも、命令をやり終えた部隊はその部隊だけ行動に沿って動く
+ * scoutsOnly なら偵察兵の小隊だけを動かす（魔王軍の指揮官が偵察兵に使う）。
  */
-export function createGuidelineDirector(battle: Battle, owner: Army = 'player') {
+export function createGuidelineDirector(battle: Battle, owner: Army = 'player', scoutsOnly = false) {
     let awake = false
     let timer = 0
     /** 動き出す前に命令をやり終えて、先に行動に沿って動いている部隊。 */
@@ -117,7 +118,10 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         const company = battle.companyById.get(enemy.companyId)
         orderCompanyAttack(battle, unit.company.id, whole && company ? { companyId: company.id } : { squadId: enemy.id })
     }
-    const moveTo = (unit: Unit, point: Point, facing: number) => { if (unit.company) orderCompanyMove(battle, unit.company.id, point, facing) }
+    const moveTo = (unit: Unit, point: Point, facing: number) => {
+        if (unit.company) orderCompanyMove(battle, unit.company.id, point, facing)
+        else for (const sq of unit.squads) orderMove(battle, sq.id, point, facing)
+    }
 
     /** 守る地点（まだなければ今いる所。行き先へ向かっている途中なら、着くまで決めない）。 */
     const guardPointOf = (unit: Unit) => {
@@ -191,7 +195,8 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         const base = strength.get(unit.guidance) ?? fighters.reduce((sum, sq) => sum + sq.size, 0)
         if (count >= base * SKIRMISH_FALLBACK) return false
         strength.set(unit.guidance, count)
-        orderCompany(battle, unit.company!.id, 'resupply')
+        if (unit.company) orderCompany(battle, unit.company.id, 'resupply')
+        else for (const sq of fighters) orderResupply(battle, sq.id)
         return true
     }
 
@@ -213,6 +218,7 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
     /**
      * 偵察: 敵陣の方向へ進み、自分の目で見えた一番近い敵を、視界の端に近い距離から見張る（自分からは攻めない）。
      * 近づかれたら見張る距離まで下がる。見える敵がいなければ、敵陣を見張る所まで進む。兵が半分を切ったら下がって立て直す。
+     * 中隊のほか、偵察兵の小隊もこの行動で動く。
      */
     const scout = (unit: Unit, fighters: Squad[]) => {
         if (fallBack(unit, fighters)) return
@@ -248,8 +254,14 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         if (guideline === 'supply') { for (const sq of unit.squads) if (sq.type === 'supply' && sq.order !== 'support') orderSupport(battle, sq.id); return }
         if (guideline === 'fortify') { fortify(unit.squads.filter(sq => sq.type === 'engineer')); return }
         if (guideline === 'repair') { directRepairs(battle, owner, unit.squads.filter(sq => sq.type === 'engineer')); return }
+        // 偵察兵の小隊は戦わずに偵察だけをする。
+        if (!unit.company) {
+            const scouts = unit.squads.filter(sq => sq.type === 'scout')
+            if (guideline === 'scout' && scouts.length) scout(unit, scouts)
+            return
+        }
         const fighters = unit.squads.filter(isFighter)
-        if (!unit.company || !fighters.length) return
+        if (!fighters.length) return
         if (guideline === 'assault') assault(unit, fighters)
         else if (guideline === 'guard') guard(unit, fighters)
         else if (guideline === 'escort') escort(unit, fighters)
@@ -270,6 +282,7 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
                 awake = battle.squads.some(sq => sq.owner === owner && sq.count > 0 && foes.some(e => distance(e.center, sq.center) < WAKE_DISTANCE))
             }
             for (const unit of unitsOf(battle, owner)) {
+                if (scoutsOnly && !unit.squads.every(sq => sq.type === 'scout')) continue
                 const guidance = unit.guidance
                 if (guidance.directive === 'wait') continue
                 if (guidance.directive === 'order') {

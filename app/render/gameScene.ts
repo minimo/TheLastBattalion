@@ -10,6 +10,7 @@ import type { useGameStore } from '~/stores/game'
 import type { BattleInput } from '~/composables/useBattleInput'
 import type { Army, Company, Construction, Fort, Point, Soldier, Squad, UnitType } from '~/types/game'
 import { CONSTRUCTION, STAMINA } from '~/game/battleConfig'
+import { isMounted } from '~/game/terrain'
 import { companyLeader, companyPosition, companySquads, orderDestination, placementArea, placementMap, previewCompanyRoute, squadPosition, squadRoute, type Battle } from '~/game/battle'
 import { createModelKit, FACTION, OCCLUDER_LAYER } from './three/models'
 import { createWorld } from './three/world'
@@ -39,14 +40,14 @@ const CLICK_TOLERANCE = 6 // px
 const BANNER_SPAN = { foot: [8, 17], cavalry: [10.5, 19.5] } as const
 /** 隊長の幟の高さの範囲。中隊長は幟を大きくして背負うので、布の上端が高い。 */
 const bannerSpan = (type: UnitType, companyHead: boolean): [number, number] => {
-    const [low, high] = type === 'cavalry' ? BANNER_SPAN.cavalry : BANNER_SPAN.foot
+    const [low, high] = isMounted(type) ? BANNER_SPAN.cavalry : BANNER_SPAN.foot
     return [low, companyHead ? low + (high - low) * COMPANY_BANNER_SCALE : high]
 }
 /** 中隊長の兵のIDと、その中隊。 */
 const companyHeads = (battle: Battle) => new Map(battle.companies.flatMap(c => { const head = companyLeader(battle, c); return head ? [[head.id, c.id] as const] : [] }))
-const TYPE_MARK: Record<UnitType, string> = { infantry: '歩', pikeman: '槍', archer: '弓', cavalry: '騎', supply: '補', engineer: '工' }
-const TYPE_NAME: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給', engineer: '工兵' }
-const TYPE_ORDER: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
+const TYPE_MARK: Record<UnitType, string> = { infantry: '歩', pikeman: '槍', archer: '弓', cavalry: '騎', supply: '補', engineer: '工', scout: '偵' }
+const TYPE_NAME: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給', engineer: '工兵', scout: '偵察' }
+const TYPE_ORDER: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer', 'scout']
 /** 中隊の旗の高さ（小隊の旗より上）。 */
 const COMPANY_LABEL_HEIGHT = 34
 /** カメラから中隊までがこれより遠いと、その中隊の小隊の旗を隠して中隊の旗だけを出す（選んでいる小隊・中隊の小隊の旗は出す）。 */

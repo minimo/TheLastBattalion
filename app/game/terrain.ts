@@ -3,9 +3,11 @@ import { TERRAIN_PROFILE, mapTypeOf } from './mapType'
 import { getPlayableTile } from './playableArea'
 import type { UnitType } from '../types/game'
 
-/** 移動の種類。川を渡る速さが変わる（騎兵は騎乗、ほかは徒歩）。 */
+/** 移動の種類。川を渡る速さが変わる（騎兵・偵察兵は騎乗、ほかは徒歩）。 */
 export type Mobility = 'foot' | 'mounted'
-export const mobilityOf = (type: UnitType): Mobility => type === 'cavalry' ? 'mounted' : 'foot'
+/** 馬に乗る兵種か。 */
+export const isMounted = (type: UnitType) => type === 'cavalry' || type === 'scout'
+export const mobilityOf = (type: UnitType): Mobility => isMounted(type) ? 'mounted' : 'foot'
 /** 川を歩いて渡るときの速度倍率。 */
 export const WATER_SPEED: Record<Mobility, number> = { foot: .2, mounted: .5 }
 /** 沼（葦原も）を歩くときの速度倍率。馬は脚を取られて、徒歩より遅い。 */

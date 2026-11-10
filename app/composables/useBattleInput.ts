@@ -187,6 +187,11 @@ export function useBattleInput(gameStore: ReturnType<typeof useGameStore>) {
         const battle = gameStore.battle!
         const point = worldMousePos.value
         const source = battle.squadById.get(sourceId)
+        // 偵察兵は戦わないので、敵の旗・建設物・敵陣の上で離してもそこへ移動する（自陣で離せば退却）。
+        if (source?.type === 'scout') {
+            const home = battle.homes.player
+            return Math.hypot(home.x - point.x, home.y - point.y) < FORT_DROP_RADIUS ? { order: 'retreat' } : { order: 'move', point: movePoint() }
+        }
         // 敵の中隊の旗へ落とすと、その中隊のうち一番近い小隊を攻撃する。
         const company = hoverCompanyId.value !== null ? battle.companyById.get(hoverCompanyId.value) : undefined
         const nearest = company && company.owner !== 'player' && source ? nearestCompanySquad(battle, company.id, source.center) : undefined

@@ -4,11 +4,12 @@ import { createArrowGeometry, createArrowTrailGeometry, createBannerGeometry, cr
 import { InstanceBuffer } from './instanceBuffer'
 import { createArmyVisibility, type ArmyView } from './armyVisibility'
 import { createUnitMaterial } from './unitMaterial'
+import { isMounted } from '../../game/terrain'
 
 type SurfaceHeight = (x: number, y: number) => number
 
 const ARMIES: Army[] = ['player', 'cpu']
-const TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
+const TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer', 'scout']
 /** 中隊長の幟の大きさ（小隊長の幟に対する倍率）。 */
 export const COMPANY_BANNER_SCALE = 1.4
 
@@ -62,7 +63,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
             const sphere = p.geometry.boundingSphere!
             return p.pivot.length() + sphere.center.length() + sphere.radius + 3.4
         })) * model.scale
-        return [type, { scale: model.scale, radius, height: (type === 'cavalry' ? 24 : 17) * model.scale,
+        return [type, { scale: model.scale, radius, height: (isMounted(type) ? 24 : 17) * model.scale,
             near: makeBatch(true), far: makeBatch(false) }]
     }))])) as Record<Army, Record<UnitType, { scale: number; radius: number; height: number; near: UnitBatch; far: UnitBatch }>>
     const allBatches = ARMIES.flatMap(army => TYPES.flatMap(type => [batches[army][type].near, batches[army][type].far]))
@@ -141,7 +142,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 const sink = dead ? Math.max(0, since - 5) * 2.2 : 0
                 const ground = visibility.ground(soldierIndex)
                 // 川や沼を歩くときは水に沈める: 歩兵は腰まで、騎兵は馬の腹まで。足元が水面の高さのときだけ調べる。
-                const wade = wadeAt && ground <= WADE_SURFACE ? wadeAt(s.x, s.y) * model.height * (s.type === 'cavalry' ? WADE_DEPTH.mounted : WADE_DEPTH.foot) : 0
+                const wade = wadeAt && ground <= WADE_SURFACE ? wadeAt(s.x, s.y) * model.height * (isMounted(s.type) ? WADE_DEPTH.mounted : WADE_DEPTH.foot) : 0
                 const y = ground + .2 - sink - wade
                 let pose = poses.get(s)
                 if (!pose || pose.model !== model) {
@@ -163,13 +164,13 @@ export function createArmyRenderer(scene: THREE.Scene) {
                 }
                 // Feet follow the distance actually covered, so a slow march takes slow steps
                 // instead of treading in place, and starting or stopping eases in and out.
-                const gait = GAIT[s.type === 'cavalry' ? 'mount' : 'foot']
+                const gait = GAIT[isMounted(s.type) ? 'mount' : 'foot']
                 const speed = Math.hypot(s.vx, s.vy)
                 const phase = s.gait * gait.radiansPerPx + s.id * 2.4
                 const step = !dead && speed > GAIT_REST_SPEED ? Math.sin(phase) * Math.min(1, speed / gait.fullStrideSpeed) : 0
                 // A mount's jointed legs swing less than a soldier's, keeping the paired
                 // feet apart and the hips under the barrel.
-                const stride = step * (s.type === 'cavalry' ? .45 : .6)
+                const stride = step * (isMounted(s.type) ? .45 : .6)
                 const bob = Math.abs(step) * .6
                 const aiming = s.type === 'archer' && !dead && (s.swing > 0 || s.state === 'fight' && !s.moving && s.aim > 0)
                 // Archers carry the bow at their side and draw it only to attack. The drawn arms
@@ -217,7 +218,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
                     }
                 }
                 if (leaderIds.has(s.id) && !dead) {
-                    const rider = s.type === 'cavalry'
+                    const rider = isMounted(s.type)
                     const sway = s.moving ? Math.sin(phase * .5) * .07 : Math.sin(time * 1.4 + s.id) * .035
                     const company = companyLeaderIds.has(s.id)
                     const cached = pose.banner ??= { baseRevision: -1, sway: NaN, bob: NaN, company, revision: 0, matrix: new THREE.Matrix4() }
@@ -233,7 +234,7 @@ export function createArmyRenderer(scene: THREE.Scene) {
                     if ((shadow ? banner.near : banner.far).writeCached(shadow ? banner.nearCount++ : banner.farCount++, cached, cached.revision, cached.matrix.elements)) stats.matrixWrites++
                 }
                 if (selectedSquadIds.has(s.squadId) && !dead) {
-                    const size = s.type === 'cavalry' ? 1.5 : 1
+                    const size = isMounted(s.type) ? 1.5 : 1
                     ringMatrix.makeScale(size, 1, size).setPosition(s.x, ground + .6, s.y)
                     write(rings, ringCount++, ringMatrix.elements)
                 }

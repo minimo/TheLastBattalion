@@ -1,7 +1,7 @@
 import { TILE, TILE_PX, TILE_VARIANT } from './constants'
 import { getTimeDecayMultiplier, getTimeSpeedMultiplier } from './daynight'
 import { createWeatherState, updateWeather } from './weather'
-import { getTerrainSpeedMultiplier, getTileCost, mobilityOf } from './terrain'
+import { getTerrainSpeedMultiplier, getTileCost, isMounted, mobilityOf } from './terrain'
 import { BATTLEFIELD_MAX, BATTLEFIELD_MIN, clearConstructionTiles, fellTree, getPlayableLandscape, getPlayableTile, placeForts, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, PLAYABLE_MAX, PLAYABLE_MIN, registerForts, setConstructionTile } from './playableArea'
 import { cellPoint, constructionWorkSite, felledCells, planConstruction } from './construction'
 import { CAMP_CORE_RADIUS, createFortGeometry, fortCenter, fortDims, fortFootprint, isFortBuildingCell, localToWorld } from './fortLayout'
@@ -9,7 +9,7 @@ import { CASTLE_CORE_RADIUS } from './castleLayout'
 import { createSpatialHash } from './spatialHash'
 import { clearVisionWalls, clearVisionWood, createVisionMap, isSiteKnown, isSquadSeen, knownSquadPosition, refreshVision, setVisionWalls, updateVision } from './vision'
 import { createPathService } from './pathService'
-import { axes, COMPANY_MAX_SQUADS, groupCompanies, joinsCompany, layoutCompany, layoutFormationWithCompanies, slotOffset, squadBlock, SQUAD_SIZE, toWorld, type FormationMember } from './formation'
+import { axes, COMPANY_MAX_SQUADS, groupCompanies, isSupportType, joinsCompany, layoutCompany, layoutFormationWithCompanies, slotOffset, squadBlock, SQUAD_SIZE, toWorld, type FormationMember } from './formation'
 import { armyPool, defaultDeployment, defenderOf, deployedCount, normalizeDeployment, plannedCompanies, plannedGuideline, type DeploymentPlan } from './deployment'
 import { createGuidance, defaultGuideline } from './guidelines'
 import {
@@ -25,7 +25,7 @@ import type {
 } from '../types/game'
 
 const ARMIES: Army[] = ['player', 'cpu']
-const TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
+const TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer', 'scout']
 export const enemyOf = (owner: Army): Army => owner === 'player' ? 'cpu' : 'player'
 const clampLane = (lane: number) => Math.max(-LANE_HALF_WIDTH, Math.min(LANE_HALF_WIDTH, lane))
 
@@ -1160,7 +1160,7 @@ function keepTogether(battle: Battle, company: Company, squads: Squad[]) {
     for (const sq of tied) battle.tether.set(sq.id, tied.filter(other => other !== sq).map(other => ({ anchor: at.get(other)!, limit: pairLimit(company, sq.id, other.id) })))
     // 攻撃している小隊は、中隊の中心から（離れてよい距離 + chase）より遠い相手を追わない。中隊の近くの敵へ狙いを替え、いなければその場で構える。
     // 中隊ごと攻撃を命じられ、戦う小隊がみなそろって向かっているときは、中隊ごと進むので遠い相手でも追う。
-    const fighters = tied.filter(sq => sq.type !== 'supply' && sq.type !== 'engineer' && sq.order !== 'resupply')
+    const fighters = tied.filter(sq => !isSupportType(sq.type) && sq.order !== 'resupply')
     if (company.together && fighters.length && fighters.every(sq => sq.order === 'attack')) return
     const center ={ x: tied.reduce((sum, sq) => sum + at.get(sq)!.x, 0) / tied.length, y: tied.reduce((sum, sq) => sum + at.get(sq)!.y, 0) / tied.length }
     for (const sq of tied) {
@@ -1280,11 +1280,11 @@ export function companyLeader(battle: Battle, company: Company): Soldier | undef
 
 /**
  * 中隊長を出す小隊を決める。今の小隊がいなくなったら、中隊のまん中に一番近い小隊に替える。
- * 補給部隊と工兵は、ほかの兵種の小隊がいれば選ばない。
+ * 補給部隊・工兵・偵察兵は、ほかの兵種の小隊がいれば選ばない。
  */
 function chooseCompanyLeader(battle: Battle, company: Company, squads: Squad[]) {
     const current = battle.squadById.get(company.leaderSquadId)
-    const candidates = squads.filter(sq => sq.type !== 'supply' && sq.type !== 'engineer')
+    const candidates = squads.filter(sq => !isSupportType(sq.type))
     const pool = candidates.length ? candidates : squads
     if (current && current.companyId === company.id && pool.includes(current)) return
     if (!pool.length) { company.leaderSquadId = -1; return }
@@ -1367,7 +1367,7 @@ export function previewCompanyRoute(battle: Battle, companyId: number, command: 
         return destination ? routeFor(battle, head, planned, destination) : undefined
     }
     if (command.order === 'attack') {
-        if (head.type === 'supply' || head.type === 'engineer' || head.order === 'resupply') return undefined
+        if (isSupportType(head.type) || head.order === 'resupply') return undefined
         const enemy = command.targetCompanyId !== undefined ? nearestCompanySquad(battle, command.targetCompanyId, head.center) : battle.squadById.get(command.targetSquadId ?? -1)
         return enemy ? route(attackPlan(battle, enemy)) : undefined
     }
@@ -1378,7 +1378,7 @@ export function previewCompanyRoute(battle: Battle, companyId: number, command: 
     }
     if (command.order === 'retreat') return route({ order: 'retreat' })
     if (command.order === 'charge') {
-        if (head.type === 'supply' || head.type === 'engineer' || head.order === 'resupply') return undefined
+        if (isSupportType(head.type) || head.order === 'resupply') return undefined
         return route({ order: 'charge' })
     }
     if (command.order !== 'move' || !command.point) return undefined
@@ -1386,12 +1386,12 @@ export function previewCompanyRoute(battle: Battle, companyId: number, command: 
     return move ? route(movePlan(battle, head, move.point, move.facing)) : undefined
 }
 
-/** 中隊の各小隊で、敵の小隊（または敵の中隊のうち各小隊に最も近い小隊）を攻撃する。補給部隊と工兵は加わらない。 */
+/** 中隊の各小隊で、敵の小隊（または敵の中隊のうち各小隊に最も近い小隊）を攻撃する。補給部隊・工兵・偵察兵は加わらない。 */
 export function orderCompanyAttack(battle: Battle, companyId: number, target: { squadId?: number; companyId?: number }) {
     const company = battle.companyById.get(companyId)
     if (company) company.together = true
     for (const squad of companySquads(battle, companyId)) {
-        if (squad.type === 'supply' || squad.type === 'engineer' || squad.order === 'resupply') continue
+        if (isSupportType(squad.type) || squad.order === 'resupply') continue
         const enemy = target.companyId !== undefined ? nearestCompanySquad(battle, target.companyId, squad.center) : battle.squadById.get(target.squadId ?? -1)
         if (enemy) orderAttack(battle, squad.id, enemy.id)
     }
@@ -1399,12 +1399,12 @@ export function orderCompanyAttack(battle: Battle, companyId: number, target: { 
 
 export type CompanyOrder = 'charge' | 'hold' | 'formation' | 'retreat' | 'resupply' | 'support'
 
-/** 中隊の小隊へまとめて指示する。突撃に補給部隊と工兵は加わらず、自動補給は補給部隊だけが受ける。 */
+/** 中隊の小隊へまとめて指示する。突撃に補給部隊・工兵・偵察兵は加わらず、自動補給は補給部隊だけが受ける。 */
 export function orderCompany(battle: Battle, companyId: number, order: CompanyOrder) {
     const company = battle.companyById.get(companyId)
     if (company) company.together = false
     for (const squad of companySquads(battle, companyId)) {
-        if (order === 'charge') { if (squad.type !== 'supply' && squad.type !== 'engineer' && squad.order !== 'resupply') orderCharge(battle, squad.id) }
+        if (order === 'charge') { if (!isSupportType(squad.type) && squad.order !== 'resupply') orderCharge(battle, squad.id) }
         else if (order === 'hold') orderHold(battle, squad.id)
         else if (order === 'formation') orderFormation(battle, squad.id)
         else if (order === 'retreat') orderRetreat(battle, squad.id)
@@ -1426,8 +1426,8 @@ export function orderArmy(battle: Battle, owner: Army, order: ArmyOrder) {
     for (const company of battle.companies) if (company.owner === owner) company.together = false
     for (const squad of battle.squads) {
         if (squad.owner !== owner) continue
-        // 補給部隊と工兵は突撃に加わらず、補給中の部隊は補給を続ける。
-        if (order === 'charge' && (squad.type === 'supply' || squad.type === 'engineer' || squad.order === 'resupply')) continue
+        // 補給部隊・工兵・偵察兵は突撃に加わらず、補給中の部隊は補給を続ける。
+        if (order === 'charge' && (isSupportType(squad.type) || squad.order === 'resupply')) continue
         if (order === 'charge') orderCharge(battle, squad.id)
         else if (order === 'hold') orderHold(battle, squad.id)
         else orderRetreat(battle, squad.id)
@@ -1865,6 +1865,8 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
     // 矢のない弓兵は射撃できないので、敵を狙わない。
     if (s.type === 'archer' && s.arrows <= 0) { s.targetId = -1; s.constructionId = -1; return }
     const stats = UNIT_STATS[s.owner][s.type]
+    // 攻撃力のない兵（偵察兵）は敵も建設物も狙わない（周りの敵の数は士気のために数える）。
+    const harmless = stats.attack <= 0
     const leash = leashOf(s)
     // 攻撃・破壊を指示された相手は遠くからでも見つけて向かう。
     const sight = squad.order === 'attack' || squad.order === 'demolish' ? stats.sight * 1.6 : stats.sight
@@ -1885,6 +1887,7 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         // 視界の外の敵は、いないのと同じ。
         if (o.spottedUntil <= battle.time) return
         enemies++; ex += o.x; ey += o.y
+        if (harmless) return
         const isOrderedTarget = squad.order === 'attack' && o.squadId === squad.targetSquadId
         if (!isOrderedTarget && d2 > stats.sight * stats.sight) return
         if (slot && Math.hypot(o.x - slot.x, o.y - slot.y) > leash) return
@@ -1898,7 +1901,7 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         if (score < bestScore) { bestScore = score; best = o }
     })
     // 突撃中の兵は、自陣への侵入者がいれば引き返して守る。
-    if (!best && squad.order === 'charge') {
+    if (!best && !harmless && squad.order === 'charge') {
         const home = battle.homes[s.owner]
         const intruders = battle.intruders[s.owner]
         if (intruders.length && Math.hypot(s.x - home.x, s.y - home.y) < 420 * s.courage) {
@@ -1920,7 +1923,7 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         return
     }
     // 近くに敵兵がいなければ、建設物を壊しにかかる（建設中の工兵は作業を続ける）。
-    const site = !worksAtSite(squad.order) && (!best || bestScore > 30) ? constructionTarget(battle, s, squad, slot, sight) : undefined
+    const site = !harmless && !worksAtSite(squad.order) && (!best || bestScore > 30) ? constructionTarget(battle, s, squad, slot, sight) : undefined
     if (site) best = undefined
     const previous = s.targetId, previousSite = s.constructionId
     s.targetId = best ? best.id : -1
@@ -2688,10 +2691,10 @@ function updateForts(battle: Battle, dt: number, alive: Record<Army, number>) {
         const count = Math.max(0, Math.min(SQUAD_SIZE[type], ARMY_CAP - alive[fort.owner], fort.reserves))
         if (count < 5) continue
         fort.reserves -= count
-        const squad = createSquad(battle, fort.owner, type, count, type === 'supply' ? 'support' : fort.owner === 'player' || type === 'engineer' || battle.mode === 'siege' ? 'formation' : 'charge')
+        const squad = createSquad(battle, fort.owner, type, count, type === 'supply' ? 'support' : fort.owner === 'player' || isSupportType(type) || battle.mode === 'siege' ? 'formation' : 'charge')
         joinCompany(battle, squad)
         const geometry = createFortGeometry(fort)
-        const cells = type === 'cavalry' ? geometry.mountedSpawns : geometry.footSpawns
+        const cells = isMounted(type) ? geometry.mountedSpawns : geometry.footSpawns
         for (let i = 0; i < count; i++) {
             const cell = cells[Math.floor(battle.random() * cells.length)]!
             spawnSoldier(battle, squad, cell.x + (battle.random() - .5) * 10, cell.y + (battle.random() - .5) * 10, (battle.random() - .5) * LANE_HALF_WIDTH * 1.4)
@@ -2734,7 +2737,7 @@ export function updateBattle(battle: Battle, dt: number) {
         if (!members?.length) continue
         let moving = 0
         for (const s of members) if (s.moving) moving++
-        const cost = squad.type === 'cavalry' ? STAMINA.cavalryMoveCost : STAMINA.moveCost
+        const cost = isMounted(squad.type) ? STAMINA.cavalryMoveCost : STAMINA.moveCost
         squad.stamina = Math.max(0, squad.stamina - cost * moving / members.length * dt)
     }
     updateArrows(battle, dt)
@@ -2757,8 +2760,8 @@ export function summarize(battle: Battle): Record<Army, ArmySummary> {
     const result = Object.fromEntries(ARMIES.map(army => {
         const fort = fortOf(battle, army)
         return [army, {
-            infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0, fortHp: fort?.hp ?? 0, fortMaxHp: fort?.maxHp ?? 1,
-            killed: battle.killed[army], deserted: battle.deserted[army], reserves: fort?.reserves ?? 0, hasFort: !!fort, found: battle.vision.found[army], discovered: { infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, total: 0 },
+            infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, scout: 0, total: 0, fortHp: fort?.hp ?? 0, fortMaxHp: fort?.maxHp ?? 1,
+            killed: battle.killed[army], deserted: battle.deserted[army], reserves: fort?.reserves ?? 0, hasFort: !!fort, found: battle.vision.found[army], discovered: { infantry: 0, pikeman: 0, archer: 0, cavalry: 0, supply: 0, engineer: 0, scout: 0, total: 0 },
         }]
     })) as Record<Army, ArmySummary>
     for (const s of battle.soldiers) {

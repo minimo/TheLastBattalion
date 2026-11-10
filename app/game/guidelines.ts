@@ -15,19 +15,20 @@ export const GUIDELINES: Record<Guideline, { name: string; description: string }
 
 const COMBAT_GUIDELINES: Guideline[] = ['assault', 'guard', 'escort', 'skirmish', 'scout', 'homeGuard']
 
-/** 部隊が選べる行動（中隊は兵種を問わず戦う行動、工兵は築城と修理、補給兵は自動補給だけ）。 */
+/** 部隊が選べる行動（中隊は兵種を問わず戦う行動、工兵は築城と修理、補給兵は自動補給だけ、偵察兵は偵察だけ）。 */
 export function guidelineOptions(types: UnitType[]): Guideline[] {
     if (types.length && types.every(t => t === 'engineer')) return ['fortify', 'repair']
     if (types.length && types.every(t => t === 'supply')) return ['supply']
+    if (types.length && types.every(t => t === 'scout')) return ['scout']
     return COMBAT_GUIDELINES
 }
 
 /** 兵種ごとの既定の行動。 */
 const DEFAULT_GUIDELINE: Record<UnitType, Guideline> = {
-    infantry: 'assault', pikeman: 'guard', archer: 'escort', cavalry: 'skirmish', engineer: 'fortify', supply: 'supply',
+    infantry: 'assault', pikeman: 'guard', archer: 'escort', cavalry: 'skirmish', engineer: 'fortify', supply: 'supply', scout: 'scout',
 }
 /** 人数が同じ兵種のうち先に選ぶ順（陣の並べ方と同じく、前線の歩兵・槍兵、弓兵、騎兵の順）。 */
-const TIE_ORDER: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'engineer', 'supply']
+const TIE_ORDER: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'engineer', 'supply', 'scout']
 
 /** 既定の行動: 人数が一番多い兵種の行動（同じ人数なら TIE_ORDER の順）。 */
 export function defaultGuideline(squads: { type: UnitType; size: number }[]): Guideline {

@@ -18,7 +18,7 @@ import { TILE } from './constants'
 import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, setConstructionTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
-import { armyPool, cpuDeployment, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, type DeploymentPlan } from './deployment'
+import { armyPool, cpuDeployment, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, UNIT_TYPES, type DeploymentPlan } from './deployment'
 import type { BattleMode, MapType, Squad, UnitType } from '../types/game'
 
 const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType = mapTypeForMode(mode, 'standard'), plan?: DeploymentPlan) => {
@@ -1140,6 +1140,8 @@ describe('開戦時の編成', () => {
             expect(plan.squads.every(sq => sq.size === SQUAD_SIZE.infantry * 2)).toBe(true)
             expect(plan.squads.reduce((sum, sq) => sum + sq.size, 0)).toBeLessThanOrEqual(deployLimit(mode, 'player'))
             expect(normalizeDeployment({ formation: 'line', squads: [{ type: 'archer', size: 1 }] }, mode, 'player').squads[0]!.size).toBe(10)
+            // 偵察兵は1小隊1〜5人。
+            expect(normalizeDeployment({ formation: 'line', squads: [{ type: 'scout', size: 1 }, { type: 'scout', size: 30 }] }, mode, 'player').squads.map(sq => sq.size)).toEqual([1, 5])
         }
     })
 
@@ -1148,7 +1150,7 @@ describe('開戦時の編成', () => {
             const plan = presetDeployment(preset.key, mode, 'player')
             expect(plan.formation).toBe(preset.formation)
             expect(plan.squads.reduce((sum, sq) => sum + sq.size, 0)).toBeLessThanOrEqual(deployLimit(mode, 'player'))
-            expect(new Set(plan.squads.map(sq => sq.type)).size).toBe(6)
+            expect(new Set(plan.squads.map(sq => sq.type)).size).toBe(UNIT_TYPES.length)
         }
         expect(presetDeployment('default', 'siege', 'player')).toEqual(defaultDeployment('siege', 'player'))
     })
@@ -1542,16 +1544,16 @@ describe('編成で組む中隊', () => {
         for (const company of planned.slice(2)) expect(new Set(companySquads(battle, company.id).map(sq => sq.type)).size).toBe(1)
     })
 
-    it('工兵と補給兵は、編成で中隊に入れても、増援でも中隊に入らず、ほかの兵種は小隊だけで残らない', () => {
-        const plan: DeploymentPlan = { formation: 'line', squads: [{ type: 'infantry', size: 70, company: 1 }, { type: 'supply', size: 20, company: 1 }, { type: 'engineer', size: 30, company: 2 }, { type: 'engineer', size: 30 }] }
+    it('工兵・補給兵・偵察兵は、編成で中隊に入れても、増援でも中隊に入らず、ほかの兵種は小隊だけで残らない', () => {
+        const plan: DeploymentPlan = { formation: 'line', squads: [{ type: 'infantry', size: 70, company: 1 }, { type: 'supply', size: 20, company: 1 }, { type: 'engineer', size: 30, company: 2 }, { type: 'engineer', size: 30 }, { type: 'scout', size: 5, company: 1 }] }
         const normalized = normalizeDeployment(plan, 'field', 'player')
-        expect(normalized.squads.filter(sq => sq.type === 'supply' || sq.type === 'engineer').every(sq => sq.company === undefined)).toBe(true)
+        expect(normalized.squads.filter(sq => !joinsCompany(sq.type)).every(sq => sq.company === undefined)).toBe(true)
         expect(plannedCompanies(normalized)).toHaveLength(1)
         const battle = makeBattle('123456')
         for (let t = 0; t < 60; t += 1 / 30) updateBattle(battle, 1 / 30)
         // 歩兵・槍兵・弓兵・騎兵は、増援も含めて小隊だけで残らない。
         for (const sq of battle.squads) expect(battle.companyById.has(sq.companyId)).toBe(joinsCompany(sq.type))
-        for (const company of battle.companies) expect(companySquads(battle, company.id).some(sq => sq.type === 'supply' || sq.type === 'engineer')).toBe(false)
+        for (const company of battle.companies) expect(companySquads(battle, company.id).some(sq => !joinsCompany(sq.type))).toBe(false)
     }, 120000)
 
     it('混成中隊のプリセットで、中隊を組んだ編成になる', () => {
@@ -1560,8 +1562,8 @@ describe('編成で組む中隊', () => {
             expect(plannedCompanies(plan).length).toBeGreaterThanOrEqual(7)
             const battle = makeBattle('123456', mode, undefined, plan)
             expect(battle.companies.filter(c => c.owner === 'player' && c.planned).length).toBe(plannedCompanies(plan).length)
-            // 工兵と補給兵は中隊に入らず、ほかの小隊はみな中隊に入る。
-            for (const sq of battle.squads.filter(sq => sq.owner === 'player')) expect(battle.companyById.has(sq.companyId)).toBe(sq.type !== 'supply' && sq.type !== 'engineer')
+            // 工兵・補給兵・偵察兵は中隊に入らず、ほかの小隊はみな中隊に入る。
+            for (const sq of battle.squads.filter(sq => sq.owner === 'player')) expect(battle.companyById.has(sq.companyId)).toBe(joinsCompany(sq.type))
         }
     })
 

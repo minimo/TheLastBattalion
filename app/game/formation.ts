@@ -1,12 +1,12 @@
 import type { FormationType, Point, UnitType } from '../types/game'
 import { m } from './dimensions'
 
-/** 部隊の定員。 */
-export const SQUAD_SIZE: Record<UnitType, number> = { infantry: 70, pikeman: 50, archer: 60, cavalry: 35, supply: 20, engineer: 30 }
+/** 部隊の定員。偵察兵は少人数で動く。 */
+export const SQUAD_SIZE: Record<UnitType, number> = { infantry: 70, pikeman: 50, archer: 60, cavalry: 35, supply: 20, engineer: 30, scout: 5 }
 /** 部隊の隊列（横の人数と間隔）。槍兵は横に長い横隊で、肩を並べて隙間なく並ぶ。 */
-const SQUAD_COLUMNS: Record<UnitType, number> = { infantry: 10, pikeman: 12, archer: 12, cavalry: 6, supply: 5, engineer: 6 }
+const SQUAD_COLUMNS: Record<UnitType, number> = { infantry: 10, pikeman: 12, archer: 12, cavalry: 6, supply: 5, engineer: 6, scout: 5 }
 /** 隊列の中の兵と兵の間隔（メートルで決める）。 */
-const SQUAD_SPACING: Record<UnitType, number> = { infantry: m(1.22), pikeman: m(1.15), archer: m(1.3), cavalry: m(1.9), supply: m(1.3), engineer: m(1.3) }
+const SQUAD_SPACING: Record<UnitType, number> = { infantry: m(1.22), pikeman: m(1.15), archer: m(1.3), cavalry: m(1.9), supply: m(1.3), engineer: m(1.3), scout: m(1.9) }
 /** 部隊同士の間隔。 */
 const GAP = 10
 /** 横一列に並べる部隊の数。超えた分は後ろの列に並べる。 */
@@ -58,7 +58,7 @@ export interface FormationSlot { forward: number; lateral: number; facing: numbe
 export function layoutFormation(type: FormationType, members: FormationMember[]): Map<number, FormationSlot> {
     const slots = new Map<number, FormationSlot>()
     const of = (t: UnitType) => members.filter(m => m.type === t)
-    const infantry = of('infantry'), pikemen = of('pikeman'), archers = of('archer'), cavalry = of('cavalry'), rear = [...of('supply'), ...of('engineer')]
+    const infantry = of('infantry'), pikemen = of('pikeman'), archers = of('archer'), cavalry = of('cavalry'), rear = [...of('supply'), ...of('engineer'), ...of('scout')]
     const width = (m: FormationMember) => m.width ?? squadBlock(m.type, m.size).width
     const depthOf = (m: FormationMember) => m.depth ?? squadBlock(m.type, m.size).depth
     const depth = (list: FormationMember[]) => Math.max(0, ...list.map(depthOf))
@@ -175,8 +175,10 @@ export function layoutFormation(type: FormationType, members: FormationMember[])
 
 /** 1つの中隊に入れる小隊の数の上限。 */
 export const COMPANY_MAX_SQUADS = 4
-/** 中隊に入れる兵種か（工兵と補給兵は中隊に入らず、小隊のまま動く）。 */
-export const joinsCompany = (type: UnitType) => type !== 'supply' && type !== 'engineer'
+/** 戦わない兵種か（補給兵・工兵・偵察兵）。突撃せず、中隊にも入らない。 */
+export const isSupportType = (type: UnitType) => type === 'supply' || type === 'engineer' || type === 'scout'
+/** 中隊に入れる兵種か（工兵・補給兵・偵察兵は中隊に入らず、小隊のまま動く）。 */
+export const joinsCompany = (type: UnitType) => !isSupportType(type)
 
 /**
  * 陣の持ち場から、同じ兵種で隣り合う小隊を中隊にまとめる（返すのは中隊ごとの小隊のID）。

@@ -28,14 +28,14 @@ if (revision) {
     variants.push(['before', await import(load(path.join(path.dirname(armyFile), '__baseline.ts'), source))])
 }
 variants.push(['after', current])
-const types = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer'], empty = new Set()
+const types = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer', 'scout'], empty = new Set()
 const camera = new THREE.PerspectiveCamera(50, 16 / 9, 1, 5000)
 const light = new THREE.DirectionalLight()
 light.position.set(200, 750, 200); light.target.position.set(416, 0, 416); light.castShadow = true
 const view = { camera, light, viewportHeight: 900 }
 for (const count of [5000, 10000]) {
     const soldiers = Array.from({ length: count }, (_, id) => ({
-        id, owner: id % 2 ? 'cpu' : 'player', type: types[Math.floor(id / 2) % 6], x: id % 100 * 8,
+        id, owner: id % 2 ? 'cpu' : 'player', type: types[Math.floor(id / 2) % types.length], x: id % 100 * 8,
         y: Math.floor(id / 100) * 8, heading: id * .1, state: 'advance', deathTime: 0,
         elapsedTime: id * .017, moving: true, swing: 0, aim: 0, squadId: Math.floor(id / 25),
     }))

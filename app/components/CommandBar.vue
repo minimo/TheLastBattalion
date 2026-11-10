@@ -95,6 +95,7 @@ const hint = computed(() => {
   if (squad?.owner === 'player') {
     if (squad.type === 'engineer') return '旗をドラッグして指示 · 川へドラッグで橋を架ける · 敵の拠点へドラッグで占領'
     if (squad.type === 'supply') return '旗をドラッグして指示 · 味方の部隊へドラッグで補給を届ける'
+    if (squad.type === 'scout') return '旗をドラッグして移動 · 戦わず、広い視界で敵を見つける'
     return '旗をドラッグして指示 · 長押しでメニュー'
   }
   if (selectedCompany.value?.owner === 'player') return '中隊の旗をドラッグして中隊ごと指示 · 長押しでメニュー'

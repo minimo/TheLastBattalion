@@ -3,9 +3,9 @@ import type { Army, ConstructionKind, SquadOrder, UnitType } from '~/types/game'
 /** 戦闘画面の表示名と、部隊への指示の並び（操作バー・長押しメニュー・部隊一覧で共通）。 */
 export const ARMY_NAME: Record<Army, string> = { player: '人間軍', cpu: '魔王軍' }
 // 魔王軍も種族は出さず、人間軍と同じ兵種名で示す。
-const TYPE_LABEL: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給兵', engineer: '工兵' }
+const TYPE_LABEL: Record<UnitType, string> = { infantry: '歩兵', pikeman: '槍兵', archer: '弓兵', cavalry: '騎兵', supply: '補給兵', engineer: '工兵', scout: '偵察兵' }
 export const UNIT_NAME: Record<Army, Record<UnitType, string>> = { player: TYPE_LABEL, cpu: TYPE_LABEL }
-export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer']
+export const UNIT_TYPES: UnitType[] = ['infantry', 'pikeman', 'archer', 'cavalry', 'supply', 'engineer', 'scout']
 export const ORDER_NAME: Record<SquadOrder, string> = { formation: '陣形', move: '移動', hold: '待機', attack: '攻撃', charge: '突撃', retreat: '退却', resupply: '補給中', support: '補給', build: '建設', demolish: '破壊', occupy: '占領' }
 export const TIRED_BELOW = 40
 
@@ -28,9 +28,10 @@ const BUILD_ACTIONS: SquadAction[] = [
   { key: 'build:barricade', build: 'barricade', label: '柵', icon: 'barricade' },
   { key: 'build:bridge', build: 'bridge', label: '橋', icon: 'bridge' },
 ]
-/** 部隊への指示。どの部隊も補給に戻れ、補給部隊は突撃の代わりに自動補給、工兵は突撃の代わりに建設。 */
+/** 部隊への指示。どの部隊も補給に戻れ、補給部隊は突撃の代わりに自動補給、工兵は突撃の代わりに建設。偵察兵は戦わないので突撃しない。 */
 export const squadActions = (type: UnitType): SquadAction[] => [
   ...(type === 'engineer' ? BUILD_ACTIONS
+    : type === 'scout' ? []
     : [type === 'supply' ? { key: 'support', order: 'support' as const, label: '自動補給', icon: 'support' as const } : { key: 'charge', order: 'charge' as const, label: '突撃', icon: 'charge' as const }]),
   { key: 'hold', order: 'hold', label: '待機', icon: 'hold' },
   { key: 'formation', order: 'formation', label: '陣形に戻る', icon: 'formation' },
@@ -40,7 +41,7 @@ export const squadActions = (type: UnitType): SquadAction[] => [
 
 /** 中隊への指示。補給部隊と工兵だけの中隊は突撃せず、補給部隊がいれば自動補給も出せる。 */
 export const companyActions = (types: UnitType[]): SquadAction[] => [
-  ...(types.some(t => t !== 'supply' && t !== 'engineer') ? [{ key: 'charge', order: 'charge' as const, label: '突撃', icon: 'charge' as const }] : []),
+  ...(types.some(t => t !== 'supply' && t !== 'engineer' && t !== 'scout') ? [{ key: 'charge', order: 'charge' as const, label: '突撃', icon: 'charge' as const }] : []),
   ...(types.includes('supply') ? [{ key: 'support', order: 'support' as const, label: '自動補給', icon: 'support' as const }] : []),
   { key: 'hold', order: 'hold', label: '待機', icon: 'hold' },
   { key: 'formation', order: 'formation', label: '陣形に戻る', icon: 'formation' },
