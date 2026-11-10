@@ -17,7 +17,8 @@ import type { GameScene } from '~/render/gameScene'
 import { MAP_TYPE_DESCRIPTION, MAP_TYPE_NAME, MAP_TYPES, mapTypeForMode } from '~/game/mapType'
 import { START_TIME_DESCRIPTION, START_TIME_NAME, START_TIMES } from '~/game/daynight'
 import { WEATHER_CHOICES, WEATHER_DESCRIPTION, WEATHER_NAME, weatherAllowed } from '~/game/weather'
-import type { Army, BattleMode, MapType, StartTime, WeatherChoice } from '~/types/game'
+import { GUIDELINES, guidelineOptions } from '~/game/guidelines'
+import type { Army, BattleMode, Guideline, MapType, StartTime, WeatherChoice } from '~/types/game'
 
 const gameStore = useGameStore()
 const titleLogo = ref('/images/title-logo.png')
@@ -134,6 +135,18 @@ const squadsOpen = ref(false)
 const commandBar = ref<InstanceType<typeof CommandBar> | null>(null)
 const menuSquad = computed(() => gameStore.squads.find(sq => sq.id === contextMenu.value.squadId))
 const menuCompany = computed(() => gameStore.companies.find(c => c.id === contextMenu.value.companyId))
+/** 長押しメニューで行動を選べる自軍の部隊（操作バーの「行動」と同じ。選べる行動が1つなら出さない）。 */
+const menuGuided = computed(() => {
+  const company = menuCompany.value, squad = menuSquad.value
+  const unit = contextMenu.value.type === 'company' && company?.owner === 'player' ? { target: { companyId: company.id }, guideline: company.guideline, options: guidelineOptions(company.types) }
+    : contextMenu.value.type === 'squad' && squad?.owner === 'player' ? { target: { squadId: squad.id }, guideline: squad.guideline, options: guidelineOptions([squad.type]) }
+    : undefined
+  return unit && unit.options.length > 1 ? unit : undefined
+})
+const selectMenuGuideline = (guideline: Guideline) => {
+  if (menuGuided.value) gameStore.setGuideline(menuGuided.value.target, guideline)
+  input.closeContextMenu()
+}
 /** 決着の理由（砦を持たない軍は全滅、砦を持つ軍は本陣の陥落）。 */
 const defeatReason = computed(() => {
   const loser: Army = gameStore.winner === 'player' ? 'cpu' : 'player'
@@ -336,6 +349,14 @@ onUnmounted(() => {
           <span class="context-menu-title">{{ companyName(menuCompany) }}</span>
           <button v-for="action in companyActions(menuCompany.types)" :key="action.key" class="context-menu-item" @click="handleContextMenuAction(action.key)"><CommandIcon :name="action.icon" />{{ action.label }}</button>
         </template>
+        <template v-if="menuGuided">
+          <span class="context-menu-title">行動</span>
+          <div role="radiogroup" aria-label="行動">
+            <button v-for="g in menuGuided.options" :key="g" class="context-menu-item guideline" :class="{ active: menuGuided.guideline === g }" role="radio" :aria-checked="menuGuided.guideline === g" :title="GUIDELINES[g].description" @click="selectMenuGuideline(g)">
+              <span class="check" aria-hidden="true">{{ menuGuided.guideline === g ? '✓' : '' }}</span>{{ GUIDELINES[g].name }}
+            </button>
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -480,6 +501,9 @@ button:hover { transform: scale(1.05); }
 .context-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 16px; background: none; border: none; color: #493522; font-size: 13px; text-align: left; cursor: pointer; margin: 0; border-radius: 0; }
 .context-menu-item .command-icon { width: 18px; height: 18px; color: #684521; }
 .context-menu-item:hover { background: #b58c4d33; color: #352315; transform: none; }
+.context-menu-item.guideline { gap: 0; }
+.context-menu-item.guideline.active { color: #352315; background: #c5a16a; }
+.context-menu-item .check { display: inline-block; width: 28px; color: #684521; }
 
 .canvas-wrapper :deep(.world-labels) { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .canvas-wrapper :deep(.world-labels[hidden]) { display: none; }

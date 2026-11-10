@@ -6,13 +6,14 @@ export const GUIDELINES: Record<Guideline, { name: string; description: string }
     guard: { name: '守備', description: '守る地点に構え、近づいた敵だけを迎え撃つ' },
     escort: { name: '援護', description: '近くの味方の近接の中隊の後ろに付き、近づく敵を射る' },
     skirmish: { name: '遊撃', description: '槍兵を避けて、敵の弓兵・補給兵・工兵や数の減った中隊を狙う' },
+    scout: { name: '偵察', description: '開戦してすぐ敵陣の方向へ進み、見つけた敵を離れた所から見張る。近づかれたら下がる' },
     homeGuard: { name: '本陣守備', description: '自陣の近くに控え、砦や陣に近づいた敵だけを追い払う' },
     fortify: { name: '前線の築城', description: '前線の少し後ろに拠点と柵を建て、傷んだら直す' },
     repair: { name: '修理', description: '傷んだ自軍の建設物を、傷みの大きい順に直す' },
     supply: { name: '自動補給', description: '矢の減った弓兵の部隊を探して矢を届ける' },
 }
 
-const COMBAT_GUIDELINES: Guideline[] = ['assault', 'guard', 'escort', 'skirmish', 'homeGuard']
+const COMBAT_GUIDELINES: Guideline[] = ['assault', 'guard', 'escort', 'skirmish', 'scout', 'homeGuard']
 
 /** 部隊が選べる行動（中隊は兵種を問わず戦う行動、工兵は築城と修理、補給兵は自動補給だけ）。 */
 export function guidelineOptions(types: UnitType[]): Guideline[] {

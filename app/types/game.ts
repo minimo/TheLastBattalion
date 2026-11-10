@@ -104,9 +104,9 @@ export type FormationType = 'line' | 'crane' | 'scale' | 'circle' | 'arrow'
 
 /**
  * 部隊の行動（人間軍）。命令のないとき、部隊はこれに沿って動く。中隊は中隊ごと、中隊に入らない工兵・補給兵は小隊ごとに持つ。
- * assault: 攻勢 / guard: 守備 / escort: 援護 / skirmish: 遊撃 / homeGuard: 本陣守備 / fortify: 前線の築城 / repair: 修理 / supply: 自動補給
+ * assault: 攻勢 / guard: 守備 / escort: 援護 / skirmish: 遊撃 / scout: 偵察 / homeGuard: 本陣守備 / fortify: 前線の築城 / repair: 修理 / supply: 自動補給
  */
-export type Guideline = 'assault' | 'guard' | 'escort' | 'skirmish' | 'homeGuard' | 'fortify' | 'repair' | 'supply'
+export type Guideline = 'assault' | 'guard' | 'escort' | 'skirmish' | 'scout' | 'homeGuard' | 'fortify' | 'repair' | 'supply'
 
 /** 部隊がプレイヤーの命令で動いているか。none: 行動に沿って動く / order: 命令をやり終えるまで行動の判断は手を出さない / wait: 「待機」で、次の命令まで行動を止める。 */
 export type Directive = 'none' | 'order' | 'wait'

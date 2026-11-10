@@ -131,6 +131,22 @@ describe('行動に沿って動く', () => {
         expect(Math.hypot(at.x - post.x, at.y - post.y)).toBeLessThan(60)
     }, 120000)
 
+    it('偵察の中隊は開戦してすぐ敵陣の方向へ進み、自分からは攻めない', () => {
+        const battle = makeBattle('123456')
+        const director = createGuidelineDirector(battle)
+        const company = playerCompanies(battle)[0]!
+        setGuideline(company.guidance, 'scout')
+        const start = companyPosition(battle, company)
+        const enemyHome = battle.homes.cpu
+        run(battle, 20, director)
+        expect(director.awake).toBe(false)
+        const at = companyPosition(battle, company)
+        expect(Math.hypot(at.x - enemyHome.x, at.y - enemyHome.y)).toBeLessThan(Math.hypot(start.x - enemyHome.x, start.y - enemyHome.y) - 100)
+        expect(companySquads(battle, company.id).every(sq => sq.order === 'move')).toBe(true)
+        // ほかの中隊は陣で構えたまま。
+        expect(playerCompanies(battle).filter(c => c !== company).every(c => companySquads(battle, c.id).every(sq => sq.order === 'formation'))).toBe(true)
+    }, 120000)
+
     it('行動を変えると、守る地点を選び直す', () => {
         const battle = makeBattle('123456')
         const company = playerCompanies(battle)[0]!

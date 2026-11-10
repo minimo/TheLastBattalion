@@ -1,9 +1,10 @@
 import {
-    companyPosition, companySquads, orderCompany, orderCompanyAttack, orderCompanyMove, orderSupport, squadPosition, type Battle,
+    companyPosition, companySquads, enemyOf, orderCompany, orderCompanyAttack, orderCompanyMove, orderSupport, squadPosition, type Battle,
 } from './battle'
 import { createEngineerDirector, directRepairs } from './engineers'
 import { squadBlock, toWorld } from './formation'
-import { knownSquadPosition, seenEnemySquads } from './vision'
+import { UNIT_VISION } from './battleConfig'
+import { knownSquadPosition, seenEnemySquads, visionRangeAt } from './vision'
 import type { Army, Company, Directive, Guidance, Guideline, Point, Squad } from '../types/game'
 
 const THINK_INTERVAL = 2.5
@@ -25,6 +26,11 @@ const ESCORT_SHIFT = 40
 const SKIRMISH_PIKE_AVOID = 90
 /** 遊撃: 兵がこの割合を切ったら下がって立て直す（立て直したあとの兵の数から数え直す）。 */
 const SKIRMISH_FALLBACK = .5
+/** 偵察: 敵を自分の視界のこの割合の距離から見張る。これより近い割合まで近づかれたら、見張る距離まで下がる。 */
+const SCOUT_WATCH = .75
+const SCOUT_TOO_CLOSE = .5
+/** 偵察: 見張る地点がこれより動いたら移り直す。 */
+const SCOUT_SHIFT = 60
 /** 行き先にこの距離まで来たら、着いたとみなす。 */
 const ARRIVE = 45
 
@@ -66,7 +72,7 @@ export function setGuideline(guidance: Guidance, guideline: Guideline) {
 /**
  * 部隊の行動（人間軍）。魔王軍の指揮官と同じく、部隊単位で既存の指示を出す（中隊のまとまりの決まりはそのまま効く）。
  * - プレイヤーの命令が優先。命令をやり終えたら行動に戻る（「待機」は次の命令まで行動を止める）。補給に戻っている部隊は補給を終えるまで待つ
- * - 開戦直後は陣で構え、敵の部隊が近づいたら全軍が動き出す。それより前でも、命令をやり終えた部隊はその部隊だけ行動に沿って動く
+ * - 開戦直後は陣で構え、敵の部隊が近づいたら全軍が動き出す（偵察は開戦してすぐ動き出す）。それより前でも、命令をやり終えた部隊はその部隊だけ行動に沿って動く
  */
 export function createGuidelineDirector(battle: Battle, owner: Army = 'player') {
     let awake = false
@@ -75,7 +81,9 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
     const released = new WeakSet<Guidance>()
     /** 援護で付いている中隊と、付いた地点。 */
     const escorts = new WeakMap<Guidance, { companyId: number; point: Point }>()
-    /** 遊撃で、下がって立て直す目安にする兵の数（最後に立て直した時の数）。 */
+    /** 偵察で、向かっている見張りの地点。 */
+    const lookouts = new WeakMap<Guidance, Point>()
+    /** 遊撃・偵察で、下がって立て直す目安にする兵の数（最後に立て直した時の数）。 */
     const strength = new WeakMap<Guidance, number>()
     // 前線の目安の周りに建てる場所がなければ（川や山など）、手前・先と左右にも広く探す。
     const fortify = createEngineerDirector(battle, owner, { reaches: [.45, .38, .52, .58, .31], laterals: [0, 40, -40, 80, -80, 120, -120, 160, -160, 200, -200] })
@@ -177,15 +185,19 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         }
     }
 
-    /** 遊撃: 槍兵を避けて、弓兵・補給兵・工兵や数の減った敵を狙う。兵が半分を切ったら下がって立て直す。 */
-    const skirmish = (unit: Unit, fighters: Squad[]) => {
+    /** 兵が半分を切ったら、補給に戻って立て直す（立て直したあとの兵の数から数え直す）。戻ったら true。 */
+    const fallBack = (unit: Unit, fighters: Squad[]) => {
         const count = fighters.reduce((sum, sq) => sum + sq.count, 0)
         const base = strength.get(unit.guidance) ?? fighters.reduce((sum, sq) => sum + sq.size, 0)
-        if (count < base * SKIRMISH_FALLBACK) {
-            strength.set(unit.guidance, count)
-            orderCompany(battle, unit.company!.id, 'resupply')
-            return
-        }
+        if (count >= base * SKIRMISH_FALLBACK) return false
+        strength.set(unit.guidance, count)
+        orderCompany(battle, unit.company!.id, 'resupply')
+        return true
+    }
+
+    /** 遊撃: 槍兵を避けて、弓兵・補給兵・工兵や数の減った敵を狙う。兵が半分を切ったら下がって立て直す。 */
+    const skirmish = (unit: Unit, fighters: Squad[]) => {
+        if (fallBack(unit, fighters)) return
         const foes = enemies()
         const pikes = foes.filter(sq => sq.type === 'pikeman')
         const exposed = (sq: Squad) => sq.type !== 'pikeman' && !pikes.some(p => distance(p.center, sq.center) < SKIRMISH_PIKE_AVOID)
@@ -196,6 +208,28 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
             ?? nearest(here, foes.filter(exposed))
         if (prey) attack(unit, prey, false)
         else guard(unit, fighters)
+    }
+
+    /**
+     * 偵察: 敵陣の方向へ進み、自分の目で見えた一番近い敵を、視界の端に近い距離から見張る（自分からは攻めない）。
+     * 近づかれたら見張る距離まで下がる。見える敵がいなければ、敵陣を見張る所まで進む。兵が半分を切ったら下がって立て直す。
+     */
+    const scout = (unit: Unit, fighters: Squad[]) => {
+        if (fallBack(unit, fighters)) return
+        const here = positionOf(unit)
+        const sight = Math.max(...fighters.map(sq => visionRangeAt(UNIT_VISION[owner][sq.type], battle.dayTime, battle.weather)))
+        const foe = nearest(here, enemies(), sight)
+        const watched = foe ? knownSquadPosition(foe) : battle.homes[enemyOf(owner)]
+        const away = distance(here, watched)
+        const toward = Math.atan2(watched.x - here.x, watched.y - here.y)
+        // 見えている敵との間がほどよければ、その場で止まって見張り続ける。
+        const settled = foe && away >= sight * SCOUT_TOO_CLOSE && !fighters.some(sq => sq.order === 'attack')
+        if (settled && fighters.every(sq => sq.order !== 'move' || arrived(sq))) return
+        const point = settled ? here : toWorld(watched, toward, -sight * SCOUT_WATCH, 0)
+        const last = lookouts.get(unit.guidance)
+        if (last && distance(last, point) < SCOUT_SHIFT && fighters.every(sq => sq.order === 'move')) return
+        moveTo(unit, point, toward)
+        lookouts.set(unit.guidance, point)
     }
 
     /** 本陣守備: 陣の持ち場に控え、砦・陣に近づいた敵を追い払う。遠くまで追ったら陣に戻る。 */
@@ -220,6 +254,7 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
         else if (guideline === 'guard') guard(unit, fighters)
         else if (guideline === 'escort') escort(unit, fighters)
         else if (guideline === 'skirmish') skirmish(unit, fighters)
+        else if (guideline === 'scout') scout(unit, fighters)
         else homeGuard(unit, fighters)
     }
 
@@ -244,7 +279,8 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player') 
                     guidance.guardPoint = null
                     released.add(guidance)
                 }
-                if (!awake && !released.has(guidance)) continue
+                // 偵察だけは、敵が近づくのを待たずに開戦してすぐ動き出す。
+                if (!awake && !released.has(guidance) && guidance.guideline !== 'scout') continue
                 if (unit.squads.some(sq => sq.order === 'resupply')) continue
                 act(unit)
             }
