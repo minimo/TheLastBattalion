@@ -11,15 +11,16 @@ export const GUIDELINES: Record<Guideline, { name: string; description: string }
     fortify: { name: '前線の築城', description: '前線の少し後ろに拠点と柵を建て、傷んだら直す' },
     repair: { name: '修理', description: '傷んだ自軍の建設物を、傷みの大きい順に直す' },
     supply: { name: '自動補給', description: '矢の減った弓兵の部隊を探して矢を届ける' },
+    standby: { name: '待機', description: '自分からは動かず、その場に留まって見張る。敵が近づいたら下がる（弓兵は射程の手前、ほかの兵種はその半分）' },
 }
 
 const COMBAT_GUIDELINES: Guideline[] = ['assault', 'guard', 'escort', 'skirmish', 'scout', 'homeGuard']
 
-/** 部隊が選べる行動（中隊は兵種を問わず戦う行動、工兵は築城と修理、補給兵は自動補給だけ、偵察兵は偵察だけ）。 */
+/** 部隊が選べる行動（中隊は兵種を問わず戦う行動、工兵は築城と修理、補給兵は自動補給だけ、偵察兵は偵察と待機）。 */
 export function guidelineOptions(types: UnitType[]): Guideline[] {
     if (types.length && types.every(t => t === 'engineer')) return ['fortify', 'repair']
     if (types.length && types.every(t => t === 'supply')) return ['supply']
-    if (types.length && types.every(t => t === 'scout')) return ['scout']
+    if (types.length && types.every(t => t === 'scout')) return ['scout', 'standby']
     return COMBAT_GUIDELINES
 }
 

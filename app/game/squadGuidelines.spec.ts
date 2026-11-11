@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { generateMap } from './mapGenerator'
 import { createMulberry32, hashString } from './random'
-import { companyPosition, companySquads, createBattle, orderCompany, orderCompanyMove, updateBattle, type Battle } from './battle'
+import { companyPosition, companySquads, createBattle, orderCompany, orderCompanyMove, orderHold, orderMove, updateBattle, type Battle } from './battle'
 import { createCpuCommander } from './cpuCommander'
 import { defaultDeployment, normalizeDeployment, plannedCompanies, type DeploymentPlan } from './deployment'
 import { toWorld } from './formation'
-import { defaultGuideline } from './guidelines'
+import { UNIT_STATS } from './battleConfig'
+import { defaultGuideline, guidelineOptions } from './guidelines'
 import { createGuidelineDirector, markCommanded, setGuideline } from './squadGuidelines'
 import { mapTypeForMode } from './mapType'
-import type { Company } from '../types/game'
+import type { Company, Point } from '../types/game'
 
 const makeBattle = (seed: string, plan?: DeploymentPlan) => {
     const { mapGrid } = generateMap(createMulberry32(hashString(seed)), mapTypeForMode('field', 'standard'))
@@ -109,6 +110,54 @@ describe('行動に沿って動く', () => {
             run(battle, 1, director)
             expect(battle.soldiers.filter(s => s.squadId === scout.id).every(s => s.targetId === -1 && s.constructionId === -1)).toBe(true)
         }
+    }, 120000)
+
+    it('偵察兵は偵察と待機を選べ、待機に変えると進むのをやめてその場に留まる', () => {
+        expect(guidelineOptions(['scout'])).toEqual(['scout', 'standby'])
+        const battle = makeBattle('123456')
+        const director = createGuidelineDirector(battle)
+        const scout = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'scout')!
+        run(battle, 5, director)
+        expect(scout.order).toBe('move')
+        setGuideline(scout.guidance, 'standby')
+        run(battle, 3, director)
+        expect(scout.order).toBe('hold')
+        const at = { ...scout.center }
+        run(battle, 10, director)
+        expect(scout.order).toBe('hold')
+        expect(Math.hypot(scout.center.x - at.x, scout.center.y - at.y)).toBeLessThan(20)
+    }, 120000)
+
+    it('待機の偵察兵は、敵の弓兵の射程の手前、ほかの兵種はその半分まで近づかれたら下がり、それより遠ければ留まる', () => {
+        const range = UNIT_STATS.cpu.archer.range
+        /** 偵察兵を魔王軍の陣の前の、どの敵からも離れた所に置く。approach なら魔王軍の歩兵の小隊を偵察兵へ向かわせる。 */
+        const place = (approach: boolean) => {
+            const battle = makeBattle('123456')
+            const director = createGuidelineDirector(battle)
+            const scout = battle.squads.find(sq => sq.owner === 'player' && sq.type === 'scout')!
+            setGuideline(scout.guidance, 'standby')
+            const enemies = battle.squads.filter(sq => sq.owner === 'cpu')
+            const formation = battle.formations.cpu
+            let at: Point | undefined
+            for (let forward = 40; forward < 600 && !at; forward += 10) for (const lateral of [0, 60, -60, 120, -120]) {
+                const p = toWorld(formation.anchor, formation.facing, forward, lateral)
+                if (enemies.every(sq => Math.hypot(sq.center.x - p.x, sq.center.y - p.y) > (sq.type === 'archer' ? range + 40 : range * .7))) { at = p; break }
+            }
+            for (const s of battle.soldiers) if (s.squadId === scout.id) { s.x = at!.x + (s.x % 5); s.y = at!.y + (s.y % 5) }
+            // 置いた所を持ち場にする（元の持ち場へ歩いて戻らないように）。
+            run(battle, .1)
+            orderHold(battle, scout.id)
+            const infantry = enemies.filter(sq => sq.type === 'infantry').reduce((a, b) => Math.hypot(b.center.x - at!.x, b.center.y - at!.y) < Math.hypot(a.center.x - at!.x, a.center.y - at!.y) ? b : a)
+            if (approach) orderMove(battle, infantry.id, at!)
+            run(battle, 20, director)
+            return { moved: Math.hypot(scout.center.x - at!.x, scout.center.y - at!.y), alive: scout.count }
+        }
+        // 敵が近づかなければ留まる。
+        expect(place(false).moved).toBeLessThan(20)
+        // 歩兵が近づいてきたら、討たれる前に下がる。
+        const fled = place(true)
+        expect(fled.moved).toBeGreaterThan(150)
+        expect(fled.alive).toBe(5)
     }, 120000)
 
     it('敵が近づくと全軍が動き出し、攻勢の中隊は敵を攻める', () => {

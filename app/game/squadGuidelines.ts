@@ -1,9 +1,9 @@
 import {
-    companyPosition, companySquads, enemyOf, orderCompany, orderCompanyAttack, orderCompanyMove, orderMove, orderResupply, orderSupport, squadPosition, type Battle,
+    companyPosition, companySquads, enemyOf, orderCompany, orderCompanyAttack, orderCompanyMove, orderHold, orderMove, orderResupply, orderSupport, squadPosition, type Battle,
 } from './battle'
 import { createEngineerDirector, directRepairs } from './engineers'
 import { isSupportType, squadBlock, toWorld } from './formation'
-import { UNIT_VISION } from './battleConfig'
+import { UNIT_STATS, UNIT_VISION } from './battleConfig'
 import { knownSquadPosition, seenEnemySquads, visionRangeAt } from './vision'
 import type { Army, Company, Directive, Guidance, Guideline, Point, Squad } from '../types/game'
 
@@ -31,6 +31,15 @@ const SCOUT_WATCH = .75
 const SCOUT_TOO_CLOSE = .5
 /** 偵察: 見張る地点がこれより動いたら移り直す。 */
 const SCOUT_SHIFT = 60
+/** 偵察兵の小隊が下がり始める、敵の弓兵の射程の手前の余裕（px）。 */
+const SCOUT_FLEE_MARGIN = 15
+/** 偵察兵の小隊が、近づいた敵から下がるかを調べる間隔（秒）。行動の判断の間隔より短くして、すぐ下がる。 */
+const SCOUT_ALERT_INTERVAL = .5
+/** 偵察兵の小隊が下がり始める、敵の小隊との距離。弓兵はその射程の手前、ほかの兵種はその半分。 */
+const scoutFleeDistance = (enemy: Squad) => {
+    const archer = UNIT_STATS[enemy.owner].archer.range + SCOUT_FLEE_MARGIN
+    return enemy.type === 'archer' ? archer : archer / 2
+}
 /** 行き先にこの距離まで来たら、着いたとみなす。 */
 const ARRIVE = 45
 
@@ -78,12 +87,15 @@ export function setGuideline(guidance: Guidance, guideline: Guideline) {
 export function createGuidelineDirector(battle: Battle, owner: Army = 'player', scoutsOnly = false) {
     let awake = false
     let timer = 0
+    let alertTimer = 0
     /** 動き出す前に命令をやり終えて、先に行動に沿って動いている部隊。 */
     const released = new WeakSet<Guidance>()
     /** 援護で付いている中隊と、付いた地点。 */
     const escorts = new WeakMap<Guidance, { companyId: number; point: Point }>()
     /** 偵察で、向かっている見張りの地点。 */
     const lookouts = new WeakMap<Guidance, Point>()
+    /** 待機に入って、進んでいる途中の移動を止めた部隊（ほかの行動に変えたら外す）。 */
+    const standing = new WeakSet<Guidance>()
     /** 遊撃・偵察で、下がって立て直す目安にする兵の数（最後に立て直した時の数）。 */
     const strength = new WeakMap<Guidance, number>()
     // 前線の目安の周りに建てる場所がなければ（川や山など）、手前・先と左右にも広く探す。
@@ -220,21 +232,56 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player', 
      * 近づかれたら見張る距離まで下がる。見える敵がいなければ、敵陣を見張る所まで進む。兵が半分を切ったら下がって立て直す。
      * 中隊のほか、偵察兵の小隊もこの行動で動く。
      */
+    /** 偵察兵の小隊から下がり始める距離（scoutFleeDistance）に入った、見えている敵の小隊のうち一番近いもの。 */
+    const threatTo = (here: Point) => {
+        let best: Squad | undefined, bestDistance = Infinity
+        for (const sq of enemies()) {
+            const d = distance(knownSquadPosition(sq), here)
+            if (d <= scoutFleeDistance(sq) && d < bestDistance) { bestDistance = d; best = sq }
+        }
+        return best
+    }
+
     const scout = (unit: Unit, fighters: Squad[]) => {
         if (fallBack(unit, fighters)) return
         const here = positionOf(unit)
         const sight = Math.max(...fighters.map(sq => visionRangeAt(UNIT_VISION[owner][sq.type], battle.dayTime, battle.weather)))
-        const foe = nearest(here, enemies(), sight)
+        // 偵察兵の小隊は、下がり始める距離（scoutFleeDistance）に入った敵から下がる。中隊は視界の SCOUT_TOO_CLOSE の割合より近い敵から下がる。
+        const threat = unit.company ? undefined : threatTo(here)
+        const foe = threat ?? nearest(here, enemies(), sight)
         const watched = foe ? knownSquadPosition(foe) : battle.homes[enemyOf(owner)]
         const away = distance(here, watched)
         const toward = Math.atan2(watched.x - here.x, watched.y - here.y)
         // 見えている敵との間がほどよければ、その場で止まって見張り続ける。
-        const settled = foe && away >= sight * SCOUT_TOO_CLOSE && !fighters.some(sq => sq.order === 'attack')
+        const settled = foe && (unit.company ? away >= sight * SCOUT_TOO_CLOSE : !threat) && !fighters.some(sq => sq.order === 'attack')
         if (settled && fighters.every(sq => sq.order !== 'move' || arrived(sq))) return
         const point = settled ? here : toWorld(watched, toward, -sight * SCOUT_WATCH, 0)
         const last = lookouts.get(unit.guidance)
         if (last && distance(last, point) < SCOUT_SHIFT && fighters.every(sq => sq.order === 'move')) return
         moveTo(unit, point, toward)
+        lookouts.set(unit.guidance, point)
+    }
+
+    /**
+     * 待機（偵察兵）: 自分からは動かず、その場に留まって見張る。偵察で進んでいる途中に待機へ変えたら、その場で止まる。
+     * 見えている敵に下がり始める距離（scoutFleeDistance）まで近づかれたら、偵察と同じく見張る距離（視界の SCOUT_WATCH）まで下がって、そこで留まる。
+     */
+    const standby = (unit: Unit) => {
+        if (!standing.has(unit.guidance)) {
+            for (const sq of unit.squads) if (sq.order === 'move') orderHold(battle, sq.id)
+            standing.add(unit.guidance)
+        }
+        const here = positionOf(unit)
+        const sight = Math.max(...unit.squads.map(sq => visionRangeAt(UNIT_VISION[owner][sq.type], battle.dayTime, battle.weather)))
+        const foe = threatTo(here)
+        if (!foe) return
+        const at = knownSquadPosition(foe)
+        const away = Math.atan2(here.x - at.x, here.y - at.y)
+        const point = toWorld(at, away, sight * SCOUT_WATCH, 0)
+        // 下がっている途中なら、行き先が大きく変わるまで指示し直さない。
+        const last = lookouts.get(unit.guidance)
+        if (last && distance(last, point) < SCOUT_SHIFT && unit.squads.every(sq => sq.order === 'move')) return
+        moveTo(unit, point, away + Math.PI)
         lookouts.set(unit.guidance, point)
     }
 
@@ -251,6 +298,8 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player', 
 
     const act = (unit: Unit) => {
         const guideline = unit.guidance.guideline
+        if (guideline === 'standby') { standby(unit); return }
+        standing.delete(unit.guidance)
         if (guideline === 'supply') { for (const sq of unit.squads) if (sq.type === 'supply' && sq.order !== 'support') orderSupport(battle, sq.id); return }
         if (guideline === 'fortify') { fortify(unit.squads.filter(sq => sq.type === 'engineer')); return }
         if (guideline === 'repair') { directRepairs(battle, owner, unit.squads.filter(sq => sq.type === 'engineer')); return }
@@ -274,6 +323,17 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player', 
         /** 全軍が行動に沿って動き出したか。 */
         get awake() { return awake },
         update(dt: number) {
+            // 偵察兵の小隊は、近づいた敵から下がるかを行動の判断より短い間隔で調べる。
+            alertTimer -= dt
+            if (alertTimer <= 0) {
+                alertTimer = SCOUT_ALERT_INTERVAL
+                for (const unit of unitsOf(battle, owner)) {
+                    const { guideline, directive } = unit.guidance
+                    if (unit.company || directive !== 'none' || (guideline !== 'scout' && guideline !== 'standby')) continue
+                    if (!unit.squads.every(sq => sq.type === 'scout' && sq.order !== 'resupply')) continue
+                    if (threatTo(positionOf(unit))) act(unit)
+                }
+            }
             timer -= dt
             if (timer > 0) return
             timer = THINK_INTERVAL
@@ -289,11 +349,13 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player', 
                     if (!finished(unit)) continue
                     // 命令をやり終えたら行動に戻る。移動・陣形のあとは、着いた所を守る地点にする。
                     guidance.directive = 'none'
+                    // 待機の部隊は、やり終えた命令の移動を止め直さない（行き先の手前で止まらないように）。
+                    standing.add(guidance)
                     guidance.guardPoint = null
                     released.add(guidance)
                 }
-                // 偵察だけは、敵が近づくのを待たずに開戦してすぐ動き出す。
-                if (!awake && !released.has(guidance) && guidance.guideline !== 'scout') continue
+                // 偵察だけは、敵が近づくのを待たずに開戦してすぐ動き出す（偵察から待機に変えたら、すぐ止まる）。
+                if (!awake && !released.has(guidance) && guidance.guideline !== 'scout' && guidance.guideline !== 'standby') continue
                 if (unit.squads.some(sq => sq.order === 'resupply')) continue
                 act(unit)
             }
