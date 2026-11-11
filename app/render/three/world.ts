@@ -139,7 +139,10 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     }
     const water = new THREE.Mesh(waterGeometry, waterMaterial)
     group.add(water)
-    return { group, field, mapType, theme, pickables: [terrain, surroundings, water, ...bridges], fellTrees: forest.fell, regrowTrees: forest.regrow, updateTrees: forest.update, update(time: number) {
+    return { group, field, mapType, theme, pickables: [terrain, surroundings, water, ...bridges], fellTrees: forest.fell, regrowTrees: forest.regrow,
+        /** カメラの位置に合わせて、木と地面の細かさを切り替える。 */
+        updateDetail(camera: THREE.Vector3) { forest.update(camera); terrainMeshes.update(camera) },
+        update(time: number) {
         const shader = waterMaterial.userData.shader
         if (shader) shader.uniforms.time.value = time
     }, destroy() {

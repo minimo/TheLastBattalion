@@ -737,7 +737,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
             camera.lookAt(controls.target)
         }
         camera.updateMatrixWorld()
-        world.updateTrees(camera.position)
+        world.updateDetail(camera.position)
         const weather = gameStore.status === 'title' || !gameStore.battle ? WEATHER_LOOK.clear : blendWeatherLook(gameStore.battle.weather, weatherLook)
         atmosphere.setWeather(weather)
         atmosphere.update(camera, getNightAlpha(gameStore.dayTime) * 2, gameStore.dayTime)
