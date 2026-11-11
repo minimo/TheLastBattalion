@@ -293,13 +293,13 @@ function createTrees(trees: Tree[], kit: ModelKit, style: NonNullable<MapTheme['
     return createBroadleafTrees(trees, kit)
 }
 
-/** 広葉樹の樹冠: 枝先の葉の房（count 枚）を、いびつな塊の中に散らして重ねる。遠くの木は枚数を減らし、1枚を大きくする。 */
-function broadleafCrown(count: number, size: number) {
+/** 広葉樹の樹冠: 枝先の葉の房（count 枚）を、いびつな塊の中に散らして重ねる。遠くの木は枚数を減らし、1枚を大きくする。bent: 房を縦に折って反らせる（三角形が倍になる）。 */
+function broadleafCrown(count: number, size: number, bent = true) {
     const parts: THREE.BufferGeometry[] = []
     for (let i = 0; i < count; i++) {
         const a = i * 2.399963, v = 1 - 2 * (i + .5) / count
         const r = Math.sqrt(1 - v * v), radius = .6 + .4 * (.5 + .5 * Math.sin(i * 13.7))
-        const geometry = new THREE.PlaneGeometry(4.8 * size, 6 * size, 1, 2)
+        const geometry = new THREE.PlaneGeometry(4.8 * size, 6 * size, 1, bent ? 2 : 1)
         const position = geometry.getAttribute('position')
         for (let j = 0; j < position.count; j++) position.setZ(j, Math.abs(position.getY(j)) * .18)
         geometry.rotateY(a + .8)
@@ -313,13 +313,14 @@ function broadleafCrown(count: number, size: number) {
     return crown
 }
 
-/** 広葉樹を区画に分ける大きさ（px）と、遠くの木に切り替える距離（px）。 */
+/** 広葉樹を区画に分ける大きさ（px）と、粗い形に切り替えるカメラからの距離（px）。戦場を見渡す視点では、すべての木がいちばん粗い形になる。 */
 const BROADLEAF_CHUNK = 256
-const BROADLEAF_FAR = 520, BROADLEAF_MARGIN = 40
+const BROADLEAF_LEVEL_DISTANCE = [520, 1100], BROADLEAF_MARGIN = 40
 
 /**
  * 広葉樹。木を区画に分けて画面外の区画を描かず、遠くの区画は枝を省いて葉の房の少ない樹冠にする。
- * 近い形と遠い形は同じ配置を共有する（拠点の建設で木を消すと両方から消える）。
+ * さらに遠くの区画は、房をもっと減らして大きくし、幹も三角柱にする（木の数が多いので、見渡す視点の重さはこの形の三角形の数で決まる）。
+ * どの形も同じ配置を共有する（拠点の建設で木を消すとすべての形から消える）。
  */
 function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
     const group = new THREE.Group()
@@ -327,8 +328,8 @@ function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
     const leafMap = createLeafMap()
     const leafMaterial = new THREE.MeshStandardMaterial({ map: leafMap, alphaTest: .25, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .95, color: 0xced3b5 })
     applyPlantSnow(leafMaterial, BROADLEAF_SNOW.low, BROADLEAF_SNOW.high)
-    const nearCrown = broadleafCrown(170, 1), farCrown = broadleafCrown(28, 1.9)
-    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 12), farTrunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 5)
+    const nearCrown = broadleafCrown(170, 1), farCrown = broadleafCrown(28, 1.9), distantCrown = broadleafCrown(9, 3.1, false)
+    const trunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 12), farTrunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 5), distantTrunkGeometry = new THREE.CylinderGeometry(.55, 1, 1, 3, 1, true)
     const byChunk = new Map<string, number[]>()
     trees.forEach((tree, i) => {
         const key = `${Math.floor(tree.x / BROADLEAF_CHUNK)},${Math.floor(tree.z / BROADLEAF_CHUNK)}`
@@ -384,18 +385,19 @@ function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
             leaves.receiveShadow = true
             return leaves
         }
-        const near = new THREE.Group(), far = new THREE.Group()
+        const near = new THREE.Group(), far = new THREE.Group(), distant = new THREE.Group()
         const trunks = instanced(trunkGeometry, kit.surfaces.bark, trunkMatrices, members.length)
         const branches = instanced(trunkGeometry, kit.surfaces.bark, branchMatrices, members.length * 5)
         const leaves = leavesOf(nearCrown)
         near.add(trunks, branches, leaves)
         far.add(instanced(farTrunkGeometry, kit.surfaces.bark, trunkMatrices, members.length), leavesOf(farCrown))
-        far.visible = false
-        group.add(near, far)
+        distant.add(instanced(distantTrunkGeometry, kit.surfaces.bark, trunkMatrices, members.length), leavesOf(distantCrown))
+        far.visible = distant.visible = false
+        group.add(near, far, distant)
         members.forEach((i, local) => {
             where[i] = [[trunks, local], ...Array.from({ length: 5 }, (_, j) => [branches, local * 5 + j] as TreeInstance), [leaves, local]]
         })
-        return { near, far, box, isFar: false }
+        return { views: [near, far, distant], box, level: 0 }
     })
     const lastCamera = new THREE.Vector3(Infinity, 0, 0)
     const update = (camera: THREE.Vector3) => {
@@ -403,16 +405,18 @@ function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
         lastCamera.copy(camera)
         for (const chunk of chunks) {
             const distance = chunk.box.distanceToPoint(camera)
-            const isFar = distance > BROADLEAF_FAR + (chunk.isFar ? -BROADLEAF_MARGIN : BROADLEAF_MARGIN)
-            if (isFar === chunk.isFar) continue
-            chunk.isFar = isFar
-            chunk.near.visible = !isFar
-            chunk.far.visible = isFar
+            // 境目でちらつかないよう、今の段階から離れる向きにだけ余裕を持たせる。
+            let level = 0
+            while (level < BROADLEAF_LEVEL_DISTANCE.length && distance > BROADLEAF_LEVEL_DISTANCE[level]! + (chunk.level > level ? -BROADLEAF_MARGIN : BROADLEAF_MARGIN)) level++
+            if (level === chunk.level) continue
+            chunk.views[chunk.level]!.visible = false
+            chunk.views[level]!.visible = true
+            chunk.level = level
         }
     }
     return { group, update, locate: (tree: number): TreeInstance[] => where[tree]!, destroy() {
         meshes.forEach(mesh => mesh.dispose())
-        trunkGeometry.dispose(); farTrunkGeometry.dispose(); nearCrown.dispose(); farCrown.dispose(); leafMaterial.dispose(); leafMap.dispose()
+        trunkGeometry.dispose(); farTrunkGeometry.dispose(); distantTrunkGeometry.dispose(); nearCrown.dispose(); farCrown.dispose(); distantCrown.dispose(); leafMaterial.dispose(); leafMap.dispose()
     } }
 }
 

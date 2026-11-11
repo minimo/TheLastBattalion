@@ -8,12 +8,15 @@ import { createTerrainMeshes } from './terrainMesh'
 import { createScenery } from './scenery'
 import type { ModelKit } from './models'
 import { fortFootprint, fortGroundAt, gridToLocal, inForestClearing, localToWorld } from '../../game/fortLayout'
-import { getTerrainTile } from '../../game/playableArea'
+import { getTerrainTile, PLAYABLE_MAX, PLAYABLE_MIN } from '../../game/playableArea'
 import { CASTLE_DEPTH, CASTLE_WIDTH, castleCellAt, castleRadiusAt } from '../../game/castleLayout'
 import { mapTypeOf } from '../../game/mapType'
 import { MAP_THEME } from './mapTheme'
 import { marshCell, marshFor } from '../../game/marsh'
 import { createReeds } from './reeds'
+
+/** 遠景の木の大きさの倍率（本数を減らした分、樹冠を広げる）。 */
+const DISTANT_TREE_SCALE = 1.3
 
 export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
     const mapType = mapTypeOf(grid), theme = MAP_THEME[mapType]
@@ -86,13 +89,16 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
         }
         // 湿地では、沼になったマスに木を立てない。
         if (mapType !== 'forest' && (t === TILE.WOOD || t >= 31 && t <= 41) && !reserved(x, z) && !(marsh && marshCell(marsh, x, z))) {
+            // 部隊の動けない遠景は近くで見ることがないので、1マスに1本だけ立て、木を大きくして茂り方を保つ（遠景は広く、木の数が描画の重さに効く）。
+            const distant = x < PLAYABLE_MIN || x > PLAYABLE_MAX || z < PLAYABLE_MIN || z > PLAYABLE_MAX
             // 枯れ木はまばらに立つ。
             const count = theme.trees.style === 'dead' ? (Math.sin(i * 12.9898 + j * 78.233) * 43758.5453 % 1 + 1) % 1 < .45 ? 1 : 0
-                : t >= 34 ? 3 : 2
+                : distant ? 1 : t >= 34 ? 3 : 2
+            const size = distant && theme.trees.style !== 'dead' ? DISTANT_TREE_SCALE : 1
             for (let k = 0; k < count; k++) {
                 const tx = x + Math.sin(i * 17 + j * 31 + k * 11) * 5
                 const tz = z + Math.cos(i * 13 + j * 7 + k * 19) * 5
-                trees.push({ x: tx, z: tz, h: field.heightAt(tx, tz), scale: .7 + .35 * (1 + Math.sin(i * 3 + j + k)) })
+                trees.push({ x: tx, z: tz, h: field.heightAt(tx, tz), scale: (.7 + .35 * (1 + Math.sin(i * 3 + j + k))) * size })
             }
         }
     }
