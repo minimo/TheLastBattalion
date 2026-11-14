@@ -121,15 +121,21 @@ const WOODLAND = {
     leaf: { width: 13, length: 10, crop: { width: .5, top: .9375 } },
 }
 
-/** 木の細かさの段階。遠い段階ほど枝と葉を省き、残した葉を大きくして茂り方を保つ。 */
+/**
+ * 木の細かさの段階。遠い段階ほど枝と葉を省き、残した葉を大きくして茂り方を保つ。
+ * leafEvery: 太枝の先と幹の先の葉を何枚おきに残すか / trunkSides: 幹の角の数
+ * shadowEvery: 影に描く葉の板を何枚おきに残すか。0 なら影だけの板を持たず、葉の板がそのまま影を落とす（幹は影を落とさない）。
+ * いちばん遠い段階は戦場を見渡す視点ですべての木に使われるので、三角形と描画の回数を切り詰める。
+ */
 const WOODLAND_LEVELS = [
-    { boughs: true, twigs: true, sideLeaves: true, twigLeaves: true, leafScale: 1, shadowEvery: 3 },
-    { boughs: true, twigs: false, sideLeaves: false, twigLeaves: true, leafScale: 1.2, shadowEvery: 3 },
-    { boughs: false, twigs: false, sideLeaves: false, twigLeaves: false, leafScale: 1.6, shadowEvery: 2 },
+    { boughs: true, twigs: true, sideLeaves: true, twigLeaves: true, leafScale: 1, leafEvery: 1, trunkSides: 5, shadowEvery: 3 },
+    { boughs: true, twigs: false, sideLeaves: false, twigLeaves: true, leafScale: 1.2, leafEvery: 1, trunkSides: 5, shadowEvery: 3 },
+    { boughs: false, twigs: false, sideLeaves: false, twigLeaves: false, leafScale: 1.6, leafEvery: 1, trunkSides: 5, shadowEvery: 2 },
+    { boughs: false, twigs: false, sideLeaves: false, twigLeaves: false, leafScale: 2.3, leafEvery: 2, trunkSides: 3, shadowEvery: 0 },
 ]
 /** 区画の一辺（px）と、段階を切り替えるカメラからの距離（px）。粗くするときは余裕を持たせ、境目でちらつかないようにする。 */
 const WOODLAND_CHUNK = 256
-const WOODLAND_LEVEL_DISTANCE = [380, 800]
+const WOODLAND_LEVEL_DISTANCE = [380, 800, 1200]
 const WOODLAND_LEVEL_MARGIN = 40
 /** 木の高さと枝の広がりを含めた、区画の範囲の余白（px）。 */
 const WOODLAND_CHUNK_PADDING = 50
@@ -163,7 +169,7 @@ function buildWoodlandTree(detail: typeof WOODLAND_LEVELS[number]) {
     /** 水平に turn だけ振り、rise だけ起こした向き。 */
     const turned = (direction: THREE.Vector3, turn: number, rise: number) => direction.clone().applyAxisAngle(up, turn).setY(direction.y + rise).normalize()
 
-    limb(new THREE.Vector3(), up, trunk.height, trunk.base, trunk.top, 5)
+    limb(new THREE.Vector3(), up, trunk.height, trunk.base, trunk.top, detail.trunkSides)
     for (let b = 0; b < boughs; b++) {
         const t = b / (boughs - 1), angle = b * 2.399963
         const elevation = (bough.flattest + (bough.steepest - bough.flattest) * t) * Math.PI / 180
@@ -173,7 +179,7 @@ function buildWoodlandTree(detail: typeof WOODLAND_LEVELS[number]) {
         if (detail.boughs) limb(start, direction, length, bough.base + (bough.tip - bough.base) * t)
         // 太枝の先の葉は、太枝の伸びる向きのまま少し垂らす。
         const end = start.clone().addScaledVector(direction, length * .95)
-        plate(end, turned(direction, 0, -.25), Math.sin(b * 3.1) * .9)
+        if (b % detail.leafEvery === 0) plate(end, turned(direction, 0, -.25), Math.sin(b * 3.1) * .9)
         for (const side of [-1, 1]) {
             const twigStart = start.clone().addScaledVector(direction, length * (side < 0 ? .5 : .72))
             const twigDirection = turned(direction, side * twig.spread, .05)
@@ -184,13 +190,13 @@ function buildWoodlandTree(detail: typeof WOODLAND_LEVELS[number]) {
         }
     }
     // 幹の先を上から覆う葉。
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 4; k += detail.leafEvery) {
         const angle = k * Math.PI / 2 + .4
         plate(new THREE.Vector3(0, trunk.height - .6, 0), new THREE.Vector3(Math.cos(angle), .4, Math.sin(angle)), k * .3)
     }
     const woodGeometry = mergeGeometries(wood)!, crownGeometry = mergeGeometries(plates)!
     // 影には葉の板を間引いて描く（葉の形の影は残す）。
-    const shadowGeometry = mergeGeometries(plates.filter((_, i) => i % detail.shadowEvery === 0))!
+    const shadowGeometry = detail.shadowEvery ? mergeGeometries(plates.filter((_, i) => i % detail.shadowEvery === 0))! : undefined
     wood.forEach(g => g.dispose()); plates.forEach(g => g.dispose())
     return { woodGeometry, crownGeometry, shadowGeometry }
 }
@@ -242,25 +248,31 @@ function createWoodlandTrees(trees: Tree[], kit: ModelKit, snowy = false) {
             const mesh = new THREE.InstancedMesh(geometry, material, members.length)
             mesh.instanceMatrix = matrices
             mesh.boundingSphere = sphere
+            mesh.matrixAutoUpdate = false
             meshes.push(mesh)
             return mesh
         }
         const views = levels.map(({ woodGeometry, crownGeometry, shadowGeometry }, level) => {
             const wood = instanced(woodGeometry, kit.surfaces.bark)
-            wood.castShadow = true
+            wood.castShadow = !!shadowGeometry
             const leaves = instanced(crownGeometry, leafMaterial)
             leaves.instanceColor = colors
             leaves.receiveShadow = true
-            const shadow = instanced(shadowGeometry, shadowMaterial)
-            shadow.customDepthMaterial = shadowDepth
-            shadow.castShadow = true
+            leaves.castShadow = !shadowGeometry
             const view = new THREE.Group()
-            view.add(wood, leaves, shadow)
-            view.visible = level === 0
-            group.add(view)
+            view.matrixAutoUpdate = false
+            view.add(wood, leaves)
+            if (shadowGeometry) {
+                const shadow = instanced(shadowGeometry, shadowMaterial)
+                shadow.customDepthMaterial = shadowDepth
+                shadow.castShadow = true
+                view.add(shadow)
+            }
             if (level === 0) members.forEach((tree, local) => { where[tree] = [wood, local] })
             return view
         })
+        // 表示する段階だけをシーンに入れる（入っていない段階は、毎フレームの行列の更新と描画の走査の対象にならない）。
+        group.add(views[0]!)
         return { views, box, level: 0 }
     })
     const lastCamera = new THREE.Vector3(Infinity, 0, 0)
@@ -273,14 +285,14 @@ function createWoodlandTrees(trees: Tree[], kit: ModelKit, snowy = false) {
             let level = 0
             while (level < WOODLAND_LEVEL_DISTANCE.length && distance > WOODLAND_LEVEL_DISTANCE[level]! + (chunk.level <= level ? WOODLAND_LEVEL_MARGIN : 0)) level++
             if (level === chunk.level) continue
-            chunk.views[chunk.level]!.visible = false
-            chunk.views[level]!.visible = true
+            group.remove(chunk.views[chunk.level]!)
+            group.add(chunk.views[level]!)
             chunk.level = level
         }
     }
     return { group, update, locate: (tree: number): TreeInstance[] => [where[tree]!], destroy() {
         meshes.forEach(mesh => mesh.dispose())
-        for (const { woodGeometry, crownGeometry, shadowGeometry } of levels) { woodGeometry.dispose(); crownGeometry.dispose(); shadowGeometry.dispose() }
+        for (const { woodGeometry, crownGeometry, shadowGeometry } of levels) { woodGeometry.dispose(); crownGeometry.dispose(); shadowGeometry?.dispose() }
         leafMaterial.dispose(); leafMap.dispose(); shadowMaterial.dispose(); shadowDepth.dispose()
     } }
 }
@@ -376,6 +388,7 @@ function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
             mesh.instanceMatrix = matrices
             mesh.boundingSphere = sphere
             mesh.castShadow = true
+            mesh.matrixAutoUpdate = false
             meshes.push(mesh)
             return mesh
         }
@@ -392,8 +405,9 @@ function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
         near.add(trunks, branches, leaves)
         far.add(instanced(farTrunkGeometry, kit.surfaces.bark, trunkMatrices, members.length), leavesOf(farCrown))
         distant.add(instanced(distantTrunkGeometry, kit.surfaces.bark, trunkMatrices, members.length), leavesOf(distantCrown))
-        far.visible = distant.visible = false
-        group.add(near, far, distant)
+        for (const view of [near, far, distant]) view.matrixAutoUpdate = false
+        // 表示する段階だけをシーンに入れる（入っていない段階は、毎フレームの行列の更新と描画の走査の対象にならない）。
+        group.add(near)
         members.forEach((i, local) => {
             where[i] = [[trunks, local], ...Array.from({ length: 5 }, (_, j) => [branches, local * 5 + j] as TreeInstance), [leaves, local]]
         })
@@ -409,8 +423,8 @@ function createBroadleafTrees(trees: Tree[], kit: ModelKit) {
             let level = 0
             while (level < BROADLEAF_LEVEL_DISTANCE.length && distance > BROADLEAF_LEVEL_DISTANCE[level]! + (chunk.level > level ? -BROADLEAF_MARGIN : BROADLEAF_MARGIN)) level++
             if (level === chunk.level) continue
-            chunk.views[chunk.level]!.visible = false
-            chunk.views[level]!.visible = true
+            group.remove(chunk.views[chunk.level]!)
+            group.add(chunk.views[level]!)
             chunk.level = level
         }
     }

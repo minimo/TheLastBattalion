@@ -232,7 +232,6 @@ onUnmounted(() => {
                 <label v-for="m in MODES" :key="m.mode" class="mode-option">
                   <input v-model="selectedMode" type="radio" name="battle-mode" :value="m.mode">
                   <span class="mode-tile">
-                    <span class="selection-mark" aria-hidden="true">◆</span>
                     <CommandIcon :name="m.mode === 'field' ? 'army' : m.mode === 'siege' ? 'charge' : 'hold'" />
                     <span>{{ m.name }}</span>
                   </span>
@@ -249,7 +248,6 @@ onUnmounted(() => {
                   <label v-for="type in MAP_TYPES" :key="type" class="map-option">
                     <input v-model="selectedMap" type="radio" name="battle-terrain" :value="type">
                     <span class="map-tile">
-                      <span class="selection-mark" aria-hidden="true">◆</span>
                       <TerrainIcon :type="type" />
                       <span>{{ MAP_TYPE_NAME[type] }}</span>
                     </span>
@@ -270,7 +268,6 @@ onUnmounted(() => {
                 <label v-for="time in START_TIMES" :key="time" class="map-option">
                   <input v-model="selectedTime" type="radio" name="battle-time" :value="time">
                   <span class="map-tile">
-                    <span class="selection-mark" aria-hidden="true">◆</span>
                     <TimeIcon :time="time" />
                     <span>{{ START_TIME_NAME[time] }}</span>
                   </span>
@@ -286,7 +283,6 @@ onUnmounted(() => {
                 <label v-for="weather in WEATHER_CHOICES" :key="weather" class="map-option" :class="{ 'is-unavailable': !weatherSelectable(weather) }">
                   <input v-model="selectedWeather" type="radio" name="battle-weather" :value="weather" :disabled="!weatherSelectable(weather)">
                   <span class="map-tile">
-                    <span class="selection-mark" aria-hidden="true">◆</span>
                     <WeatherIcon :weather="weather" />
                     <span>{{ WEATHER_NAME[weather] }}</span>
                   </span>
@@ -419,9 +415,7 @@ button:hover { transform: scale(1.05); }
 .mode-option, .map-option { position: relative; min-width: 0; cursor: pointer; }
 .mode-tile { box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px; border: 1px solid #94703d; border-top-color: #c9a767; border-radius: 3px; background: var(--ui-wood-surface); background-color: var(--ui-wood-base); background-blend-mode: normal, screen; box-shadow: inset 0 0 0 1px #d9b16a26, 0 2px 3px #59361733; color: #e5c78b; font-size: 14px; letter-spacing: .08em; }
 .mode-tile :deep(.command-icon) { width: 20px; height: 20px; }
-.selection-mark { font-size: 9px; opacity: 0; flex: none; }
 .mode-option input:checked + .mode-tile { border-color: #7f5323; box-shadow: inset 0 0 0 2px #dab56e; color: #fff0c9; }
-.mode-option input:checked + .mode-tile .selection-mark, .map-option input:checked + .map-tile .selection-mark { opacity: 1; }
 .mode-option:hover .mode-tile { filter: brightness(1.15); }
 .mode-option input:focus-visible + .mode-tile, .map-option input:focus-visible + .map-tile { outline: 2px solid #f1d193; outline-offset: 3px; }
 .mode-description { margin: 6px 0 0; color: #d4bfa0; font-size: 12px; line-height: 1.5; text-wrap: pretty; }
@@ -437,7 +431,6 @@ button:hover { transform: scale(1.05); }
 .map-option.is-unavailable { cursor: not-allowed; opacity: .38; }
 .map-option.is-unavailable:hover .map-tile { background: #130c0740; }
 .map-tile :deep(:is(.terrain-icon, .time-icon, .weather-icon)) { width: 22px; height: 22px; }
-.map-tile .selection-mark { font-size: 7px; }
 .map-option:hover .map-tile { background: #b48a4540; }
 .map-option input:checked + .map-tile { border-color: #d2ad69; background: #986a3159; color: #fff0cb; box-shadow: inset 0 -2px #d2ad69; }
 .fixed-terrain { display: flex; justify-content: center; align-items: center; gap: 10px; color: #dfc590; }
@@ -458,8 +451,7 @@ button:hover { transform: scale(1.05); }
   .mode-select { gap: 5px; }
   .mode-tile { gap: 4px; padding: 7px 4px; min-height: 40px; font-size: 12px; letter-spacing: .02em; }
   .mode-tile :deep(.command-icon) { width: 16px; height: 16px; }
-  .map-tile { position: relative; flex-direction: column; gap: 3px; padding: 5px 2px 10px; font-size: 10px; }
-  .map-tile .selection-mark { position: absolute; bottom: 1px; font-size: 6px; }
+  .map-tile { flex-direction: column; gap: 3px; padding: 5px 2px; font-size: 10px; }
   .map-select, .time-select, .weather-select { gap: 2px; }
   .mode-description { font-size: 11px; }
   .start-button { width: 100%; font-size: 14px; }
@@ -480,7 +472,6 @@ button:hover { transform: scale(1.05); }
   .mode-tile { min-height: 32px; padding-block: 4px; }
   .map-tile { min-height: 30px; padding-block: 3px; flex-direction: row; }
   .map-tile :deep(:is(.terrain-icon, .time-icon, .weather-icon)) { display: none; }
-  .map-tile .selection-mark { position: static; }
   .start-button { min-height: 34px; margin-block: 6px 2px; }
 }
 
@@ -507,6 +498,7 @@ button:hover { transform: scale(1.05); }
 
 .canvas-wrapper :deep(.world-labels) { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .canvas-wrapper :deep(.world-labels[hidden]) { display: none; }
+.canvas-wrapper :deep(.fps-counter) { position: absolute; left: 12px; bottom: max(10px, env(safe-area-inset-bottom)); color: #e2cf9f; font: 600 12px system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: .06em; text-shadow: 0 1px 3px #000, 0 0 5px #000; pointer-events: none; user-select: none; }
 .canvas-wrapper :deep(.world-label) { position: absolute; left: 0; top: 0; padding: 5px 7px; color: var(--faction); font: 600 14px system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; text-shadow: 0 1px 3px #000, 0 0 5px #000, 1px 0 2px #000, -1px 0 2px #000; }
 .canvas-wrapper :deep(.world-label[hidden]) { display: none; }
 /* Wooden nameplates; selection adds a raised metal molding outside the plate. */

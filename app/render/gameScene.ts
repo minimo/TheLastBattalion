@@ -81,6 +81,14 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const labels = document.createElement('div')
     labels.className = 'world-labels'
     canvasEl.appendChild(labels)
+    // 画面の左下に出す、1秒あたりの描画回数。
+    const fpsLabel = document.createElement('div')
+    fpsLabel.className = 'fps-counter'
+    fpsLabel.setAttribute('aria-hidden', 'true')
+    canvasEl.appendChild(fpsLabel)
+    /** FPS の表示を書き換える間隔（ms）。毎フレーム書き換えると数字がちらついて読めない。 */
+    const FPS_INTERVAL = 500
+    const fps = { since: 0, frames: 0 }
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0xb6c9cb)
     const atmosphere = createAtmosphere(scene, MAP_THEME.standard.sky)
@@ -701,6 +709,11 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
     const animate = (now: number) => {
         if (destroyed) return
         const frameStarted = performance.now()
+        if (!fps.since) fps.since = now
+        else if (fps.frames++, now - fps.since >= FPS_INTERVAL) {
+            fpsLabel.textContent = `${Math.round(fps.frames * 1000 / (now - fps.since))} FPS`
+            fps.since = now; fps.frames = 0
+        }
         renderTimings.simulationMs = 0
         const delta = lastTime ? Math.min((now - lastTime) / 1000, .1) : 0
         lastTime = now
@@ -911,7 +924,7 @@ export async function createGameScene({ canvasEl, gameStore, input }: GameSceneO
         if (import.meta.dev) window.removeEventListener('keydown', toggleReveal)
         world.destroy(); kit.destroy(); visionShade.destroy(); sun.shadow.dispose(); atmosphere.destroy(); precipitation.destroy(); mist.destroy()
         environment.dispose(); renderer.dispose(); renderer.forceContextLoss()
-        renderer.domElement.remove(); labels.remove()
+        renderer.domElement.remove(); labels.remove(); fpsLabel.remove()
     } }
 }
 export type GameScene = Awaited<ReturnType<typeof createGameScene>>

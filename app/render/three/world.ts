@@ -108,7 +108,9 @@ export function createWorld(grid: number[][], forts: Fort[], kit: ModelKit) {
         const t = getTerrainTile(source, i, j)
         const tx = i * TILE_PX + Math.sin(i * 17 + j * 31) * 5, tz = j * TILE_PX + Math.cos(i * 13 + j * 7) * 5
         if (reserved(tx, tz)) continue
-        if (t >= 31 && t <= 41) trees.push({ x: tx, z: tz, h: field.heightAt(tx, tz), scale: .85 + .25 * (1 + Math.sin(i * 3 + j)) })
+        // 部隊の動けない遠景は1マスおきに立て、木を大きくして茂り方を保つ。
+        const distant = tx < PLAYABLE_MIN || tx > PLAYABLE_MAX || tz < PLAYABLE_MIN || tz > PLAYABLE_MAX
+        if (t >= 31 && t <= 41) { if (!distant || (i + j) % 2 === 0) trees.push({ x: tx, z: tz, h: field.heightAt(tx, tz), scale: (.85 + .25 * (1 + Math.sin(i * 3 + j))) * (distant ? DISTANT_TREE_SCALE : 1) }) }
         else if (forts.some(fort => inForestClearing(fort, i, j)) && (Math.sin(i * 12.9898 + j * 78.233) * 43758.5453 % 1 + 1) % 1 < .3) {
             stumps.push({ x: tx, z: tz, h: field.heightAt(tx, tz), scale: .8 + .25 * (1 + Math.sin(i * 5 + j * 3)) })
         }
