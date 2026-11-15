@@ -5,6 +5,8 @@ import { getSlopeCostMultiplier, getSlopeRouteMultiplier, getTileCost, type Mobi
 import type { Point } from '../types/game'
 
 const CACHE_LIMIT = 40000
+/** 使い回すために覚えておくコスト場の数の上限（1つが戦場の全マス分の大きさ）。 */
+const BUILT_FIELD_LIMIT = 32
 /**
  * 建設物の柵（拠点の柵・バリケード）は通れないが、経路選びではとても遠回りな道として扱う。
  * 迂回路があればそちらを通り、なければ柵へ向かって詰まった兵が柵を壊しにかかる。
@@ -17,6 +19,7 @@ const DIRS: [number, number, number][] = [
     [0, -1, 1], [0, 1, 1],
     [1, -1, 1.414], [1, 0, 1], [1, 1, 1.414],
 ]
+const DIR_X = DIRS.map(d => d[0]), DIR_Y = DIRS.map(d => d[1]), DIR_BASE = DIRS.map(d => d[2])
 const inside = (x: number, y: number) => x >= PLAYABLE_GRID_MIN && x <= PLAYABLE_GRID_MAX && y >= PLAYABLE_GRID_MIN && y <= PLAYABLE_GRID_MAX
 const index = (x: number, y: number) => (y - PLAYABLE_GRID_MIN) * W + x - PLAYABLE_GRID_MIN
 
@@ -102,8 +105,22 @@ export function createPathService(grid: number[][]) {
     const cache = new Map<string, Point[]>()
     const pending = new Map<string, { gx: number; gy: number; goal: Point; mobility: Mobility }>()
 
-    /** 目的地から逆向きにDijkstra。cost[c] = cからゴールまでの最小コスト。 */
+    /**
+     * 作ったコスト場（目的地のマスと移動の種類ごと）。コスト場は目的地のマスだけで決まるので、
+     * 同じ地点へ向かう別の目標（同じ中隊の小隊など）は作り直さずに使い回す。地形が変わったら捨てる。
+     */
+    const builtFields = new Map<string, Float32Array>()
     const buildField = (goal: Point, mobility: Mobility) => {
+        const key = `${mobility}:${Math.round(goal.x / TILE_PX)},${Math.round(goal.y / TILE_PX)}`
+        let cost = builtFields.get(key)
+        if (!cost) {
+            if (builtFields.size >= BUILT_FIELD_LIMIT) builtFields.clear()
+            builtFields.set(key, cost = computeField(goal, mobility))
+        }
+        return cost
+    }
+    /** 目的地から逆向きにDijkstra。cost[c] = cからゴールまでの最小コスト。 */
+    const computeField = (goal: Point, mobility: Mobility) => {
         const route = routeCost[mobility]
         const cost = new Float32Array(W * W).fill(Infinity)
         const gx = Math.round(goal.x / TILE_PX), gy = Math.round(goal.y / TILE_PX)
@@ -114,7 +131,7 @@ export function createPathService(grid: number[][]) {
             for (let i = heap.length - 1; i > 0;) {
                 const p = (i - 1) >> 1
                 if (cost[heap[p]!]! <= cost[heap[i]!]!) break
-                ;[heap[p], heap[i]] = [heap[i]!, heap[p]!]
+                const swap = heap[p]!; heap[p] = heap[i]!; heap[i] = swap
                 i = p
             }
         }
@@ -128,7 +145,7 @@ export function createPathService(grid: number[][]) {
                     if (l < heap.length && cost[heap[l]!]! < cost[heap[m]!]!) m = l
                     if (r < heap.length && cost[heap[r]!]! < cost[heap[m]!]!) m = r
                     if (m === i) break
-                    ;[heap[m], heap[i]] = [heap[i]!, heap[m]!]
+                    const swap = heap[m]!; heap[m] = heap[i]!; heap[i] = swap
                     i = m
                 }
             }
@@ -141,15 +158,17 @@ export function createPathService(grid: number[][]) {
             const k = pop()
             if (done[k]) continue
             done[k] = 1
-            const nx = k % W + PLAYABLE_GRID_MIN, ny = Math.floor(k / W) + PLAYABLE_GRID_MIN
-            for (const [dx, dy, base] of DIRS) {
-                const cx = nx + dx, cy = ny + dy
-                if (!inside(cx, cy)) continue
-                const c = index(cx, cy)
+            // 戦場の全マスを8方向に調べるので、マスの番号のまま計算する（配列の分解や座標への戻しを挟まない）。
+            const kx = k % W, ky = (k - kx) / W
+            for (let d = 0; d < 8; d++) {
+                const dx = DIR_X[d]!, dy = DIR_Y[d]!
+                const lx = kx + dx, ly = ky + dy
+                if (lx < 0 || lx >= W || ly < 0 || ly >= W) continue
+                const c = ly * W + lx
                 if (done[c] || !Number.isFinite(route[c]!)) continue
                 // c → n の斜め移動が角の通行不可セルを跨がないこと（findPathと同じ規則）
-                if (dx !== 0 && dy !== 0 && (!Number.isFinite(route[index(cx - dx, cy)]!) || !Number.isFinite(route[index(cx, cy - dy)]!))) continue
-                const next = cost[k]! + stepCost(route, c, k, base)
+                if (dx !== 0 && dy !== 0 && (!Number.isFinite(route[c - dx]!) || !Number.isFinite(route[c - dy * W]!))) continue
+                const next = cost[k]! + stepCost(route, c, k, DIR_BASE[d]!)
                 if (next < cost[c]!) { cost[c] = next; push(c) }
             }
         }
@@ -201,6 +220,7 @@ export function createPathService(grid: number[][]) {
             version++
             cache.clear()
             pending.clear()
+            builtFields.clear()
         },
         /** ワールド座標が立ち止まれる陸地（川・柵でない）か。布陣・集合地点・直進できるかの判定に使う。 */
         passable(x: number, y: number) {

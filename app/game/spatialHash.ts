@@ -33,6 +33,18 @@ export function createSpatialHash(cellSize = 16) {
                 }
             }
         },
+        /**
+         * 半径内（セル単位の近似）の兵士を out に入れ、その数を返す。順番は forEachNear と同じ。
+         * 兵ごとに毎ステップ呼ぶ処理では、近くの兵1人ごとに関数を呼ぶ手間が重いので、配列に取ってから回す。
+         */
+        collectNear(x: number, y: number, radius: number, out: Soldier[]) {
+            const x0 = cellOf(x - radius), x1 = cellOf(x + radius), y0 = cellOf(y - radius), y1 = cellOf(y + radius)
+            let count = 0
+            for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+                for (let i = head[cy * cols + cx]!; i !== -1; i = next[i]!) out[count++] = items[i]!
+            }
+            return count
+        },
     }
 }
 export type SpatialHash = ReturnType<typeof createSpatialHash>

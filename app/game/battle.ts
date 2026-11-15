@@ -1190,6 +1190,12 @@ function holdTether(battle: Battle, s: Soldier, x: number, y: number) {
     if (!tether || s.desertion) return
     const squad = battle.squadById.get(s.squadId)!
     const extra = s.id === squad.leaderId ? 0 : cohesionRadius(squad)
+    // ほとんどの兵はどの相手の縁も越えていないので、先にそれだけを確かめる（下と同じ判定）。
+    let crossed = false
+    for (const { anchor, limit } of tether) {
+        if (Math.hypot(s.x - anchor.x, s.y - anchor.y) > Math.max(limit + extra, Math.hypot(x - anchor.x, y - anchor.y)) + .01) { crossed = true; break }
+    }
+    if (!crossed) return
     const allowed = tether.map(({ anchor, limit }) => Math.max(limit + extra, Math.hypot(x - anchor.x, y - anchor.y)))
     const over = () => tether.some(({ anchor }, i) => Math.hypot(s.x - anchor.x, s.y - anchor.y) > allowed[i]! + .01)
     if (!over()) return
@@ -1878,20 +1884,22 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
     let bestScore = Infinity
     let allies = 0, enemies = 0, ex = 0, ey = 0
     const sight2 = sight * sight
-    battle.hash.forEachNear(s.x, s.y, sight, o => {
-        if (o === s) return
+    const count = battle.hash.collectNear(s.x, s.y, sight, nearToThink)
+    for (let k = 0; k < count; k++) {
+        const o = nearToThink[k]!
+        if (o === s) continue
         const dx = o.x - s.x, dy = o.y - s.y, d2 = dx * dx + dy * dy
-        if (d2 > sight2) return
+        if (d2 > sight2) continue
         // 逃げ出した兵は味方に数えない。
-        if (o.owner === s.owner) { if (!o.desertion) allies++; return }
+        if (o.owner === s.owner) { if (!o.desertion) allies++; continue }
         // 視界の外の敵は、いないのと同じ。
-        if (o.spottedUntil <= battle.time) return
+        if (o.spottedUntil <= battle.time) continue
         enemies++; ex += o.x; ey += o.y
-        if (harmless) return
+        if (harmless) continue
         const isOrderedTarget = squad.order === 'attack' && o.squadId === squad.targetSquadId
-        if (!isOrderedTarget && d2 > stats.sight * stats.sight) return
-        if (slot && Math.hypot(o.x - slot.x, o.y - slot.y) > leash) return
-        if (leader && Math.hypot(o.x - leader.x, o.y - leader.y) > reach) return
+        if (!isOrderedTarget && d2 > stats.sight * stats.sight) continue
+        if (slot && Math.hypot(o.x - slot.x, o.y - slot.y) > leash) continue
+        if (leader && Math.hypot(o.x - leader.x, o.y - leader.y) > reach) continue
         let score = Math.sqrt(d2)
         // 騎兵は弓兵を、弓兵は迫る騎兵を優先する。今の標的は少し優先して目移りを抑える。
         if (s.type === 'cavalry' && o.type === 'archer') score *= .6
@@ -1899,7 +1907,7 @@ function think(battle: Battle, s: Soldier, squad: Squad, slot: Point | undefined
         if (o.id === s.targetId) score *= .8
         if (isOrderedTarget) score *= .5
         if (score < bestScore) { bestScore = score; best = o }
-    })
+    }
     // 突撃中の兵は、自陣への侵入者がいれば引き返して守る。
     if (!best && !harmless && squad.order === 'charge') {
         const home = battle.homes[s.owner]
@@ -2244,28 +2252,38 @@ function work(battle: Battle, s: Soldier, squad: Squad) {
  * 押し合い: 重なった兵を離す。柵には押し込まない。
  * 槍兵は味方とは押し合わずにすり抜けさせ、敵は槍の間合いの外へ押し返して通さない（槍兵は押されない）。
  */
+/** 近くの兵を取り出しておく配列（兵ごとに作り直さず使い回す）。 */
+const nearToSeparate: Soldier[] = [], nearToThink: Soldier[] = []
+/** いちばん大きい兵の体の半径。 */
+const LARGEST_RADIUS = Math.max(...Object.values(UNIT_STATS).flatMap(army => Object.values(army).map(unit => unit.radius)))
+
 function separate(battle: Battle, s: Soldier) {
     const r = UNIT_STATS[s.owner][s.type].radius
     const leaderId = battle.squadById.get(s.squadId)?.leaderId
     let px = 0, py = 0, wx = 0, wy = 0
-    battle.hash.forEachNear(s.x, s.y, r + 3.5 + PIKEMAN.wallMargin, o => {
-        if (o === s) return
+    const count = battle.hash.collectNear(s.x, s.y, r + 3.5 + PIKEMAN.wallMargin, nearToSeparate)
+    // 取り出した兵の大半は触れ合う距離の外にいるので、先に距離だけで弾く（触れ合う距離はいちばん大きい兵どうしでも reach まで）。
+    const reach = r + LARGEST_RADIUS + PIKEMAN.wallMargin, reach2 = reach * reach
+    for (let k = 0; k < count; k++) {
+        const o = nearToSeparate[k]!
+        const ox = s.x - o.x, oy = s.y - o.y
+        if (ox * ox + oy * oy >= reach2 || o === s) continue
         // 歩いている隊長は自分の部隊の兵には押されない（兵が道を譲る）。押し戻されると部隊ごと進めなくなる。
-        if (s.id === leaderId && s.state === 'advance' && o.squadId === s.squadId) return
+        if (s.id === leaderId && s.state === 'advance' && o.squadId === s.squadId) continue
         const pike = s.type === 'pikeman' || o.type === 'pikeman'
-        if (pike && o.owner === s.owner) return
+        if (pike && o.owner === s.owner) continue
         // 敵の槍兵には押されず（槍兵どうしは押し合う）、敵の槍兵の間合いへは踏み込めない。
-        if (pike && s.type === 'pikeman' && o.type !== 'pikeman') return
+        if (pike && s.type === 'pikeman' && o.type !== 'pikeman') continue
         const wall = pike && o.type === 'pikeman' && s.type !== 'pikeman'
         const min = r + UNIT_STATS[o.owner][o.type].radius + (wall ? PIKEMAN.wallMargin : 0)
         const dx = s.x - o.x, dy = s.y - o.y, d2 = dx * dx + dy * dy
-        if (d2 >= min * min) return
+        if (d2 >= min * min) continue
         const d = Math.sqrt(d2) || .01
         if (wall) {
             // 騎兵の勢いでも抜けられないよう、重なった分をまるごと押し返す。
             wx += (d2 ? dx / d : Math.cos(s.id)) * (min - d)
             wy += (d2 ? dy / d : Math.sin(s.id)) * (min - d)
-            return
+            continue
         }
         // 構えている兵は、動いている兵に道を譲る（譲った兵は後で持ち場へ戻る）。動いている兵はあまり押し返されない。
         let share = s.state === 'hold' && o.state !== 'hold' ? .9 : s.state !== 'hold' && o.state === 'hold' ? .1 : .5
@@ -2276,7 +2294,7 @@ function separate(battle: Battle, s: Soldier) {
         const push = (min - d) * share
         px += (d2 ? dx / d : Math.cos(s.id)) * push
         py += (d2 ? dy / d : Math.sin(s.id)) * push
-    })
+    }
     if (!px && !py && !wx && !wy) return
     const limit = 1.2
     const len = Math.hypot(px, py)

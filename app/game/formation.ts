@@ -38,9 +38,14 @@ export function slotOffset(type: UnitType, count: number, slot: number) {
 
 /** 向き（atan2(dx, dy) の角度）から前方・右手の単位ベクトル。 */
 export function axes(facing: number) {
+    // 同じ小隊の兵は同じ向きで続けて呼ぶので、直前の結果を使い回す（返した値は書き換えないこと）。
+    if (facing === lastFacing) return lastAxes
     const fx = Math.sin(facing), fy = Math.cos(facing)
-    return { fx, fy, rx: -fy, ry: fx }
+    lastFacing = facing
+    return lastAxes = { fx, fy, rx: -fy, ry: fx }
 }
+let lastFacing = NaN
+let lastAxes: Readonly<{ fx: number; fy: number; rx: number; ry: number }> = { fx: 0, fy: 1, rx: -1, ry: 0 }
 
 export function toWorld(origin: Point, facing: number, forward: number, lateral: number): Point {
     const { fx, fy, rx, ry } = axes(facing)

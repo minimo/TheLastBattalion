@@ -32,6 +32,8 @@ const constructionTiles = new WeakMap<number[][], Map<number, number>>()
 const FOREST_HILLTOP = 52
 /** 拠点の建設で木を切り払ったマス。建設物が壊れても木は戻らない。 */
 const felledTiles = new WeakMap<number[][], Set<number>>()
+/** getTerrainTile の結果（兵が歩くたびに引くので覚えておく）。砦の敷地・切り払った木が変わったら捨てる。 */
+const terrainTiles = new WeakMap<number[][], Map<number, number>>()
 const isWoodTile = (tile: number) => tile === TILE.WOOD || tile >= TILE_VARIANT.WOOD_SPARSE_MIN && tile <= TILE_VARIANT.WOOD_DENSE_MAX
 const cellKey = (gx: number, gy: number) => (gy + 4096) * 8192 + gx + 4096
 
@@ -50,6 +52,7 @@ export function getConstructionTile(grid: number[][], gx: number, gy: number): n
 export function clearConstructionTiles(grid: number[][]) {
     constructionTiles.delete(grid)
     felledTiles.delete(grid)
+    terrainTiles.delete(grid)
 }
 
 /** そのマスの木を切り払う（木のないマスはそのまま）。 */
@@ -58,12 +61,14 @@ export function fellTree(grid: number[][], gx: number, gy: number) {
     let felled = felledTiles.get(grid)
     if (!felled) felledTiles.set(grid, felled = new Set())
     felled.add(cellKey(gx, gy))
+    terrainTiles.delete(grid)
 }
 
 /** 砦の敷地では地形を置き換える: 柵は通行不可、それ以外は平地（高さは砦の地面にそろう）。 */
 export function registerForts(grid: number[][], forts: FortFrame[]) {
     fortFrames.set(grid, forts.map(({ kind, front, originGx, originGy, groundHeight }) => ({ kind, front, originGx, originGy, groundHeight })))
     cellHeights.delete(grid)
+    terrainTiles.delete(grid)
 }
 
 export function getPlayableLandscape(grid: number[][]) {
@@ -82,6 +87,15 @@ export function getPlayableTile(grid: number[][], gx: number, gy: number): numbe
 
 /** 建設物による置き換えを除いた、元の地形のマス。 */
 export function getTerrainTile(grid: number[][], gx: number, gy: number): number {
+    let known = terrainTiles.get(grid)
+    if (!known) terrainTiles.set(grid, known = new Map())
+    const key = cellKey(gx, gy)
+    let tile = known.get(key)
+    if (tile === undefined) known.set(key, tile = resolveTerrainTile(grid, gx, gy))
+    return tile
+}
+
+function resolveTerrainTile(grid: number[][], gx: number, gy: number): number {
     const forts = fortFrames.get(grid)
     if (forts) for (const fort of forts) {
         const tile = fortTileAt(fort, gx, gy)
