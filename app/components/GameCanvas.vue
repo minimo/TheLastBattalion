@@ -95,21 +95,27 @@ watch(battleMapType, () => { if (!weatherSelectable(selectedWeather.value)) sele
 const mapSelectable = computed(() => selectedMode.value === 'field')
 /** 戦場に入る。deploy なら戦場で部隊編成をしてから開戦し、そうでなければ前回の編成ですぐ開戦する（Restart）。 */
 const start = (seed?: string, deploy = true) => { input.reset(); gameStore.startGame(seed, selectedMode.value, selectedMap.value, deploy, selectedTime.value, selectedWeather.value) }
+const PREPARING = '戦場を準備しています…'
 const curtain = ref<HTMLElement | null>(null)
 const curtainClosed = ref(false)
 const curtainActive = ref(false)
+/** 暗転の間に出す、いま何をしているかの文言（切り替えに時間がかかるときだけ）。 */
+const curtainMessage = ref('')
 const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
 /** 幕の暗転（明転）が終わるまで待つ。描画が詰まっても途中で切り替えないよう、時間ではなく transitionend で待つ（来なければ2秒で打ち切る）。 */
 const curtainSettled = () => new Promise<void>(resolve => {
   const el = curtain.value
-  const done = () => { clearTimeout(timer); el?.removeEventListener('transitionend', done); resolve() }
+  const done = () => { clearTimeout(timer); el?.removeEventListener('transitionend', onEnd); resolve() }
+  // 中の文言や印のトランジションの終わりは数えない。
+  const onEnd = (event: TransitionEvent) => { if (event.target === el) done() }
   const timer = setTimeout(done, 2000)
-  el?.addEventListener('transitionend', done)
+  el?.addEventListener('transitionend', onEnd)
 })
-/** 画面全体を暗くしてから change で画面を切り替え、描かれてから明るくする。 */
-const withCurtain = async (change: () => void) => {
+/** 画面全体を暗くしてから change で画面を切り替え、描かれてから明るくする。message は暗い間に出す文言。 */
+const withCurtain = async (change: () => void, message = '') => {
   if (curtainActive.value) return
   curtainActive.value = true
+  curtainMessage.value = message
   // 透明なまま一度描かせてから暗くしないと、トランジションがかからず一瞬で黒くなる。
   await nextTick()
   await nextFrame()
@@ -220,7 +226,7 @@ onUnmounted(() => {
       <Transition name="title-menu" @after-enter="focusOperationSheet">
         <div v-if="titlePhase === 'menu'" ref="titleContent" class="title-content">
           <h1 class="title-sr-only">THE LAST BATTALION</h1>
-          <form ref="operationSheet" class="operation-sheet" aria-labelledby="operation-title" @submit.prevent="withCurtain(() => start(seedEntry ? customSeed.trim() || undefined : undefined))">
+          <form ref="operationSheet" class="operation-sheet" aria-labelledby="operation-title" @submit.prevent="withCurtain(() => start(seedEntry ? customSeed.trim() || undefined : undefined), PREPARING)">
             <span class="board-corner top-left" aria-hidden="true"></span>
             <span class="board-corner top-right" aria-hidden="true"></span>
             <span class="board-corner bottom-right" aria-hidden="true"></span>
@@ -326,13 +332,15 @@ onUnmounted(() => {
         <p>撃破数 人間軍 {{ gameStore.summary.player.killed }} / 魔王軍 {{ gameStore.summary.cpu.killed }}</p>
         <p v-if="gameStore.summary.cpu.deserted">魔王軍の逃走 {{ gameStore.summary.cpu.deserted }}</p>
         <div class="modal-actions">
-          <button @click="withCurtain(() => start(undefined, false))">Restart</button>
+          <button @click="withCurtain(() => start(undefined, false), PREPARING)">Restart</button>
           <button @click="withCurtain(title)" class="secondary">Back to Title</button>
         </div>
       </div>
     </div>
 
-    <div v-if="curtainActive" ref="curtain" class="screen-curtain" :class="{ 'is-closed': curtainClosed }" aria-hidden="true"></div>
+    <div v-if="curtainActive" ref="curtain" class="screen-curtain" :class="{ 'is-closed': curtainClosed }">
+      <p v-if="curtainMessage" class="curtain-message" role="status"><span class="curtain-spinner" aria-hidden="true"></span>{{ curtainMessage }}</p>
+    </div>
 
     <!-- 長押しメニュー（no-life-kingと同じく表示中は一時停止） -->
     <div v-if="contextMenu.visible" ref="contextMenuRef" class="context-menu parchment-window" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
@@ -374,6 +382,11 @@ button:hover { transform: scale(1.05); }
 /* Full-screen fade to black while entering the battlefield; it also blocks input until it lifts. */
 .screen-curtain { position: absolute; inset: 0; z-index: 2000; background: #000; opacity: 0; transition: opacity .5s ease-in-out; }
 .screen-curtain.is-closed { opacity: 1; }
+/* The spinner rotates with a transform animation so it keeps turning while the battlefield is built on the main thread. */
+.curtain-message { position: absolute; right: clamp(16px, 4vw, 40px); bottom: clamp(16px, 4vh, 36px); display: flex; align-items: center; gap: 12px; margin: 0; color: #d8c7a2; font: 14px Georgia, serif; letter-spacing: .14em; text-shadow: 0 1px 2px #000; }
+.curtain-spinner { width: 16px; height: 16px; border: 2px solid #a48d5f55; border-top-color: #e2c184; border-radius: 50%; animation: curtain-spin .9s linear infinite; will-change: transform; }
+@keyframes curtain-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .curtain-spinner { animation-duration: 2.4s; } }
 .loading-panel { z-index: 10; max-width: 480px; padding: 32px; text-align: center; color: #ded5c0; }
 /* Preserve the original single-column title layout without a scrolling surface. */
 .title-screen { position: absolute; inset: 0; max-height: 100dvh; display: grid; place-items: center; overflow: hidden; background: linear-gradient(0deg, #130e0ae8, #0b111b33 75%), url('/images/title_bg.png') center / cover; z-index: 20; }
