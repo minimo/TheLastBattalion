@@ -103,14 +103,19 @@ export const DESERTION = {
     types: ['infantry', 'archer', 'supply', 'engineer'] as UnitType[],
     squadBelow: .5, hpBelow: .5, odds: 1.2, chance: .12, distance: 160, seconds: 15,
 }
-/** 開戦後に砦から送り出せる予備兵の総数（片軍）。これが最後の大隊。 */
-export const RESERVES = 2500
+/**
+ * 兵1人を出すのにかかる予算。編成で布陣する兵も、砦から出る増援も、軍の予算から支払う。
+ */
+export const UNIT_COST: Record<UnitType, number> = { infantry: 1, pikeman: 2, archer: 2, cavalry: 4, supply: 2, engineer: 3, scout: 4 }
+/** 軍の予算（片軍）。布陣に使わなかった分が砦の予備になり、増援に使われる。これが最後の大隊。 */
+export const ARMY_BUDGET = 7000
 /** 攻城戦・防衛戦の攻め手の部隊数。砦も増援もないので、守り手より多い兵で攻める。 */
 export const SIEGE_ATTACKER_SQUADS: Record<UnitType, number> = { infantry: 10, pikeman: 4, archer: 8, cavalry: 6, supply: 3, engineer: 3, scout: 1 }
-/** 攻城戦・防衛戦の攻め手の兵の総数（編成で布陣できる上限。増援がないので全員を開戦時に割り当てられる）。 */
+/** 攻城戦・防衛戦の攻め手が布陣できる人数の上限（増援がないので、同時に戦場に出られる数より多く布陣できる）。 */
 export const SIEGE_ATTACKER_POOL = 2500
-/** 攻城戦・防衛戦の守り手の予備兵。 */
-export const SIEGE_DEFENDER_RESERVES = 1200
+/** 攻城戦・防衛戦の攻め手の予算（増援がないので、使わなかった分は戦場に出ない）と、守り手の予算。 */
+export const SIEGE_ATTACKER_BUDGET = 4500
+export const SIEGE_DEFENDER_BUDGET = 4500
 /** 攻城戦・防衛戦で、攻め手が布陣する敵の砦の前面の柵からの距離（px）と、野営地（退却・補給の先）の陣からの後退距離。 */
 export const SIEGE_DEPLOY_DISTANCE = 520
 export const SIEGE_CAMP_BACK = 120

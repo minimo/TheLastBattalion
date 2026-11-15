@@ -2,9 +2,10 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, SQUAD_SIZE } from '~/game/formation'
 import {
-  armyPool, COMPANY_TEMPLATES, deployedCount, deployLimit, DEPLOYMENT_PRESETS, hasFort, plannedCompanies, plannedGuideline, PLANNED_COMPANIES_MAX, presetDeployment, squadSizeMin, squadSizeStep,
-  squadSizeMax, SQUADS_PER_TYPE_MAX, UNIT_TYPES, type DeploymentPlan,
+  armyBudget, COMPANY_TEMPLATES, deployedCost, deployedCount, deployLimit, DEPLOYMENT_PRESETS, DEPLOYMENT_SCALES, hasFort, plannedCompanies, plannedGuideline, PLANNED_COMPANIES_MAX, presetDeployment, squadCost,
+  squadSizeMin, squadSizeStep, squadSizeMax, SQUADS_PER_TYPE_MAX, UNIT_TYPES, type DeploymentPlan, type DeploymentScale,
 } from '~/game/deployment'
+import { UNIT_COST } from '~/game/battleConfig'
 import { GUIDELINES, guidelineOptions } from '~/game/guidelines'
 import type { BattleMode, Guideline, UnitType } from '~/types/game'
 
@@ -15,18 +16,35 @@ const emit = defineEmits<{ change: [plan: DeploymentPlan]; save: [plan: Deployme
 const draft = ref<DeploymentPlan>({ formation: props.plan.formation, squads: props.plan.squads.map(sq => ({ ...sq })) })
 const TYPE_MARK: Record<UnitType, string> = { infantry: '歩', pikeman: '槍', archer: '弓', cavalry: '騎', supply: '補', engineer: '工', scout: '偵' }
 watch(draft, plan => { if (plan.squads.length) emit('change', plan) }, { deep: true })
-const pool = computed(() => armyPool(props.mode, 'player'))
+/** 軍の予算と、布陣に使った予算。兵は兵種ごとの予算（UNIT_COST）を払って布陣し、残りが予備（増援）になる。 */
+const budget = computed(() => armyBudget(props.mode, 'player'))
+const spent = computed(() => deployedCost(draft.value))
+/** 布陣できる人数の上限と、布陣した人数。 */
 const limit = computed(() => deployLimit(props.mode, 'player'))
 const reinforced = computed(() => hasFort(props.mode, 'player'))
 const deployed = computed(() => deployedCount(draft.value))
-const room = computed(() => limit.value - deployed.value)
+/** 兵種の兵をあと何人増やせるか（残りの予算と、人数の上限の小さい方）。 */
+const room = (type: UnitType) => Math.max(0, Math.min(limit.value - deployed.value, Math.floor((budget.value - spent.value) / UNIT_COST[type])))
+/** 増やせないときの理由（ボタンの説明に添える）。 */
+const shortage = (type: UnitType) => limit.value - deployed.value < squadSizeStep(type) ? '布陣できる人数の上限です' : budget.value - spent.value < squadSizeStep(type) * UNIT_COST[type] ? '予算が足りません' : ''
+/** 予算の使いみち（兵種ごと。補給兵・工兵・偵察兵はまとめる）。 */
+const SPEND_GROUPS: { key: string; name: string; mark: string; types: UnitType[] }[] = [
+  { key: 'infantry', name: props.unitNames.infantry, mark: '歩', types: ['infantry'] },
+  { key: 'pikeman', name: props.unitNames.pikeman, mark: '槍', types: ['pikeman'] },
+  { key: 'archer', name: props.unitNames.archer, mark: '弓', types: ['archer'] },
+  { key: 'cavalry', name: props.unitNames.cavalry, mark: '騎', types: ['cavalry'] },
+  { key: 'support', name: '工兵・補給兵・偵察兵', mark: '支', types: ['supply', 'engineer', 'scout'] },
+]
+const spendingOf = (plan: DeploymentPlan) => SPEND_GROUPS.map(group => ({ ...group, cost: plan.squads.filter(sq => group.types.includes(sq.type)).reduce((sum, sq) => sum + squadCost(sq.type, sq.size), 0) })).filter(group => group.cost > 0)
+const spending = computed(() => spendingOf(draft.value))
+const groupOf = (type: UnitType) => SPEND_GROUPS.find(group => group.types.includes(type))!.key
 /** 兵種の小隊（中隊を組んだ小隊も含む。兵種ごとの上限はこれで数える）。 */
 const squadsOf = (type: UnitType) => draft.value.squads.map((sq, index) => ({ ...sq, index })).filter(sq => sq.type === type)
 /** 中隊に入らない兵種（工兵・補給兵・偵察兵）と、その小隊。歩兵・槍兵・弓兵・騎兵は必ず中隊に入れる。 */
 const LOOSE_TYPES = UNIT_TYPES.filter(type => !joinsCompany(type))
 const autoSquadsOf = (type: UnitType) => squadsOf(type).filter(sq => sq.company === undefined)
 const typeTotal = (type: UnitType) => autoSquadsOf(type).reduce((sum, sq) => sum + sq.size, 0)
-const canAdd = (type: UnitType) => room.value >= squadSizeMin(type) && squadsOf(type).length < SQUADS_PER_TYPE_MAX
+const canAdd = (type: UnitType) => room(type) >= squadSizeMin(type) && squadsOf(type).length < SQUADS_PER_TYPE_MAX
 
 /** 編成で組んだ中隊（番号の順）と、その小隊。 */
 const companies = computed(() => plannedCompanies(draft.value).map(({ company, indices }) => ({ company, squads: indices.map(index => ({ ...draft.value.squads[index]!, index })) })))
@@ -41,6 +59,9 @@ const addCompany = (types: UnitType[]) => {
 }
 const removeCompany = (company: number) => { draft.value.squads = draft.value.squads.filter(sq => sq.company !== company) }
 const companyTotal = (squads: { size: number }[]) => squads.reduce((sum, sq) => sum + sq.size, 0)
+const companyCost = (squads: { type: UnitType; size: number }[]) => squads.reduce((sum, sq) => sum + squadCost(sq.type, sq.size), 0)
+/** ひな形の中隊を定員で組むのにかかる予算。 */
+const templateCost = (types: UnitType[]) => types.reduce((sum, type) => sum + squadCost(type, SQUAD_SIZE[type]), 0)
 /** 中隊（小隊の位置）か、中隊に入らない小隊の行動（選んでいなければ既定の行動）。 */
 const guidelineOf = (indices: number[]) => plannedGuideline(draft.value, indices)
 /** 行動を選ぶ。中隊はその小隊がみな同じ行動を持つ。 */
@@ -51,17 +72,30 @@ const cycleGuideline = (index: number) => {
   setGuideline([index], options[(options.indexOf(guidelineOf([index])) + 1) % options.length]!)
 }
 
-const applyPreset = (key: string) => { draft.value = presetDeployment(key, props.mode, 'player') }
-/** 部隊の人数を変える。布陣できる上限を超える分は増やさない。 */
+/**
+ * プリセット（兵の構成）と布陣の規模。どちらかを選ぶと、その組み合わせで編成を組み直す。
+ * 今の編成がどのプリセットとも違えば（手で変えた編成）、プリセットには印が付かない。増援のない攻め手は規模を選ばない。
+ */
+const same = (a: DeploymentPlan, b: DeploymentPlan) => JSON.stringify(a) === JSON.stringify(b)
+const matchPreset = (scale: DeploymentScale) => DEPLOYMENT_PRESETS.find(preset => same(draft.value, presetDeployment(preset.key, props.mode, 'player', scale)))?.key
+const scale = ref<DeploymentScale>(DEPLOYMENT_SCALES.find(s => matchPreset(s.key))?.key ?? 'standard')
+const activePreset = computed(() => matchPreset(scale.value))
+/** 最後に選んだプリセット（規模を変えたときに組み直す構成）。 */
+let lastPreset = activePreset.value ?? 'default'
+const applyPreset = (key: string) => { lastPreset = key; draft.value = presetDeployment(key, props.mode, 'player', scale.value) }
+const applyScale = (key: DeploymentScale) => { scale.value = key; applyPreset(activePreset.value ?? lastPreset) }
+/** プリセットの人数と、予算の使いみち（ボタンに、下の予算の帯と同じ色の帯で出す）。 */
+const presets = computed(() => DEPLOYMENT_PRESETS.map(preset => { const plan = presetDeployment(preset.key, props.mode, 'player', scale.value); return { ...preset, count: deployedCount(plan), cost: deployedCost(plan), spending: spendingOf(plan) } }))
+/** 部隊の人数を変える。予算と布陣できる上限を超える分は増やさない。 */
 const setSize = (index: number, size: number) => {
   const squad = draft.value.squads[index]!
-  const max = Math.min(squadSizeMax(squad.type), squad.size + room.value)
+  const max = Math.min(squadSizeMax(squad.type), squad.size + room(squad.type))
   squad.size = Math.max(squadSizeMin(squad.type), Math.min(max, Math.round(Number.isFinite(size) ? size : squad.size)))
 }
 const step = (index: number, delta: number) => setSize(index, draft.value.squads[index]!.size + delta)
-/** 兵種の部隊を1つ加える（人数は定員、上限が近ければ残りの人数。兵種ごとに SQUADS_PER_TYPE_MAX 部隊まで）。兵種の順に並べて、部隊の番号を兵種ごとの順にする。 */
+/** 兵種の部隊を1つ加える（人数は定員、予算か上限が近ければ出せるだけの人数。兵種ごとに SQUADS_PER_TYPE_MAX 部隊まで）。兵種の順に並べて、部隊の番号を兵種ごとの順にする。 */
 const addSquad = (type: UnitType, company?: number) => {
-  const size = Math.min(SQUAD_SIZE[type], room.value)
+  const size = Math.min(SQUAD_SIZE[type], Math.floor(room(type) / squadSizeStep(type)) * squadSizeStep(type))
   if (size < squadSizeMin(type) || squadsOf(type).length >= SQUADS_PER_TYPE_MAX) return
   if (company !== undefined && !canAddTo(company, type)) return
   // 歩兵・槍兵・弓兵・騎兵は中隊の外には加えない。
@@ -135,9 +169,18 @@ onUnmounted(() => { for (const animation of rollAnimations) animation.cancel() }
       </header>
 
       <div class="deploy-group">
-        <span class="deploy-label">プリセット</span>
-        <div class="deploy-buttons">
-          <button class="wood-control" v-for="preset in DEPLOYMENT_PRESETS" :key="preset.key" :title="preset.description" @click="applyPreset(preset.key)">{{ preset.name }}<small>{{ preset.description }}</small></button>
+        <div class="label-row">
+          <span class="deploy-label">プリセット</span>
+          <div v-if="reinforced" class="segment" role="radiogroup" aria-label="布陣の規模">
+            <span class="deploy-label">規模</span>
+            <button class="wood-control" v-for="s in DEPLOYMENT_SCALES" :key="s.key" role="radio" :aria-checked="!!activePreset && scale === s.key" :class="{ active: activePreset && scale === s.key }" :title="s.description" @click="applyScale(s.key)">{{ s.name }}</button>
+          </div>
+        </div>
+        <div class="deploy-buttons presets" role="radiogroup" aria-label="プリセット">
+          <button class="wood-control" v-for="preset in presets" :key="preset.key" role="radio" :aria-checked="activePreset === preset.key" :class="{ active: activePreset === preset.key }" :title="preset.description" @click="applyPreset(preset.key)">
+            <span class="preset-name"><span class="control-check" aria-hidden="true">✓</span>{{ preset.name }}<small>{{ preset.count.toLocaleString() }}人</small></span>
+            <span class="mix" aria-hidden="true"><i v-for="g in preset.spending" :key="g.key" :class="g.key" :style="{ width: `${g.cost / preset.cost * 100}%` }"></i></span>
+          </button>
         </div>
       </div>
 
@@ -150,17 +193,18 @@ onUnmounted(() => { for (const animation of rollAnimations) animation.cancel() }
       </div>
 
       <div class="deploy-group">
-        <span class="deploy-label">中隊を組む（兵種を混ぜてよい · 1中隊{{ COMPANY_MAX_SQUADS }}小隊まで）</span>
+        <span class="deploy-label">中隊を加える</span>
         <div class="deploy-buttons templates">
-          <button class="wood-control" v-for="t in COMPANY_TEMPLATES" :key="t.key" :title="t.description" :disabled="room < squadSizeMin('infantry') || companies.length >= PLANNED_COMPANIES_MAX" @click="addCompany(t.types)">
-            ＋ {{ t.name }}<small>{{ t.types.map(type => TYPE_MARK[type]).join('・') }}</small>
+          <button class="wood-control" v-for="t in COMPANY_TEMPLATES" :key="t.key" :title="[t.description, shortage(t.types[0]!)].filter(Boolean).join(' · ')" :disabled="!canAdd(t.types[0]!) || companies.length >= PLANNED_COMPANIES_MAX" @click="addCompany(t.types)">
+            ＋ {{ t.name }}<small>{{ t.types.map(type => TYPE_MARK[type]).join('・') }}<span class="cost">{{ templateCost(t.types) }}</span></small>
           </button>
         </div>
         <ul v-if="companies.length" class="deploy-types companies">
           <li v-for="(c, n) in companies" :key="c.company">
             <div class="type-head">
               <span>第{{ n + 1 }}中隊</span>
-              <small>{{ c.squads.map(sq => TYPE_MARK[sq.type]).join('・') }} · {{ companyTotal(c.squads) }}人</small>
+              <small>{{ c.squads.length }}/{{ COMPANY_MAX_SQUADS }}小隊 · {{ companyTotal(c.squads) }}人</small>
+              <span class="cost" title="この中隊の予算">{{ companyCost(c.squads).toLocaleString() }}</span>
               <span class="company-actions">
                 <button class="wood-control add" :aria-label="`第${n + 1}中隊を外す`" @click="removeCompany(c.company)">×</button>
               </span>
@@ -173,40 +217,39 @@ onUnmounted(() => { for (const animation of rollAnimations) animation.cancel() }
               </button>
             </div>
             <div class="squads">
-              <div v-for="sq in c.squads" :key="sq.index" class="squad-chip">
+              <div v-for="sq in c.squads" :key="sq.index" class="squad-chip" :class="groupOf(sq.type)">
                 <span class="squad-no">{{ unitNames[sq.type] }}</span>
                 <button class="wood-control" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${squadSizeStep(sq.type)}人減らす`" :disabled="sq.size <= squadSizeMin(sq.type)" @click="step(sq.index, -squadSizeStep(sq.type))">−</button>
                 <input class="metal-input" type="number" :value="sq.size" :min="squadSizeMin(sq.type)" :max="squadSizeMax(sq.type)" :step="squadSizeStep(sq.type)" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}の人数`"
                   @change="setSize(sq.index, Number(($event.target as HTMLInputElement).value)); ($event.target as HTMLInputElement).value = String(draft.squads[sq.index]!.size)">
-                <button class="wood-control" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${squadSizeStep(sq.type)}人増やす`" :disabled="sq.size >= squadSizeMax(sq.type) || room <= 0" @click="step(sq.index, squadSizeStep(sq.type))">＋</button>
+                <button class="wood-control" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を${squadSizeStep(sq.type)}人増やす`" :disabled="sq.size >= squadSizeMax(sq.type) || room(sq.type) < squadSizeStep(sq.type)" :title="shortage(sq.type)" @click="step(sq.index, squadSizeStep(sq.type))">＋</button>
                 <button class="wood-control remove" :aria-label="`第${n + 1}中隊の${unitNames[sq.type]}を外す`" @click="removeSquad(sq.index)">×</button>
               </div>
               <span class="add-types">
-                <button class="wood-control" v-for="type in UNIT_TYPES.filter(joinsCompany)" :key="type" :disabled="!canAddTo(c.company, type)" :title="`${unitNames[type]}の小隊を加える`" :aria-label="`第${n + 1}中隊に${unitNames[type]}の小隊を加える`" @click="addSquad(type, c.company)">＋{{ TYPE_MARK[type] }}</button>
+                <button class="wood-control" v-for="type in UNIT_TYPES.filter(joinsCompany)" :key="type" :disabled="!canAddTo(c.company, type)" :title="`${unitNames[type]}の小隊を加える（予算 ${squadCost(type, SQUAD_SIZE[type])}）`" :aria-label="`第${n + 1}中隊に${unitNames[type]}の小隊を加える`" @click="addSquad(type, c.company)">＋{{ TYPE_MARK[type] }}</button>
               </span>
             </div>
           </li>
         </ul>
-        <p class="deploy-note">組んだ中隊は陣でひとかたまりに並び（槍兵が前、弓兵が後ろ、騎兵が両翼）、中隊で動くときは一番遅い小隊に足並みをそろえます。弓兵に敵が迫ると、同じ中隊の近接の小隊が迎え撃ちます。</p>
-        <p class="deploy-note">行動は命令のないときの動きです（既定は人数が一番多い兵種の行動）。開戦後は陣で構え、敵が近づくか命令をやり終えると行動に沿って動きます。</p>
       </div>
 
       <div class="deploy-group">
-        <span class="deploy-label">工兵・補給兵・偵察兵（中隊に入らず、小隊のまま動く）</span>
+        <span class="deploy-label">工兵・補給兵・偵察兵（中隊に入らない）</span>
         <ul class="deploy-types">
           <li v-for="type in LOOSE_TYPES" :key="type">
             <div class="type-head">
               <span>{{ unitNames[type] }}</span>
               <small>{{ autoSquadsOf(type).length }}小隊 · {{ typeTotal(type) }}人</small>
-              <button class="wood-control add" :disabled="!canAdd(type)" :aria-label="`${unitNames[type]}の小隊を加える`" @click="addSquad(type)">＋ 小隊</button>
+              <span v-if="autoSquadsOf(type).length" class="cost" :title="`${unitNames[type]}の予算`">{{ companyCost(autoSquadsOf(type)).toLocaleString() }}</span>
+              <button class="wood-control add" :disabled="!canAdd(type)" :title="shortage(type)" :aria-label="`${unitNames[type]}の小隊を加える（予算 ${squadCost(type, SQUAD_SIZE[type])}）`" @click="addSquad(type)">＋<span class="cost">{{ squadCost(type, SQUAD_SIZE[type]) }}</span></button>
             </div>
             <div class="squads">
-              <div v-for="(sq, n) in autoSquadsOf(type)" :key="sq.index" class="squad-chip">
+              <div v-for="(sq, n) in autoSquadsOf(type)" :key="sq.index" class="squad-chip support">
                 <span class="squad-no">第{{ n + 1 }}</span>
                 <button class="wood-control" :aria-label="`第${n + 1}${unitNames[type]}小隊を${squadSizeStep(type)}人減らす`" :disabled="sq.size <= squadSizeMin(type)" @click="step(sq.index, -squadSizeStep(type))">−</button>
                 <input class="metal-input" type="number" :value="sq.size" :min="squadSizeMin(type)" :max="squadSizeMax(type)" :step="squadSizeStep(type)" :aria-label="`第${n + 1}${unitNames[type]}小隊の人数`"
                   @change="setSize(sq.index, Number(($event.target as HTMLInputElement).value)); ($event.target as HTMLInputElement).value = String(draft.squads[sq.index]!.size)">
-                <button class="wood-control" :aria-label="`第${n + 1}${unitNames[type]}小隊を${squadSizeStep(type)}人増やす`" :disabled="sq.size >= squadSizeMax(type) || room <= 0" @click="step(sq.index, squadSizeStep(type))">＋</button>
+                <button class="wood-control" :aria-label="`第${n + 1}${unitNames[type]}小隊を${squadSizeStep(type)}人増やす`" :disabled="sq.size >= squadSizeMax(type) || room(type) < squadSizeStep(type)" :title="shortage(type)" @click="step(sq.index, squadSizeStep(type))">＋</button>
                 <button v-if="guidelineOptions([type]).length > 1" class="wood-control guideline-toggle" :title="`行動: ${GUIDELINES[guidelineOf([sq.index])].description}（押すと切り替え）`"
                   :aria-label="`第${n + 1}${unitNames[type]}小隊の行動 ${GUIDELINES[guidelineOf([sq.index])].name}（押すと切り替え）`" @click="cycleGuideline(sq.index)">{{ GUIDELINES[guidelineOf([sq.index])].name }}</button>
                 <button class="wood-control remove" :aria-label="`第${n + 1}${unitNames[type]}小隊を外す`" @click="removeSquad(sq.index)">×</button>
@@ -214,16 +257,23 @@ onUnmounted(() => { for (const animation of rollAnimations) animation.cancel() }
             </div>
           </li>
         </ul>
-        <p class="deploy-note">1小隊 {{ squadSizeMin('infantry') }}〜定員の2倍まで（偵察兵は{{ squadSizeMin('scout') }}〜{{ squadSizeMax('scout') }}人）。兵種ごとに{{ SQUADS_PER_TYPE_MAX }}小隊まで（中隊を組んだ小隊も数えます。10を超えた分は陣の2列目に並びます）。人数は軍の兵から割り当てます。</p>
       </div>
 
       <footer>
-        <dl class="deploy-totals">
-          <dt>軍の兵</dt><dd>{{ pool.toLocaleString() }}</dd>
-          <dt>布陣</dt><dd>{{ deployed.toLocaleString() }} <small>/ 上限 {{ limit.toLocaleString() }}</small></dd>
-          <template v-if="reinforced"><dt>予備兵（増援）</dt><dd>{{ (pool - deployed).toLocaleString() }}</dd></template>
-          <template v-else><dt>増援</dt><dd class="warn">なし<small v-if="pool > deployed">（残り{{ pool - deployed }}人は戦場に出ません）</small></dd></template>
-        </dl>
+        <div class="deploy-budget">
+          <div class="budget-head">
+            <span>予算 <strong :class="{ warn: budget - spent < 10 }">{{ spent.toLocaleString() }}</strong> / {{ budget.toLocaleString() }}</span>
+            <span>兵 <strong :class="{ warn: deployed >= limit }">{{ deployed.toLocaleString() }}</strong> / {{ limit.toLocaleString() }}人</span>
+          </div>
+          <div class="budget-bar" role="img" :aria-label="`予算の使いみち: ${spending.map(g => `${g.name} ${g.cost}`).join('、')}、残り ${budget - spent}`">
+            <span v-for="g in spending" :key="g.key" :class="g.key" :style="{ width: `${g.cost / budget * 100}%` }" :title="`${g.name} ${g.cost.toLocaleString()}`">{{ g.mark }}</span>
+            <span class="rest" :class="{ warn: !reinforced }" :title="reinforced ? '使わなかった軍事費は、開戦後の増援に使われます' : 'この戦いは増援がないため、残した軍事費は使われません'">残り {{ (budget - spent).toLocaleString() }}</span>
+          </div>
+          <span class="costs-label">兵士1人あたりの配置コスト</span>
+          <ul class="unit-costs" aria-label="兵士1人あたりの配置コスト">
+            <li v-for="type in UNIT_TYPES" :key="type" :title="`${unitNames[type]}1人あたりの配置コスト`"><i :class="groupOf(type)"></i>{{ TYPE_MARK[type] }}<span class="cost">{{ UNIT_COST[type] }}</span></li>
+          </ul>
+        </div>
         <div class="deploy-actions">
           <button class="wood-control secondary" @click="emit('close')">戻る</button>
           <button class="wood-control wood-primary" :disabled="!draft.squads.length" @click="save">開戦する →</button>
@@ -284,11 +334,40 @@ button { margin: 0; padding: 6px 12px; font-size: 12px; cursor: pointer; }
 .squad-chip input { width: 42px; min-height: 24px; padding: 2px; text-align: center; font: 12px system-ui; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
 .squad-chip input::-webkit-inner-spin-button, .squad-chip input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 footer { position: sticky; bottom: -8px; margin: 0 -12px -8px; padding: 12px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; background: #eed8af; border-top: 1px solid #af8b5659; }
-.deploy-totals { display: grid; grid-template-columns: auto auto; gap: 3px 14px; margin: 0; font-size: 12px; }
-.deploy-totals dt { color: #6c5741; }
-.deploy-totals dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-.deploy-totals small { color: #6c5741; font-size: 10px; }
-.deploy-totals .warn { color: #955016; }
+/* 予算の札: 暗い札の数字は、どこでもその兵にかかる予算を表す。 */
+.cost { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 8px; background: #4a3421; color: #f3dfb6; font: 10px/15px system-ui; font-variant-numeric: tabular-nums; letter-spacing: 0; text-shadow: none; vertical-align: 1px; }
+button .cost { background: #24130a; }
+.unit-costs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 11px; color: #6c5741; }
+.unit-costs .cost { margin-left: 2px; }
+.costs-label { display: block; margin-top: 6px; font-size: 10px; letter-spacing: .08em; color: #70502d; }
+.label-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+.label-row .deploy-label { margin: 0; }
+.segment { display: flex; align-items: center; gap: 3px; }
+.segment .deploy-label { margin-right: 4px; }
+.segment button { padding: 3px 9px; font-size: 11px; }
+.segment button::after { display: none; }
+.presets button { min-width: 76px; }
+.presets button { align-items: stretch; }
+.preset-name { display: flex; align-items: baseline; gap: 5px; }
+.preset-name small { margin-left: auto; }
+/* 兵種の色。予算の帯・プリセットの帯・小隊の札・凡例で同じ色を使う。 */
+.infantry { --type-color: #7d5a36; }
+.pikeman { --type-color: #56704a; }
+.archer { --type-color: #a8782a; }
+.cavalry { --type-color: #8a4334; }
+.support { --type-color: #56687a; }
+.mix { display: flex; height: 5px; overflow: hidden; border-radius: 2px; background: #24130a; }
+.mix i { background: var(--type-color); filter: brightness(1.45); }
+.unit-costs i { display: inline-block; width: 7px; height: 7px; margin-right: 3px; border-radius: 1px; background: var(--type-color); }
+.squad-chip { border-left: 4px solid var(--type-color) !important; }
+.deploy-budget { flex: 1 1 240px; min-width: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.budget-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; color: #6c5741; }
+.budget-head strong { color: #39291d; font-size: 14px; font-weight: 600; }
+.deploy-budget .warn { color: #955016; }
+/* 使った予算を兵種ごとに積み、残り（予備）は空きのまま見せる。 */
+.budget-bar { display: flex; height: 16px; margin: 4px 0; overflow: hidden; border: 1px solid #8f6f43; border-radius: 3px; background: #d9bd8c; box-shadow: inset 0 1px 2px #5a3c1a55; }
+.budget-bar span { background: var(--type-color); min-width: 0; overflow: hidden; box-sizing: border-box; border-right: 1px solid #eed8af; color: #f6e7c6; font-size: 10px; line-height: 16px; text-align: center; transition: width .2s; }
+.budget-bar .rest { flex: 1; border: 0; padding: 0 5px; color: #6c5741; text-align: right; white-space: nowrap; }
 .deploy-actions { display: flex; gap: 8px; }
 .deploy-actions button { padding: 9px 22px; font-size: 13px; letter-spacing: .1em; }
 @media (max-width: 550px) { .deploy-dock { top: 84px; right: 16px; bottom: 16px; } .deploy-panel { padding: 8px; } footer { bottom: -8px; margin: 0 -8px -8px; padding: 10px 8px; } .deploy-buttons small { display: none; } }

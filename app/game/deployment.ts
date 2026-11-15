@@ -1,10 +1,10 @@
-import { ARMY_CAP, INITIAL_SQUADS, RESERVES, SIEGE_ATTACKER_POOL, SIEGE_ATTACKER_SQUADS, SIEGE_DEFENDER_RESERVES } from './battleConfig'
+import { ARMY_BUDGET, ARMY_CAP, INITIAL_SQUADS, SIEGE_ATTACKER_BUDGET, SIEGE_ATTACKER_POOL, SIEGE_ATTACKER_SQUADS, SIEGE_DEFENDER_BUDGET, UNIT_COST } from './battleConfig'
 import { COMPANY_MAX_SQUADS, FORMATIONS, joinsCompany, SQUAD_SIZE } from './formation'
 import { defaultGuideline, guidelineOptions } from './guidelines'
 import type { Army, BattleMode, FormationType, Guideline, UnitType } from '../types/game'
 
 /**
- * 開戦時の編成: 全軍の陣形と、布陣する小隊（兵種と人数）。人数は軍の兵（予備兵）から割り当て、残りが増援になる。
+ * 開戦時の編成: 全軍の陣形と、布陣する小隊（兵種と人数）。兵は兵種ごとの予算（UNIT_COST）を軍の予算から支払って布陣し、残った予算が増援になる。
  * company は編成で組んだ中隊の番号（1から）。同じ番号の小隊が1つの中隊になり（兵種を混ぜてよい）、陣でもひとかたまりに並ぶ。
  * 歩兵・槍兵・弓兵・騎兵の小隊は必ず中隊に入る（編成を整えるときに、中隊のない小隊は同じ兵種ごとに中隊へまとめる）。工兵・補給兵・偵察兵は中隊に入らない。
  * guideline は選んだ行動（中隊はその小隊がみな同じ行動を持つ）。なければ既定の行動。
@@ -30,7 +30,6 @@ export const hasFort = (mode: BattleMode, owner: Army) => mode === 'field' || de
 
 const squadsOf = (counts: Record<UnitType, number>) =>
     UNIT_TYPES.flatMap(type => Array.from({ length: counts[type] }, () => ({ type, size: SQUAD_SIZE[type] })))
-const totalOf = (counts: Record<UnitType, number>) => UNIT_TYPES.reduce((sum, type) => sum + counts[type] * SQUAD_SIZE[type], 0)
 
 /** 既定の編成（横陣。砦を持つ軍は INITIAL_SQUADS、攻め手は SIEGE_ATTACKER_SQUADS）。 */
 export function defaultDeployment(mode: BattleMode, owner: Army): DeploymentPlan {
@@ -42,18 +41,21 @@ export function cpuDeployment(mode: BattleMode, random: () => number): Deploymen
     return { ...defaultDeployment(mode, 'cpu'), formation: FORMATIONS[Math.floor(random() * FORMATIONS.length)]!.type }
 }
 
-/** 軍の兵の総数（開戦時に布陣する兵＋砦に残る予備兵）。既定の編成なら、残りが従来の予備兵の数になる。 */
-export function armyPool(mode: BattleMode, owner: Army) {
-    if (!hasFort(mode, owner)) return SIEGE_ATTACKER_POOL
-    return totalOf(INITIAL_SQUADS) + (defenderOf(mode) === owner ? SIEGE_DEFENDER_RESERVES : RESERVES)
+/** 軍の予算。布陣する兵と増援に使う（砦を持たない攻め手は増援がないので、布陣に使わなかった分は戦場に出ない）。 */
+export function armyBudget(mode: BattleMode, owner: Army) {
+    if (!hasFort(mode, owner)) return SIEGE_ATTACKER_BUDGET
+    return defenderOf(mode) === owner ? SIEGE_DEFENDER_BUDGET : ARMY_BUDGET
 }
 
-/** 開戦時に布陣できる兵の上限。砦を持つ軍は同時に戦場に出られる数まで、増援のない攻め手は兵の総数まで。 */
+/** 開戦時に布陣できる人数の上限。砦を持つ軍は同時に戦場に出られる数まで。 */
 export function deployLimit(mode: BattleMode, owner: Army) {
-    return hasFort(mode, owner) ? Math.min(armyPool(mode, owner), ARMY_CAP) : armyPool(mode, owner)
+    return hasFort(mode, owner) ? ARMY_CAP : SIEGE_ATTACKER_POOL
 }
 
+export const squadCost = (type: UnitType, size: number) => size * UNIT_COST[type]
 export const deployedCount = (plan: DeploymentPlan) => plan.squads.reduce((sum, sq) => sum + sq.size, 0)
+/** 編成の布陣にかかる予算。 */
+export const deployedCost = (plan: DeploymentPlan) => plan.squads.reduce((sum, sq) => sum + squadCost(sq.type, sq.size), 0)
 
 /** 編成で組める中隊の数の上限。 */
 export const PLANNED_COMPANIES_MAX = 20
@@ -86,48 +88,96 @@ export function plannedGuideline(plan: DeploymentPlan, indices: number[]): Guide
     return chosen && guidelineOptions(squads.map(sq => sq.type)).includes(chosen) ? chosen : defaultGuideline(squads)
 }
 
-/** 編成のプリセット。兵種の割合で、既定の編成と同じ人数の部隊を組む（標準は既定の編成そのもの）。 */
-export const DEPLOYMENT_PRESETS: { key: string; name: string; description: string; formation: FormationType; mix?: Record<UnitType, number>; companies?: UnitType[][] }[] = [
+/**
+ * 編成のプリセット（兵の構成）。中隊の並びと、中隊に入らない小隊の数で決める（標準は既定の編成そのもの）。
+ * どれも標準の編成とほぼ同じ予算で組んであり、布陣の規模（DEPLOYMENT_SCALES）に合わせて伸び縮みする。
+ */
+export const DEPLOYMENT_PRESETS: { key: string; name: string; description: string; formation: FormationType; companies?: UnitType[][]; support?: Partial<Record<UnitType, number>> }[] = [
     { key: 'default', name: '標準', description: '既定の編成（横陣）', formation: 'line' },
-    { key: 'pike', name: '堅陣', description: '槍兵と歩兵で前線を固める（方円）', formation: 'circle', mix: { infantry: .38, pikeman: .3, archer: .2, cavalry: .04, supply: .04, engineer: .04, scout: .005 } },
-    { key: 'archer', name: '弓兵重視', description: '槍兵の壁の後ろから矢を浴びせる（横陣）', formation: 'line', mix: { infantry: .22, pikeman: .2, archer: .4, cavalry: .06, supply: .08, engineer: .04, scout: .005 } },
-    { key: 'cavalry', name: '騎兵重視', description: '騎兵を先頭に一気に突き崩す（鋒矢）', formation: 'arrow', mix: { infantry: .36, pikeman: .06, archer: .16, cavalry: .36, supply: .03, engineer: .03, scout: .005 } },
+    {
+        key: 'pike', name: '堅陣', description: '槍兵と歩兵で前線を固める（方円）', formation: 'circle',
+        companies: [['pikeman', 'pikeman', 'pikeman'], ['pikeman', 'pikeman', 'infantry'], ['pikeman', 'infantry', 'infantry'], ['infantry', 'infantry', 'infantry'], ['infantry', 'infantry', 'infantry'], ['archer', 'archer', 'archer'], ['cavalry', 'cavalry']],
+        support: { supply: 2, engineer: 2, scout: 1 },
+    },
+    {
+        key: 'archer', name: '弓兵重視', description: '槍兵の壁の後ろから矢を浴びせる（横陣）', formation: 'line',
+        companies: [['pikeman', 'pikeman', 'archer'], ['pikeman', 'pikeman', 'archer'], ['pikeman', 'pikeman', 'archer'], ['archer', 'archer', 'archer'], ['archer', 'archer'], ['infantry', 'infantry', 'infantry'], ['cavalry']],
+        support: { supply: 3, engineer: 1, scout: 1 },
+    },
+    {
+        key: 'cavalry', name: '騎兵重視', description: '少数の騎兵を先頭に一気に突き崩す（鋒矢）', formation: 'arrow',
+        companies: [['cavalry', 'cavalry', 'cavalry', 'cavalry'], ['cavalry', 'cavalry', 'cavalry', 'cavalry'], ['cavalry', 'cavalry'], ['infantry', 'infantry', 'infantry'], ['archer', 'archer'], ['pikeman']],
+        support: { supply: 2, engineer: 1, scout: 1 },
+    },
     {
         key: 'combined', name: '混成中隊', description: '槍・歩・弓を組んだ中隊で戦線を張る（横陣）', formation: 'line',
         companies: [['pikeman', 'infantry', 'archer'], ['pikeman', 'infantry', 'archer'], ['pikeman', 'infantry', 'archer'], ['infantry', 'infantry', 'infantry'], ['archer', 'archer'], ['cavalry', 'cavalry'], ['cavalry', 'cavalry']],
+        support: { supply: 2, engineer: 2, scout: 1 },
+    },
+    {
+        key: 'horde', name: '大軍', description: '安い歩兵を多く並べ、数で押す（横陣）', formation: 'line',
+        companies: [['infantry', 'infantry', 'infantry', 'infantry'], ['infantry', 'infantry', 'infantry', 'infantry'], ['infantry', 'infantry', 'infantry', 'infantry'], ['infantry', 'infantry', 'infantry', 'infantry'], ['pikeman', 'pikeman', 'pikeman'], ['archer', 'archer', 'archer'], ['cavalry']],
+        support: { supply: 2, engineer: 1, scout: 1 },
     },
 ]
 
-export function presetDeployment(key: string, mode: BattleMode, owner: Army): DeploymentPlan {
+/**
+ * 布陣の規模。開戦時の布陣に、標準の編成の何倍の予算を使うか（残りの予算は予備になり、増援に使われる）。
+ * 増援のない攻め手は規模を選ばず、いつも予算のすべてを布陣に使う。
+ */
+export type DeploymentScale = 'light' | 'standard' | 'full'
+export const DEPLOYMENT_SCALES: { key: DeploymentScale; name: string; description: string; factor: number }[] = [
+    { key: 'light', name: '控えめ', description: '布陣を小さくし、予備を厚く残す', factor: .7 },
+    { key: 'standard', name: '標準', description: '標準の編成と同じ予算で布陣する', factor: 1 },
+    { key: 'full', name: '全力', description: '開戦から多くの兵を出す（予備は減る）', factor: 1.4 },
+]
+
+/**
+ * プリセットの構成を、規模に合う予算で組む。
+ * 構成を予算に合わせて伸び縮みさせるときは、まず構成ごと繰り返して小隊を増やし（兵種ごとの小隊と中隊の数の上限まで）、残りは小隊の人数で合わせる。
+ * 布陣できる人数の上限にかかるときは、兵種の割合を保ったまま人数を抑える。
+ */
+export function presetDeployment(key: string, mode: BattleMode, owner: Army, scale: DeploymentScale = 'standard'): DeploymentPlan {
     const preset = DEPLOYMENT_PRESETS.find(p => p.key === key)
     const base = defaultDeployment(mode, owner)
-    if (preset?.companies) {
-        // 中隊のひな形どおりに組み、補給兵・工兵・偵察兵は既定の数だけ中隊に入れずに加える（砦を持たない攻め手は中隊の数を増やす）。
-        const repeat = hasFort(mode, owner) ? 1 : Math.max(1, Math.floor(deployLimit(mode, owner) / deployedCount(base)))
-        const squads: PlannedSquad[] = []
-        for (let r = 0; r < repeat; r++) preset.companies.forEach((types, i) => types.forEach(type => squads.push({ type, size: SQUAD_SIZE[type], company: r * preset.companies!.length + i + 1 })))
-        for (const sq of base.squads) if (!joinsCompany(sq.type)) squads.push({ type: sq.type, size: sq.size })
-        return normalizeDeployment({ formation: preset.formation, squads }, mode, owner)
+    const block: PlannedSquad[] = preset?.companies
+        ? [
+            ...preset.companies.flatMap((types, i) => types.map(type => ({ type, size: SQUAD_SIZE[type], company: i + 1 }))),
+            ...UNIT_TYPES.flatMap(type => Array.from({ length: preset.support?.[type] ?? 0 }, () => ({ type, size: SQUAD_SIZE[type] }))),
+        ]
+        : base.squads
+    const budget = armyBudget(mode, owner), limit = deployLimit(mode, owner)
+    const target = hasFort(mode, owner) ? Math.min(budget, Math.round(deployedCost(base) * DEPLOYMENT_SCALES.find(s => s.key === scale)!.factor)) : budget
+    const blockPlan = { formation: 'line' as FormationType, squads: block }
+    const companyCount = Math.max(1, ...block.map(sq => sq.company ?? 0))
+    const mostSquads = Math.max(...UNIT_TYPES.map(type => block.filter(sq => sq.type === type).length))
+    const factor = target / deployedCost(blockPlan)
+    const repeat = Math.max(1, Math.min(Math.floor(factor), Math.floor(PLANNED_COMPANIES_MAX / companyCount), Math.floor(SQUADS_PER_TYPE_MAX / mostSquads)))
+    const stretch = Math.min(factor / repeat, limit / (deployedCount(blockPlan) * repeat))
+    const squads: PlannedSquad[] = []
+    for (let r = 0; r < repeat; r++) for (const sq of block) {
+        const step = squadSizeStep(sq.type)
+        const size = Math.max(squadSizeMin(sq.type), Math.min(squadSizeMax(sq.type), Math.round(sq.size * stretch / step) * step))
+        squads.push(sq.company === undefined ? { type: sq.type, size } : { type: sq.type, size, company: r * companyCount + sq.company })
     }
-    if (!preset?.mix) return base
-    const total = deployedCount(base)
-    const counts = Object.fromEntries(UNIT_TYPES.map(type => [type, Math.min(SQUADS_PER_TYPE_MAX, Math.max(preset.mix![type] > 0 ? 1 : 0, Math.round(total * preset.mix![type] / SQUAD_SIZE[type])))])) as Record<UnitType, number>
-    // 端数の切り上げで上限を超えたら、人数の最も多い兵種から1部隊ずつ減らす。
-    while (totalOf(counts) > deployLimit(mode, owner)) {
-        const most = UNIT_TYPES.reduce((a, b) => counts[b] * SQUAD_SIZE[b] > counts[a] * SQUAD_SIZE[a] ? b : a)
-        counts[most]--
+    // 人数の丸めで予算か人数の上限を超えたら、人数の最も多い小隊から少しずつ減らす。
+    const plan = { formation: preset?.formation ?? base.formation, squads }
+    while (deployedCost(plan) > target || deployedCount(plan) > limit) {
+        const most = squads.filter(sq => sq.size > squadSizeMin(sq.type)).reduce<PlannedSquad | null>((a, b) => a && a.size >= b.size ? a : b, null)
+        if (!most) break
+        most.size -= squadSizeStep(most.type)
     }
-    return normalizeDeployment({ formation: preset.formation, squads: squadsOf(counts) }, mode, owner)
+    return normalizeDeployment(plan, mode, owner)
 }
 
 /**
- * 編成を兵種の順に並べ、人数を範囲に収め、兵種ごとの部隊数と布陣できる上限を超えた分の部隊を後ろから削る。
+ * 編成を兵種の順に並べ、人数を範囲に収め、兵種ごとの部隊数と、布陣できる人数の上限・軍の予算を超えた分の部隊を後ろから削る。
  * 中隊は1中隊 COMPANY_MAX_SQUADS 小隊・PLANNED_COMPANIES_MAX 中隊までにし（工兵・補給兵・偵察兵は中隊に入れない）、番号を出てくる順に1から振り直す。
  * 中隊に入っていない歩兵・槍兵・弓兵・騎兵の小隊は、兵種ごとに COMPANY_MAX_SQUADS 小隊以下の同じくらいの数の中隊にまとめて、組んだ中隊の後ろに加える
  * （中隊の数の上限で入らない小隊は削る）。
  */
 export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owner: Army): DeploymentPlan {
-    const limit = deployLimit(mode, owner)
+    const limit = deployLimit(mode, owner), budget = armyBudget(mode, owner)
     const sorted = UNIT_TYPES.flatMap(type => plan.squads.filter(sq => sq.type === type).slice(0, SQUADS_PER_TYPE_MAX))
     const squads: PlannedSquad[] = []
     // 中隊は元の番号の小さい順に PLANNED_COMPANIES_MAX まで認める。
@@ -141,10 +191,10 @@ export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owne
         accepted.add(sq)
     }
     members.clear()
-    let total = 0
+    let total = 0, cost = 0
     for (const sq of sorted) {
         const size = Math.max(squadSizeMin(sq.type), Math.min(squadSizeMax(sq.type), Math.round(sq.size)))
-        if (total + size > limit) continue
+        if (total + size > limit || cost + squadCost(sq.type, size) > budget) continue
         const squad: PlannedSquad = { type: sq.type, size }
         if (sq.guideline) squad.guideline = sq.guideline
         if (accepted.has(sq)) {
@@ -153,6 +203,7 @@ export function normalizeDeployment(plan: DeploymentPlan, mode: BattleMode, owne
         }
         squads.push(squad)
         total += size
+        cost += squadCost(sq.type, size)
     }
     // 中隊に入っていない歩兵・槍兵・弓兵・騎兵の小隊を、兵種ごとに中隊へまとめる。
     let next = Math.max(0, ...members.keys()) + 1

@@ -314,7 +314,7 @@ export interface Fort {
     assaultPoints: Point[]
     towers: { x: number; y: number; cooldown: number }[]
     spawnTimer: number
-    /** 残りの予備兵。尽きると増援は来ない。 */
+    /** 軍事費（布陣に使わなかった軍の予算）。増援が出るたびにその兵の分だけ減り、尽きると増援は来ない。 */
     reserves: number
 }
 

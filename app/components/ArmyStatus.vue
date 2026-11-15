@@ -31,7 +31,7 @@ const percent = (value: number, max: number) => `${Math.max(0, Math.min(100, val
     <p v-else class="no-fort">砦なし · 全滅で敗北</p>
     <dl class="army-details parchment-window">
       <template v-for="type in UNIT_TYPES" :key="type"><dt>{{ UNIT_NAME[props.army][type] }}</dt><dd>{{ count(type) }}</dd></template>
-      <template v-if="gameStore.summary[army].hasFort"><dt>予備兵</dt><dd>{{ secret ? '？' : gameStore.summary[army].reserves }}</dd></template>
+      <template v-if="gameStore.summary[army].hasFort"><dt>軍事費</dt><dd>{{ secret ? '？' : gameStore.summary[army].reserves }}</dd></template>
       <dt>撃破</dt><dd>{{ gameStore.summary[army].killed }}</dd>
       <template v-if="gameStore.summary[army].deserted && !secret"><dt>逃走</dt><dd>{{ gameStore.summary[army].deserted }}</dd></template>
     </dl>

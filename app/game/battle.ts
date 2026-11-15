@@ -10,12 +10,12 @@ import { createSpatialHash } from './spatialHash'
 import { clearVisionWalls, clearVisionWood, createVisionMap, isSiteKnown, isSquadSeen, knownSquadPosition, refreshVision, setVisionWalls, updateVision } from './vision'
 import { createPathService } from './pathService'
 import { axes, COMPANY_MAX_SQUADS, groupCompanies, isSupportType, joinsCompany, layoutCompany, layoutFormationWithCompanies, slotOffset, squadBlock, SQUAD_SIZE, toWorld, type FormationMember } from './formation'
-import { armyPool, defaultDeployment, defenderOf, deployedCount, normalizeDeployment, plannedCompanies, plannedGuideline, type DeploymentPlan } from './deployment'
+import { armyBudget, defaultDeployment, defenderOf, deployedCost, normalizeDeployment, plannedCompanies, plannedGuideline, type DeploymentPlan } from './deployment'
 import { createGuidance, defaultGuideline } from './guidelines'
 import {
     ARMY_CAP, ARROW_AIM, ARROW_ARC, COHESION, FOLLOW, ARROW_COVER, ARROW_SPEED, CHARGE_MULTIPLIER, CHARGE_RUN_TIME, CORPSE_SECONDS, DAY_MINUTES_PER_SECOND, FORT_ASSAULT_RANGE,
     FORT_HP, fortVicinityOf, LANE_CONVERGE_DISTANCE, LANE_HALF_WIDTH, LEASH, PATH_BUDGET_PER_TICK, PATH_LOOKAHEAD,
-    REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, SPENT_ARROW_LIMIT, VELOCITY_CAP, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
+    REINFORCEMENT_INTERVAL, REINFORCEMENT_MIX, UNIT_COST, SPENT_ARROW_LIMIT, VELOCITY_CAP, ARROWS_PER_ARCHER, FORT_REFILL_RANGE,
     FORT_REFILL_RATE, RESUPPLY_THRESHOLD, STAMINA, SUPPLY_CHARGES, SUPPLY_DURATION, SUPPORT_RANGE, SUPPORT_THRESHOLD, SHIELD, SPENT_ARROW_SECONDS, TOWER, UNIT_STATS,
     BUILD_REACH, CONSTRUCTION, CONSTRUCTION_AUTO_ATTACK, CONSTRUCTION_DAMAGE, OUTPOST_GUARD_RANGE, OUTPOST_OCCUPY_WORK, OUTPOST_REFILL_RANGE, OUTPOST_SIZE, REPAIR_RATE,
     SIEGE_CAMP_BACK, SIEGE_DEPLOY_DISTANCE, PIKEMAN, DESERTION, COMPANY, VISION,
@@ -34,7 +34,7 @@ interface SquadPost { anchor: Point; facing: number; goal: Point; goalKey: strin
 
 /**
  * 戦場を作る。plans は軍ごとの開戦時の編成（省略した軍は既定の編成）。
- * 編成の部隊の人数は軍の兵から割り当て、残りが砦の予備兵（増援）になる。
+ * 編成の部隊は軍の予算から支払って布陣し、残った予算が砦の予備（増援）になる。
  */
 export function createBattle(grid: number[][], random: () => number = Math.random, mode: BattleMode = 'field', plans: Partial<Record<Army, DeploymentPlan>> = {}) {
     const landscape = getPlayableLandscape(grid)
@@ -58,7 +58,7 @@ export function createBattle(grid: number[][], random: () => number = Math.rando
             hp: FORT_HP, maxHp: FORT_HP,
             core: geometry.core, coreRadius: site.kind === 'castle' ? CASTLE_CORE_RADIUS : CAMP_CORE_RADIUS, assaultPoints: geometry.assaultPoints,
             towers: geometry.towers.map(t => ({ ...t, cooldown: random() * TOWER.cooldown })),
-            spawnTimer: REINFORCEMENT_INTERVAL, reserves: armyPool(mode, site.owner) - deployedCount(deployments[site.owner]),
+            spawnTimer: REINFORCEMENT_INTERVAL, reserves: armyBudget(mode, site.owner) - deployedCost(deployments[site.owner]),
         }
     })
     clearConstructionTiles(grid)
@@ -555,7 +555,7 @@ const squadPlacementKey = (squad: Squad) => `squad:${squad.type}:${squad.number}
 /** 編成し直しても同じ中隊と見なす目印（番号と兵種の並び）。 */
 const placementKey = (battle: Battle, company: Company) => `${company.number}:${companySquads(battle, company.id).map(sq => sq.type).join(',')}`
 
-/** 開戦前（部隊編成の画面）に、軍の部隊を編成し直して布陣し直す。人数を割り当てた残りが砦の予備兵になる。 */
+/** 開戦前（部隊編成の画面）に、軍の部隊を編成し直して布陣し直す。布陣に使った残りの予算が砦の予備になる。 */
 export function redeployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) {
     const deployment = normalizeDeployment(plan, battle.mode, owner)
     if (!deployment.squads.length) return
@@ -578,7 +578,7 @@ export function redeployArmy(battle: Battle, owner: Army, plan: DeploymentPlan) 
     for (const type of TYPES) battle.squadNumbers[owner][type] = 0
     battle.formationCache[owner].key = ''
     const fort = fortOf(battle, owner)
-    if (fort) fort.reserves = armyPool(battle.mode, owner) - deployedCount(deployment)
+    if (fort) fort.reserves = armyBudget(battle.mode, owner) - deployedCost(deployment)
     deployArmy(battle, owner, deployment, placed)
     battle.hash.rebuild(battle.soldiers)
 }
@@ -2706,9 +2706,9 @@ function updateForts(battle: Battle, dt: number, alive: Record<Army, number>) {
         fort.spawnTimer = REINFORCEMENT_INTERVAL
         let roll = battle.random(), type: UnitType = 'infantry'
         for (const t of TYPES) { roll -= REINFORCEMENT_MIX[t]; if (roll < 0) { type = t; break } }
-        const count = Math.max(0, Math.min(SQUAD_SIZE[type], ARMY_CAP - alive[fort.owner], fort.reserves))
+        const count = Math.max(0, Math.min(SQUAD_SIZE[type], ARMY_CAP - alive[fort.owner], Math.floor(fort.reserves / UNIT_COST[type])))
         if (count < 5) continue
-        fort.reserves -= count
+        fort.reserves -= count * UNIT_COST[type]
         const squad = createSquad(battle, fort.owner, type, count, type === 'supply' ? 'support' : fort.owner === 'player' || isSupportType(type) || battle.mode === 'siege' ? 'formation' : 'charge')
         joinCompany(battle, squad)
         const geometry = createFortGeometry(fort)

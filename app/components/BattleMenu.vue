@@ -43,7 +43,7 @@ const copySeed = async () => {
         <tbody>
           <tr><th>総数</th><td v-for="army in armies" :key="army">{{ count(army, 'total') }}</td></tr>
           <tr v-for="type in UNIT_TYPES" :key="type"><th>{{ UNIT_NAME.player[type] }}</th><td v-for="army in armies" :key="army">{{ count(army, type) }}</td></tr>
-          <tr><th>予備兵</th><td v-for="army in armies" :key="army">{{ !gameStore.summary[army].hasFort ? '—' : secret(army) ? '？' : gameStore.summary[army].reserves }}</td></tr>
+          <tr><th>軍事費</th><td v-for="army in armies" :key="army">{{ !gameStore.summary[army].hasFort ? '—' : secret(army) ? '？' : gameStore.summary[army].reserves }}</td></tr>
           <tr><th>撃破</th><td v-for="army in armies" :key="army">{{ gameStore.summary[army].killed }}</td></tr>
           <tr><th>逃走</th><td v-for="army in armies" :key="army">{{ secret(army) ? '？' : gameStore.summary[army].deserted }}</td></tr>
         </tbody>

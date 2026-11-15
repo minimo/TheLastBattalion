@@ -13,13 +13,13 @@ import { FORT_DEPTH, FORT_WIDTH, fortFootprint, isBlockedLocal, localToGrid } fr
 import { CASTLE_ASSAULT_CELLS, CASTLE_PLAN_DEPTH as CASTLE_DEPTH, CASTLE_PLAN_WIDTH as CASTLE_WIDTH, castleCell, isCastleBlocked } from './castleLayout'
 import { findPath } from './pathfinding'
 import { TILE_PX, TILE_VARIANT } from './constants'
-import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, OUTPOST_MAX_RISE, fortVicinityOf, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
+import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, OUTPOST_MAX_RISE, fortVicinityOf, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_COST, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
 import { DIMENSIONS, m } from './dimensions'
 import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, setConstructionTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
-import { armyPool, cpuDeployment, defaultDeployment, deployLimit, DEPLOYMENT_PRESETS, normalizeDeployment, plannedCompanies, presetDeployment, UNIT_TYPES, type DeploymentPlan } from './deployment'
+import { armyBudget, cpuDeployment, defaultDeployment, deployedCost, deployedCount, deployLimit, DEPLOYMENT_PRESETS, DEPLOYMENT_SCALES, normalizeDeployment, plannedCompanies, presetDeployment, UNIT_TYPES, type DeploymentPlan } from './deployment'
 import type { BattleMode, MapType, Squad, UnitType } from '../types/game'
 
 const makeBattle = (seed: string, mode: BattleMode = 'field', mapType: MapType = mapTypeForMode(mode, 'standard'), plan?: DeploymentPlan) => {
@@ -1150,25 +1150,42 @@ describe('地形の種類', () => {
 describe('開戦時の編成', () => {
     const modes: BattleMode[] = ['field', 'siege', 'defense']
 
-    it('既定の編成なら、従来どおりの部隊と予備兵になる', () => {
+    it('既定の編成なら、従来どおりの部隊になり、残りの予算が予備になる', () => {
         const battle = makeBattle('123456', 'field', 'standard', defaultDeployment('field', 'player'))
         expect(battle.formations.player.type).toBe('line')
         expect(battle.squads.filter(sq => sq.owner === 'player')).toHaveLength(Object.values(INITIAL_SQUADS).reduce((a, b) => a + b, 0))
-        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(2500)
-        expect(battle.forts.find(f => f.owner === 'cpu')!.reserves).toBe(2500)
+        // 歩兵420 + 槍兵150×2 + 弓兵300×2 + 騎兵140×4 + 補給兵40×2 + 工兵60×3 + 偵察兵5×4 = 2,160 を予算7,000から払う。
+        expect(deployedCost(defaultDeployment('field', 'player'))).toBe(2160)
+        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(4840)
+        expect(battle.forts.find(f => f.owner === 'cpu')!.reserves).toBe(4840)
     })
 
-    it('部隊の兵種と人数・開戦時の陣を決められ、人数は予備兵から差し引かれる', () => {
+    it('部隊の兵種と人数・開戦時の陣を決められ、兵種ごとの予算が予備から差し引かれる', () => {
         const plan: DeploymentPlan = { formation: 'crane', squads: [{ type: 'cavalry', size: 50 }, { type: 'infantry', size: 100 }, { type: 'archer', size: 25 }] }
         const battle = makeBattle('123456', 'field', 'standard', plan)
         expect(battle.formations.player.type).toBe('crane')
         const squads = battle.squads.filter(sq => sq.owner === 'player')
         // 兵種の順に並べ直して布陣する。
         expect(squads.map(sq => [sq.type, sq.size, sq.count])).toEqual([['infantry', 100, 100], ['archer', 25, 25], ['cavalry', 50, 50]])
-        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(armyPool('field', 'player') - 175)
+        // 騎兵50×4 + 歩兵100×1 + 弓兵25×2
+        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(armyBudget('field', 'player') - 350)
         // 魔王軍は既定の編成のまま。
         expect(battle.formations.cpu.type).toBe('line')
-        expect(battle.forts.find(f => f.owner === 'cpu')!.reserves).toBe(2500)
+        expect(battle.forts.find(f => f.owner === 'cpu')!.reserves).toBe(4840)
+    })
+
+    it('予算を超える部隊は外れ、増援は兵種ごとの予算を予備から払う', () => {
+        // 騎兵70人の小隊は280。防衛戦の予算4,500では16小隊（4,480）まで。
+        const plan = normalizeDeployment({ formation: 'line', squads: Array.from({ length: 20 }, () => ({ type: 'cavalry' as const, size: 70 })) }, 'defense', 'player')
+        expect(plan.squads).toHaveLength(16)
+        expect(deployedCost(plan)).toBe(4480)
+        const battle = makeBattle('123456')
+        const fort = battle.forts.find(f => f.owner === 'player')!
+        const before = fort.reserves, squads = new Set(battle.squads)
+        for (let t = 0; t < 10; t += .5) updateBattle(battle, .5)
+        const added = battle.squads.filter(sq => sq.owner === 'player' && !squads.has(sq))
+        expect(added.length).toBeGreaterThan(0)
+        expect(before - fort.reserves).toBe(added.reduce((sum, sq) => sum + sq.size * UNIT_COST[sq.type], 0))
     })
 
     it('人数は範囲に収まり、布陣できる上限を超える部隊は外れる', () => {
@@ -1189,7 +1206,32 @@ describe('開戦時の編成', () => {
             expect(plan.squads.reduce((sum, sq) => sum + sq.size, 0)).toBeLessThanOrEqual(deployLimit(mode, 'player'))
             expect(new Set(plan.squads.map(sq => sq.type)).size).toBe(UNIT_TYPES.length)
         }
-        expect(presetDeployment('default', 'siege', 'player')).toEqual(defaultDeployment('siege', 'player'))
+        for (const mode of ['field', 'defense'] as const) expect(presetDeployment('default', mode, 'player')).toEqual(defaultDeployment(mode, 'player'))
+    })
+
+    it('プリセットはどれも同じ予算で組まれ、規模で布陣の予算が変わる', () => {
+        for (const mode of ['field', 'defense'] as const) {
+            const standard = deployedCost(defaultDeployment(mode, 'player'))
+            for (const preset of DEPLOYMENT_PRESETS) for (const scale of DEPLOYMENT_SCALES) {
+                const plan = presetDeployment(preset.key, mode, 'player', scale.key)
+                const target = standard * scale.factor, label = `${mode}/${preset.key}/${scale.key}`
+                expect(deployedCost(plan), label).toBeLessThanOrEqual(Math.round(target))
+                // 布陣できる人数の上限にかからなければ、狙った予算をほぼ使い切る。
+                if (deployedCount(plan) < deployLimit(mode, 'player') - 60) expect(deployedCost(plan), label).toBeGreaterThan(target * .93)
+                expect(new Set(plan.squads.map(sq => sq.type)).size, label).toBe(UNIT_TYPES.length)
+                // 規模を変えても、小隊と中隊の組み方は変わらない。
+                expect(plan.squads.map(sq => [sq.type, sq.company]), label).toEqual(presetDeployment(preset.key, mode, 'player').squads.map(sq => [sq.type, sq.company]))
+            }
+            // 安い歩兵の多い大軍は人数が多く、高い騎兵の多い編成は少ない。
+            expect(deployedCount(presetDeployment('horde', mode, 'player'))).toBeGreaterThan(deployedCount(presetDeployment('default', mode, 'player')) * 1.2)
+            expect(deployedCount(presetDeployment('cavalry', mode, 'player'))).toBeLessThan(deployedCount(presetDeployment('default', mode, 'player')))
+        }
+        // 増援のない攻め手は、どのプリセットも予算のほとんどを布陣に使う（人数の上限にかかる大軍を除く）。
+        for (const preset of DEPLOYMENT_PRESETS) {
+            const plan = presetDeployment(preset.key, 'siege', 'player')
+            expect(deployedCost(plan), preset.key).toBeLessThanOrEqual(armyBudget('siege', 'player'))
+            if (deployedCount(plan) < deployLimit('siege', 'player') - 60) expect(deployedCost(plan), preset.key).toBeGreaterThan(armyBudget('siege', 'player') * .93)
+        }
     })
 
     it('開戦前に編成し直すと、人間軍だけが布陣し直し、予備兵も変わる', () => {
@@ -1201,13 +1243,13 @@ describe('開戦時の編成', () => {
         expect(battle.soldiers.filter(s => s.owner === 'player')).toHaveLength(120)
         expect(battle.soldiers.filter(s => s.owner === 'cpu')).toEqual(cpuSoldiers)
         expect(battle.formations.player.type).toBe('scale')
-        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(armyPool('field', 'player') - 120)
+        expect(battle.forts.find(f => f.owner === 'player')!.reserves).toBe(armyBudget('field', 'player') - 240)
         updateBattle(battle, .1)
         expect(battle.squads.filter(sq => sq.owner === 'player').every(sq => sq.count === sq.size)).toBe(true)
     })
 
     it('攻城戦の人間軍は2,500人まで布陣できる', () => {
-        expect(armyPool('siege', 'player')).toBe(2500)
+        expect(armyBudget('siege', 'player')).toBe(4500)
         expect(deployLimit('siege', 'player')).toBe(2500)
         const plan: DeploymentPlan = { formation: 'line', squads: [...Array.from({ length: 20 }, () => ({ type: 'infantry' as const, size: 100 })), ...Array.from({ length: 5 }, () => ({ type: 'pikeman' as const, size: 100 }))] }
         expect(normalizeDeployment(plan, 'siege', 'player').squads).toHaveLength(25)
