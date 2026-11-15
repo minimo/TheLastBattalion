@@ -1,7 +1,7 @@
 import {
     companyPosition, companySquads, enemyOf, orderCompany, orderCompanyAttack, orderCompanyMove, orderHold, orderMove, orderResupply, orderSupport, squadPosition, type Battle,
 } from './battle'
-import { createEngineerDirector, directRepairs } from './engineers'
+import { createEngineerDirector, directRepairs, WIDE_OUTPOST_SEARCH } from './engineers'
 import { isSupportType, squadBlock, toWorld } from './formation'
 import { UNIT_STATS, UNIT_VISION } from './battleConfig'
 import { knownSquadPosition, seenEnemySquads, visionRangeAt } from './vision'
@@ -98,8 +98,7 @@ export function createGuidelineDirector(battle: Battle, owner: Army = 'player', 
     const standing = new WeakSet<Guidance>()
     /** 遊撃・偵察で、下がって立て直す目安にする兵の数（最後に立て直した時の数）。 */
     const strength = new WeakMap<Guidance, number>()
-    // 前線の目安の周りに建てる場所がなければ（川や山など）、手前・先と左右にも広く探す。
-    const fortify = createEngineerDirector(battle, owner, { reaches: [.45, .38, .52, .58, .31], laterals: [0, 40, -40, 80, -80, 120, -120, 160, -160, 200, -200] })
+    const fortify = createEngineerDirector(battle, owner, WIDE_OUTPOST_SEARCH)
 
     /** 見えている敵の小隊（視界の外の敵は判断に使わない）。 */
     const enemies = () => seenEnemySquads(battle, owner)

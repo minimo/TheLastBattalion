@@ -15,6 +15,7 @@ import { findPath } from './pathfinding'
 import { TILE_PX, TILE_VARIANT } from './constants'
 import { ARROWS_PER_ARCHER, COMPANY, CONSTRUCTION, FORT_REFILL_RANGE, OUTPOST_MAX_RISE, fortVicinityOf, INITIAL_SQUADS, PIKEMAN, SHIELD, SIEGE_ATTACKER_SQUADS, STAMINA, SUPPLY_CHARGES, UNIT_STATS } from './battleConfig'
 import { TILE } from './constants'
+import { DIMENSIONS, m } from './dimensions'
 import { getCellHeight, getPlayableTile, PLAYABLE_GRID_MAX, PLAYABLE_GRID_MIN, setConstructionTile } from './playableArea'
 import { getTerrainSpeedMultiplier, getTileCost, WATER_SPEED } from './terrain'
 import { MAP_TYPES, mapTypeForMode, mapTypeOf } from './mapType'
@@ -43,6 +44,29 @@ const routeIsClear = (battle: ReturnType<typeof makeBattle>, path: { x: number; 
     for (let k = 0; k <= steps; k++) if (isBlocked(battle.grid, a.x + (b.x - a.x) * k / steps, a.y + (b.y - a.y) * k / steps)) return false
     return true
 })
+
+/**
+ * from にいちばん近い、拠点を建てられる地点。工兵のすぐ前が山や川のこともあるので、決まった向きには置かず近い順に探す。
+ */
+const outpostSpot = (battle: ReturnType<typeof makeBattle>, from: { x: number; y: number }) => {
+    for (let radius = 60; radius <= 800; radius += 20) for (let k = 0; k < 16; k++) {
+        const point = { x: from.x + Math.cos(k * Math.PI / 8) * radius, y: from.y + Math.sin(k * Math.PI / 8) * radius }
+        if (previewConstruction(battle, 'player', 'outpost', point).valid) return point
+    }
+    throw new Error('拠点を建てられる地点がない')
+}
+
+/** from にいちばん近い、橋を架けられる川の地点。 */
+const riverSpot = (battle: ReturnType<typeof makeBattle>, from: { x: number; y: number }) => {
+    let best: { x: number; y: number } | undefined, bestDistance = Infinity
+    for (let gy = PLAYABLE_GRID_MIN; gy <= PLAYABLE_GRID_MAX; gy++) for (let gx = PLAYABLE_GRID_MIN; gx <= PLAYABLE_GRID_MAX; gx++) {
+        const point = { x: gx * TILE_PX, y: gy * TILE_PX }, distance = Math.hypot(point.x - from.x, point.y - from.y)
+        if (distance >= bestDistance || getPlayableTile(battle.grid, gx, gy) !== TILE.WATER) continue
+        if (previewConstruction(battle, 'player', 'bridge', point).valid) { best = point; bestDistance = distance }
+    }
+    if (!best) throw new Error('橋を架けられる川がない')
+    return best
+}
 
 describe('砦の配置', () => {
     it('砦の中の通れるマスはすべて正門につながっている', () => {
@@ -107,8 +131,10 @@ describe('戦闘', () => {
             const battle = makeBattle(seed)
             const [human, monster] = battle.forts
             expect(human!.owner).toBe('player')
-            expect(human!.x).toBeLessThan(monster!.x - 600)
-            expect(Math.hypot(monster!.x - human!.x, monster!.y - human!.y)).toBeLessThan(1350)
+            // 陣地の中心どうしは DIMENSIONS.campDistance を目安に置く。地形が悪ければ後ろや横へずらすので、目安の1.4倍までを許す。
+            const target = m(DIMENSIONS.campDistance)
+            expect(human!.x).toBeLessThan(monster!.x - target * .6)
+            expect(Math.hypot(monster!.x - human!.x, monster!.y - human!.y)).toBeLessThan(target * 1.4)
             for (const fort of battle.forts) {
                 for (const p of fort.assaultPoints) expect(isBlocked(battle.grid, p.x, p.y)).toBe(false)
                 const wall = localToGrid(fort, 0, 3)
@@ -681,12 +707,12 @@ describe('工兵の建設物', () => {
     }, 240000)
 
     it('工兵が川に橋を架けると速く渡れるようになり、壊れると橋の上の兵は川に落ちる', () => {
-        const battle = makeBattle('777777')
+        const battle = makeBattle('123456')
         orderArmy(battle, 'cpu', 'hold')
         const [first, second] = engineers(battle)
         run(battle, .1)
         for (const squad of [first!, second!]) leaveCompany(battle, squad)
-        const river = { x: 96, y: 592 }
+        const river = riverSpot(battle, first!.center)
         expect(getPlayableTile(battle.grid, Math.round(river.x / TILE_PX), Math.round(river.y / TILE_PX))).toBe(TILE.WATER)
         expect(orderConstruct(battle, first!.id, 'bridge', river)).toBe(true)
         const site = battle.constructions[0]!
@@ -737,7 +763,7 @@ describe('工兵の建設物', () => {
             run(battle, .1)
             for (const squad of [builder!, ...others]) leaveCompany(battle, squad)
             for (const squad of others) orderMove(battle, squad.id, squad.center)
-            const point = { x: builder!.center.x + 60, y: builder!.center.y + 40 }
+            const point = outpostSpot(battle, builder!.center)
             expect(orderConstruct(battle, builder!.id, 'outpost', point)).toBe(true)
             return { battle, builder: builder!, site: battle.constructions[0]! }
         }
@@ -781,13 +807,13 @@ describe('工兵の建設物', () => {
     })
 
     it('拠点は時間をかけて建ち、完成すると補給に戻る部隊が拠点で補給する', () => {
-        const battle = makeBattle('777777')
+        const battle = makeBattle('123456')
         orderArmy(battle, 'cpu', 'hold')
         const [first, second] = engineers(battle)
         run(battle, .1)
         for (const squad of [first!, second!]) leaveCompany(battle, squad)
         // 工兵のすぐ前は山のふもとなので、少し南の平地に建てる
-        const point = { x: first!.center.x + 60, y: first!.center.y + 40 }
+        const point = outpostSpot(battle, first!.center)
         const plan = previewConstruction(battle, 'player', 'outpost', point)
         expect(plan.valid).toBe(true)
         // 拠点は5×5マス（砦の12×16マスより小さい）。外周の柵に四方の門がある
@@ -826,12 +852,12 @@ describe('工兵の建設物', () => {
     }, 240000)
 
     it('敵の工兵がいない拠点は、工兵が占領して自軍の拠点にできる', () => {
-        const battle = makeBattle('777777')
+        const battle = makeBattle('123456')
         orderArmy(battle, 'cpu', 'hold')
         const [first] = engineers(battle)
         run(battle, .1)
         leaveCompany(battle, first!)
-        const point = { x: first!.center.x + 60, y: first!.center.y + 40 }
+        const point = outpostSpot(battle, first!.center)
         expect(orderConstruct(battle, first!.id, 'outpost', point)).toBe(true)
         const site = battle.constructions[0]!
         // 建設は別の試験で見るので、仕上げだけを工兵にさせる
@@ -880,6 +906,7 @@ describe('工兵の建設物', () => {
         site.progress = .999
         for (let t = 0; t < 60 && !site.complete; t += 1) run(battle, 1)
         expect(site.complete).toBe(true)
+        site.maxHp = site.hp = 1e9
         // 解体の途中で増援に倒されて人数が変わらないよう、砦の予備兵もなくしておく
         for (const fort of battle.forts) if (fort.owner === 'player') fort.reserves = 0
         for (const s of battle.soldiers) if (s.owner === 'player') { s.state = 'dead'; s.deathTime = battle.time }
@@ -909,9 +936,9 @@ describe('工兵の建設物', () => {
         const [engineer] = engineers(battle)
         const home = battle.forts.find(f => f.owner === 'player')!
         expect(previewConstruction(battle, 'player', 'outpost', home).valid).toBe(false)
-        expect(previewConstruction(battle, 'player', 'outpost', { x: 96, y: 592 }).valid).toBe(false)
+        expect(previewConstruction(battle, 'player', 'outpost', riverSpot(battle, engineer!.center)).valid).toBe(false)
         expect(previewConstruction(battle, 'player', 'bridge', { x: engineer!.center.x, y: engineer!.center.y }).valid).toBe(false)
-        const point = { x: engineer!.center.x + 60, y: engineer!.center.y + 40 }
+        const point = outpostSpot(battle, engineer!.center)
         expect(orderConstruct(battle, engineer!.id, 'outpost', point)).toBe(true)
         expect(previewConstruction(battle, 'player', 'barricade', point).valid).toBe(false)
     })
@@ -937,11 +964,11 @@ describe('工兵の建設物', () => {
     })
 
     it('魔王軍の工兵は、近くの人間軍の工兵がいない拠点を占領しに行く', () => {
-        const battle = makeBattle('777777')
+        const battle = makeBattle('123456')
         const [engineer] = engineers(battle)
         run(battle, .1)
         leaveCompany(battle, engineer!)
-        const point = { x: engineer!.center.x + 60, y: engineer!.center.y + 40 }
+        const point = outpostSpot(battle, engineer!.center)
         expect(orderConstruct(battle, engineer!.id, 'outpost', point)).toBe(true)
         const site = battle.constructions[0]!
         site.progress = .999
@@ -951,7 +978,8 @@ describe('工兵の建設物', () => {
         const enemy = battle.squads.find(sq => sq.owner === 'cpu' && sq.type === 'engineer')!
         leaveCompany(battle, enemy)
         battle.members.get(enemy.id)!.forEach((s, i) => { s.x = site.center.x + 120 + (i % 6) * 5; s.y = site.center.y + Math.floor(i / 6) * 5 - 10 })
-        run(battle, .1)
+        // 視界が計算し直されて、魔王軍が拠点を見つけるまで待つ
+        run(battle, .5)
         const commander = createCpuCommander(battle)
         commander.update(1 / 30)
         expect(enemy.order).toBe('occupy')
@@ -1035,11 +1063,18 @@ describe('川', () => {
         leaveCompany(battle, squad)
         for (const s of battle.soldiers) if (s.owner === 'player' && s.squadId !== squad.id) { s.state = 'dead'; s.deathTime = battle.time }
         run(battle, .2)
-        const enemy = battle.homes.cpu, length = Math.hypot(enemy.x - squad.center.x, enemy.y - squad.center.y)
-        orderMove(battle, squad.id, { x: squad.center.x + (enemy.x - squad.center.x) / length * 400, y: squad.center.y + (enemy.y - squad.center.y) / length * 400 })
-        run(battle, 10)
+        // いちばん近い川を、橋を架けられる岸から岸へまっすぐ横切らせる（川の中で向きを変えると、外側の兵を待って隊列が緩む）。
+        const ends = previewConstruction(battle, 'player', 'bridge', riverSpot(battle, squad.center)).ends as [{ x: number; y: number }, { x: number; y: number }]
+        const [near, far] = ends.sort((p, q) => Math.hypot(p.x - squad.center.x, p.y - squad.center.y) - Math.hypot(q.x - squad.center.x, q.y - squad.center.y))
+        const span = Math.hypot(far.x - near.x, far.y - near.y), ux = (far.x - near.x) / span, uy = (far.y - near.y) / span
+        const start = { x: near.x - ux * 80, y: near.y - uy * 80 }, goal = { x: far.x + ux * 120, y: far.y + uy * 120 }
+        orderMove(battle, squad.id, start)
+        for (let t = 0; t < 240 && squad.march?.moving !== false; t += 1) run(battle, 1)
+        expect(Math.hypot(squad.march!.x - start.x, squad.march!.y - start.y)).toBeLessThan(60)
+        orderMove(battle, squad.id, goal)
+        run(battle, 5)
         let slowest = Infinity, waded = false
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 40 && squad.march!.moving && Math.hypot(squad.march!.x - goal.x, squad.march!.y - goal.y) > 40; i++) {
             const { x, y } = squad.march!
             run(battle, 5)
             slowest = Math.min(slowest, Math.hypot(squad.march!.x - x, squad.march!.y - y) / 5)
@@ -1054,7 +1089,7 @@ describe('川', () => {
         const battle = makeBattle('777777')
         orderArmy(battle, 'cpu', 'hold')
         run(battle, .1)
-        const river = { x: 96, y: 592 }
+        const river = riverSpot(battle, battle.homes.player)
         expect(getPlayableTile(battle.grid, Math.round(river.x / TILE_PX), Math.round(river.y / TILE_PX))).toBe(TILE.WATER)
         for (const type of ['infantry', 'archer', 'supply', 'engineer'] as const) expect(getTerrainSpeedMultiplier(battle.grid, river.x, river.y, type)).toBe(.2)
         expect(getTerrainSpeedMultiplier(battle.grid, river.x, river.y, 'cavalry')).toBe(.5)
@@ -1064,7 +1099,9 @@ describe('川', () => {
         const crossTime = (type: UnitType) => {
             const squad = battle.squads.find(sq => sq.owner === 'player' && sq.type === type)!
             leaveCompany(battle, squad)
-            battle.members.get(squad.id)!.forEach((s, i) => { s.x = a.x + (i % 4) * 4 - 6; s.y = a.y + Math.floor(i / 4) * 4 - 6 })
+            // 川幅が狭いので、隊列が向こう岸へはみ出さないよう、手前の岸から少し下がった所に小さくまとめて置く。
+            const span = Math.hypot(a.x - b.x, a.y - b.y), start = { x: a.x + (a.x - b.x) / span * 20, y: a.y + (a.y - b.y) / span * 20 }
+            battle.members.get(squad.id)!.forEach((s, i) => { s.x = start.x + (i % 8 - 3.5) * 3; s.y = start.y + (Math.floor(i / 8) - 4) * 3 })
             run(battle, .1)
             orderMove(battle, squad.id, b)
             let t = 0

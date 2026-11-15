@@ -1,5 +1,5 @@
 import { orderArmy, orderAttack, orderCharge, orderFormation, orderRetreat, type Battle } from './battle'
-import { createEngineerDirector } from './engineers'
+import { createEngineerDirector, WIDE_OUTPOST_SEARCH } from './engineers'
 import { isSupportType } from './formation'
 import { createGuidelineDirector } from './squadGuidelines'
 import { knownSquadPosition, seenEnemySquads } from './vision'
@@ -24,7 +24,7 @@ export function createCpuCommander(battle: Battle) {
     let timer = 0
     const holdSince = new Map<number, number>()
 
-    const directEngineers = createEngineerDirector(battle, 'cpu')
+    const directEngineers = createEngineerDirector(battle, 'cpu', WIDE_OUTPOST_SEARCH)
     const scouts = createGuidelineDirector(battle, 'cpu', true)
     /** 砦と陣に近い敵部隊へ、近い部隊から向かわせる。遠くまで追った部隊は陣に戻す。 */
     const defend = () => {

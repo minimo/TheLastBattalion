@@ -73,7 +73,8 @@ describe('行動に沿って動く', () => {
         run(battle, 12, director)
         expect(director.awake).toBe(false)
         expect(first!.guidance.directive).toBe('none')
-        expect(companySquads(battle, first!.id).every(sq => sq.order === 'attack')).toBe(true)
+        // 攻勢は見えている敵の中隊を攻撃し、見えなければ敵本陣へ突撃する（開戦直後は敵が遠くて見えない）。
+        expect(companySquads(battle, first!.id).every(sq => sq.order === 'attack' || sq.order === 'charge')).toBe(true)
         expect(companySquads(battle, second!.id).every(sq => sq.order === 'formation')).toBe(true)
     }, 120000)
 
