@@ -1,4 +1,4 @@
-import { m } from './dimensions'
+import { DIMENSIONS, m } from './dimensions'
 import type { Army, ConstructionKind, FortKind, UnitType } from '../types/game'
 
 export interface UnitStats {
@@ -117,8 +117,8 @@ export const SIEGE_ATTACKER_POOL = 2500
 export const SIEGE_ATTACKER_BUDGET = 4500
 export const SIEGE_DEFENDER_BUDGET = 4500
 /** 攻城戦・防衛戦で、攻め手が布陣する敵の砦の前面の柵からの距離（px）と、野営地（退却・補給の先）の陣からの後退距離。 */
-export const SIEGE_DEPLOY_DISTANCE = 520
-export const SIEGE_CAMP_BACK = 120
+export const SIEGE_DEPLOY_DISTANCE = m(DIMENSIONS.siegeDeploy)
+export const SIEGE_CAMP_BACK = m(DIMENSIONS.siegeCampBack)
 /** 片軍の同時存在上限。 */
 export const ARMY_CAP = 1600
 /** 増援の間隔（秒）。1回に1部隊が砦から出撃する。 */

@@ -1,4 +1,5 @@
 import { TILE, TILE_PX, TILE_VARIANT } from './constants'
+import { DIMENSIONS, m } from './dimensions'
 import { getTimeDecayMultiplier, getTimeSpeedMultiplier } from './daynight'
 import { createWeatherState, updateWeather } from './weather'
 import { getTerrainSpeedMultiplier, getTileCost, isMounted, mobilityOf } from './terrain'
@@ -145,7 +146,7 @@ const fortOf = (battle: Battle, owner: Army): Fort | undefined => battle.forts.f
 /** 砦の前面（+1: +X方向）の向き。 */
 const frontFacing = (front: 1 | -1) => front === 1 ? Math.PI / 2 : -Math.PI / 2
 /** 開戦時の陣の基準の位置（砦の正門前）。 */
-const fortGateAnchor = (fort: Fort): Point => ({ x: localToWorld(fort, fortDims(fort.kind).depth - 1, 0).x + fort.front * 190, y: fort.y })
+const fortGateAnchor = (fort: Fort): Point => ({ x: localToWorld(fort, fortDims(fort.kind).depth - 1, 0).x + fort.front * m(DIMENSIONS.gateDeploy), y: fort.y })
 /** 砦の敷地の前の端のX座標。 */
 const fortFrontEdge = (fort: Fort) => { const area = fortFootprint(fort); return fort.front === 1 ? area.maxX : area.minX }
 
@@ -160,14 +161,14 @@ function deploySiege(battle: Battle, fort: Fort) {
     const reachable = reachableCells(battle, gate)
     const reach = (p: Point) => reachable.has(`${Math.round(p.x / TILE_PX)},${Math.round(p.y / TILE_PX)}`)
     let best = { x: wallX + fort.front * SIEGE_DEPLOY_DISTANCE, y: fort.y }, bestScore = Infinity
-    for (let forward = SIEGE_DEPLOY_DISTANCE - 120; forward <= SIEGE_DEPLOY_DISTANCE + 120; forward += 40) {
-        for (let lateral = -240; lateral <= 240; lateral += 60) {
+    for (let forward = SIEGE_DEPLOY_DISTANCE - m(60); forward <= SIEGE_DEPLOY_DISTANCE + m(60); forward += m(10)) {
+        for (let lateral = -m(120); lateral <= m(120); lateral += m(15)) {
             const p = { x: wallX + fort.front * forward, y: fort.y + lateral }
             if (p.x < BATTLEFIELD_MIN + 120 || p.x > BATTLEFIELD_MAX - 120 || p.y < BATTLEFIELD_MIN + 120 || p.y > BATTLEFIELD_MAX - 120 || !reach(p)) continue
             // 陣を敷く広さ（前後・左右）に川や崖が少なく、予定の距離に近く、砦の正面に近いほどよい。
             let rough = 0
             for (let dy = -150; dy <= 150; dy += 25) for (let dx = -80; dx <= 80; dx += 20) if (!reach({ x: p.x + dx, y: p.y + dy })) rough++
-            const score = rough + Math.abs(forward - SIEGE_DEPLOY_DISTANCE) / 40 + Math.abs(lateral) / 60
+            const score = rough + Math.abs(forward - SIEGE_DEPLOY_DISTANCE) / m(10) + Math.abs(lateral) / m(15)
             if (score < bestScore) { bestScore = score; best = p }
         }
     }

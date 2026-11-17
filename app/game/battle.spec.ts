@@ -1007,8 +1007,8 @@ describe('攻城戦・防衛戦', () => {
                 for (const p of fort.assaultPoints) expect(isBlocked(battle.grid, p.x, p.y)).toBe(false)
                 const anchor = battle.formations[attacker].anchor
                 const distance = Math.hypot(anchor.x - fort.x, anchor.y - fort.y)
-                expect(distance).toBeGreaterThan(550)
-                expect(distance).toBeLessThan(1000)
+                expect(distance).toBeGreaterThan(m(DIMENSIONS.siegeDeploy))
+                expect(distance).toBeLessThan(m(DIMENSIONS.siegeDeploy + 300))
                 // 攻め手は砦の方を向く。
                 expect(Math.sign(Math.sin(battle.formations[attacker].facing))).toBe(-fort.front)
                 const total = (Object.keys(SIEGE_ATTACKER_SQUADS) as UnitType[]).reduce((sum, type) => sum + SIEGE_ATTACKER_SQUADS[type] * SQUAD_SIZE[type], 0)

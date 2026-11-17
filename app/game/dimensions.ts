@@ -25,7 +25,12 @@ export const DIMENSIONS = {
     /** 戦場（両軍の砦を東西の端に置く範囲）の一辺と、その外で部隊が動ける幅。 */
     battlefield: 1050,
     /** 攻防戦で、両軍の陣地の中心どうしの距離。 */
-    campDistance: 550,
+    campDistance: 700,
+    /** 開戦時に、陣を砦の正門の柵からこれだけ前に敷く。 */
+    gateDeploy: 80,
+    /** 攻城戦・防衛戦で、攻め手が布陣する城の正門の柵からの距離と、野営地（退却・補給の先）の陣からの後退距離。 */
+    siegeDeploy: 400,
+    siegeCampBack: 60,
     playableMargin: 180,
     /** 部隊が動ける範囲の外に、遠景の地形を続ける幅。 */
     landscapeMargin: 266,
